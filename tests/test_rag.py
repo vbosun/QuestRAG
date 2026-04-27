@@ -1,13 +1,20 @@
-# test_my_math.py
 import pytest
-from my_math import add, divide
+
+from quest_rag.rag.embedding import add_documents
+from quest_rag.rag.generator import generate
+from quest_rag.rag.loader import load_file
 
 
-def test_add():
-    assert add(2, 3) == 5
-    assert add(-1, 1) == 0
+def test_load_file(tmp_path):
+    txt_file = tmp_path / "sample.txt"
+    txt_file.write_text("姓名:张三, 性别:男, 职业:程序员, 年龄:99")
 
-def test_divide():
-    assert divide(10, 2) == 5
-    with pytest.raises(ValueError):
-        divide(10, 0)
+    docs = load_file(str(txt_file))
+    assert len(docs) == 1
+    assert "姓名" in docs[0].page_content
+
+def test_add_documents(tmp_path):
+    txt_file = tmp_path / "sample.txt"
+    txt_file.write_text("姓名:张三, 性别:男, 职业:程序员, 年龄:99")
+    # todo
+

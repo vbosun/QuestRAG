@@ -2,12 +2,12 @@
 生成回复
 """
 
-from config.config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
 from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import SecretStr
 
+from quest_rag.config.config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
 from quest_rag.rag.tools import tools
 
 SYSTEM_PROMPT = """
@@ -24,13 +24,13 @@ llm = ChatOpenAI(
 )
 
 
-agent = create_agent(
+_agent = create_agent(
     model=llm, system_prompt=SYSTEM_PROMPT, tools=tools, checkpointer=checkpointer
 )
 
 
 def generate(question: str) -> str:
-    result = agent.invoke(
+    result = _agent.invoke(
         {"messages": [{"role": "user", "content": question}]},
         {"configurable": {"thread_id": "1"}},
     )
