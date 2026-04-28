@@ -82,7 +82,7 @@ def doclist():
 @router.post("/deletedoc", response_model=CommonResponse)
 def deletedoc(doc_info:DocInfo):
     """删除指定文档"""
-    if not doc_info or doc_info.id:
+    if not (doc_info and doc_info.id):
         raise HTTPException(status_code=500, detail="无效的文档ID")
 
     doc_meta = get_doc_by_id(doc_info.id)
