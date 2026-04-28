@@ -19,21 +19,14 @@ class ChatResponse(BaseModel):
     answer: str
     sources: list[dict] | None
 
-class DocumentInfo(BaseModel):
-    id: str                     # 文档的唯一标识（如文件名或UUID）
-    source: str                 # 原始文件路径或名称
-    chunk_count: int            # 切分后的块数
-    uploaded_at: datetime       # 上传时间
-
 class UploadResponse(BaseModel):
     success: bool
     doc_id: str
     chunk_count: int
     message: str
 
-class DocumentListResponse(BaseModel):
-    total: int
-    documents: list[DocumentInfo]
+class DocInfo(BaseModel):
+    id: str
 
 
 class DocMetadata(BaseModel):

@@ -1,4 +1,5 @@
 
+from quest_rag.rag.embedding import delete_documents
 from quest_rag.schemas.schemas import DocMetadata
 
 _doc_store: dict[str, DocMetadata] = {}
@@ -12,11 +13,12 @@ def get_all_docs() -> list[DocMetadata]:
 
 def get_doc_by_id(doc_id: str) -> DocMetadata | None:
     return _doc_store.get(doc_id)
-def get_doc_by_name(doc_name: str) -> list[DocMetadata] | None:
+def get_doc_by_name(doc_name: str) -> list[DocMetadata]:
     return [doc for doc in _doc_store.values()
             if doc_name in doc.filename.lower()]
 def delete_doc_metadata(doc_id: str) -> bool:
     if doc_id in _doc_store:
         del _doc_store[doc_id]
+        delete_documents(doc_id)
         return True
     return False

@@ -15,7 +15,7 @@ from quest_rag.rag.storage import (
     get_all_docs,
     get_doc_by_id,
 )
-from quest_rag.schemas.schemas import CommonResponse, DocMetadata, UploadResponse
+from quest_rag.schemas.schemas import CommonResponse, DocInfo, DocMetadata, UploadResponse
 
 router = APIRouter(prefix="/documents", tags=["DOCUMENT"])
 
@@ -80,16 +80,16 @@ def doclist():
     return get_all_docs()
 
 @router.post("/deletedoc", response_model=CommonResponse)
-def deletedoc(doc_id:str):
+def deletedoc(doc_info:DocInfo):
     """删除指定文档"""
-    if not doc_id:
+    if not doc_info or doc_info.id:
         raise HTTPException(status_code=500, detail="无效的文档ID")
 
-    doc_meta = get_doc_by_id(doc_id)
+    doc_meta = get_doc_by_id(doc_info.id)
     if doc_meta:
-        delete_doc_metadata(doc_id)
+        delete_doc_metadata(doc_info.id)
     return CommonResponse(
-        success=True,message=f"删除成功:{doc_id}"
+        success=True,message=f"删除成功:{doc_info.id}"
     )
 
 

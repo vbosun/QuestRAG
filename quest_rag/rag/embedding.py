@@ -23,3 +23,10 @@ def add_documents(docs:list[Document]) -> list[str]:
     if not docs:
         return []
     return vector_store.add_documents(docs)
+
+def delete_documents(doc_id:str):
+    ids_to_delete = [
+        id for id, doc in vector_store.store.items()
+        if doc["metadata"]["doc_id"] == doc_id
+    ]
+    vector_store.delete(ids_to_delete)
