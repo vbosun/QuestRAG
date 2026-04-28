@@ -16,12 +16,11 @@ def load_file(file_path:str, file_type: str = "auto") -> list[Document]:
 
     if file_type == "auto":
         file_type = file_path.rsplit(".", -1)[-1].lower()
-    
     loader_cls = loaders.get(file_type)
     if not loader_cls:
         raise ValueError(f"不支持的文件类型: {file_type}")
     loader = loader_cls(file_path)
-    return loader.load();
+    return loader.load()
 
 
 

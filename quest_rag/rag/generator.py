@@ -29,10 +29,17 @@ _agent = create_agent(
 )
 
 
-def generate(question: str) -> str:
+def generate(question: str, thread_id:str='1') -> str:
     result = _agent.invoke(
         {"messages": [{"role": "user", "content": question}]},
-        {"configurable": {"thread_id": "1"}},
+        {"configurable": {"thread_id": thread_id}},
     )
 
     return result["messages"][-1].content
+
+def history(thread_id:str):
+    state_snapshot = _agent.get_state({"configurable": {"thread_id": thread_id}})
+    formatted_messages = [
+    f"[{msg.type}]: {msg.content}" for msg in state_snapshot.values["messages"]
+]
+    return formatted_messages
