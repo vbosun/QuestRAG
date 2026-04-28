@@ -1,7 +1,8 @@
-from rag.embedding import add_documents
-from rag.generator import generate
-from rag.loader import load_file
-from rag.splitter import split_docs
+from quest_rag.rag.embedding import add_documents
+from quest_rag.rag.generator import generate
+from quest_rag.rag.loader import load_file
+from quest_rag.rag.retriever import search
+from quest_rag.rag.splitter import split_docs
 
 
 def chat_loop():
@@ -20,4 +21,11 @@ def chat_loop():
 
 if __name__ == "__main__":
     chat_loop()
+
+    # docs = load_file("D:/MyDownload/流动人员人事档案调函20260326144941.pdf")
+    # docs = split_docs(docs)
+    # add_documents(docs)
+    # results = search("张三")
+    # print(results)
+
 

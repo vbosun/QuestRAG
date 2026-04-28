@@ -6,7 +6,6 @@ def split_docs(docs:list[Document], chunk_size=50, chunk_overlap=20) -> list[Doc
     ''' 分割加载的文档 '''
     if not docs or len(docs)==0:
         return []
-    
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size, chunk_overlap=chunk_overlap, add_start_index=True
     )
