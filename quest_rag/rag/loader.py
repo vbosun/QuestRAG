@@ -19,7 +19,7 @@ def load_file(file_path:str, file_type: str = "auto") -> list[Document]:
     loader_cls = loaders.get(file_type)
     if not loader_cls:
         raise ValueError(f"不支持的文件类型: {file_type}")
-    loader = loader_cls(file_path)
+    loader = loader_cls(file_path,"UTF-8")
     return loader.load()
 
 

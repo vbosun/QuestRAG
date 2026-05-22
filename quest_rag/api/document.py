@@ -15,7 +15,12 @@ from quest_rag.rag.storage import (
     get_all_docs,
     get_doc_by_id,
 )
-from quest_rag.schemas.schemas import CommonResponse, DocInfo, DocMetadata, UploadResponse
+from quest_rag.schemas.schemas import (
+    CommonResponse,
+    DocInfo,
+    DocMetadata,
+    UploadResponse,
+)
 
 router = APIRouter(prefix="/documents", tags=["DOCUMENT"])
 
