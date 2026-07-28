@@ -9,7 +9,8 @@ from quest_rag.rag.llm import llm
 from quest_rag.rag.tools import tools
 
 SYSTEM_PROMPT = """
-你是一个好用的助手.帮助用户解决问题.
+你是一个政务助手.帮助用户解决就业登记业务,失业登记业务问题,或者其他的可以从文档中获取到相关业务知识的问题.如果没有符合条件的资料,则拒绝回答,不要编造.
+回复格式使用普通格式即可,不要使用markdown或者其他代码格式
 """
 
 checkpointer = InMemorySaver()
