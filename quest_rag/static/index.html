@@ -22,6 +22,25 @@
         <button class="new-session" id="newSessionButton" type="button">+ 新会话</button>
 
         <div class="session-list" id="sessionList" aria-label="会话列表"></div>
+
+        <section class="knowledge-panel" aria-label="知识库管理">
+          <div class="knowledge-header">
+            <div>
+              <h2>知识库</h2>
+              <p id="knowledgeMeta">正在读取文档</p>
+            </div>
+            <button class="icon-button" id="refreshDocumentsButton" type="button" title="刷新文档">
+              ↻
+            </button>
+          </div>
+          <div class="knowledge-actions">
+            <label class="knowledge-upload" for="fileInput">
+              <input id="fileInput" type="file" accept=".txt,.pdf,.md" />
+              上传文档
+            </label>
+          </div>
+          <div class="document-list" id="documentList" aria-label="文档列表"></div>
+        </section>
       </aside>
 
       <main class="chat-panel">
@@ -29,12 +48,6 @@
           <div>
             <h2 id="sessionTitle">新会话</h2>
             <p id="sessionMeta">上传文档后，直接围绕资料提问。</p>
-          </div>
-          <div class="header-actions">
-            <label class="upload-button" for="fileInput">
-              <input id="fileInput" type="file" accept=".txt,.pdf,.md" />
-              上传文件
-            </label>
           </div>
         </header>
 

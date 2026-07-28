@@ -10,10 +10,15 @@ const messageInput = document.querySelector("#messageInput");
 const sendButton = document.querySelector("#sendButton");
 const fileInput = document.querySelector("#fileInput");
 const uploadStatus = document.querySelector("#uploadStatus");
+const refreshDocumentsButton = document.querySelector("#refreshDocumentsButton");
+const knowledgeMeta = document.querySelector("#knowledgeMeta");
+const documentList = document.querySelector("#documentList");
 
 let sessions = loadSessions();
 let activeSessionId = sessions[0]?.id;
 let sending = false;
+let documents = [];
+let loadingDocuments = false;
 
 if (!activeSessionId) {
   createSession();
@@ -23,6 +28,10 @@ if (!activeSessionId) {
 
 newSessionButton.addEventListener("click", () => {
   createSession();
+});
+
+refreshDocumentsButton.addEventListener("click", () => {
+  loadDocuments();
 });
 
 chatForm.addEventListener("submit", async (event) => {
@@ -70,6 +79,7 @@ fileInput.addEventListener("change", async () => {
     saveSessions();
     render();
     setUploadStatus(`${file.name} 上传完成，已索引 ${data.chunk_count} 个片段。`);
+    await loadDocuments();
   } catch (error) {
     setUploadStatus(error.message || "上传失败", true);
   } finally {
@@ -174,6 +184,7 @@ function render() {
 
   renderSessions();
   renderMessages(session);
+  renderDocuments();
   sendButton.disabled = sending;
   sendButton.textContent = sending ? "生成中" : "发送";
 }
@@ -243,6 +254,104 @@ function renderMessages(session) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+async function loadDocuments() {
+  loadingDocuments = true;
+  renderDocuments();
+
+  try {
+    const response = await fetch("/documents/doclist", {
+      method: "POST",
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      throw new Error(formatErrorDetail(data.detail) || "读取文档失败");
+    }
+    documents = Array.isArray(data) ? data : [];
+  } catch (error) {
+    documents = [];
+    knowledgeMeta.textContent = error.message || "读取文档失败";
+    knowledgeMeta.classList.add("error-text");
+  } finally {
+    loadingDocuments = false;
+    renderDocuments();
+  }
+}
+
+function renderDocuments() {
+  if (loadingDocuments) {
+    knowledgeMeta.textContent = "正在读取文档";
+    knowledgeMeta.classList.remove("error-text");
+    documentList.replaceChildren(createDocumentPlaceholder("读取中..."));
+    return;
+  }
+
+  knowledgeMeta.classList.remove("error-text");
+  knowledgeMeta.textContent = documents.length
+    ? `${documents.length} 个文档`
+    : "暂无文档";
+
+  if (!documents.length) {
+    documentList.replaceChildren(createDocumentPlaceholder("还没有文档"));
+    return;
+  }
+
+  documentList.replaceChildren(
+    ...documents.map((doc) => {
+      const row = document.createElement("article");
+      row.className = "document-item";
+
+      const info = document.createElement("div");
+      info.className = "document-info";
+
+      const filename = document.createElement("strong");
+      filename.textContent = doc.filename || doc.doc_id || "未命名文档";
+
+      const meta = document.createElement("span");
+      meta.textContent = `${doc.chunk_count || 0} 个片段 · ${formatDate(doc.uploaded_at)}`;
+
+      info.append(filename, meta);
+
+      const remove = document.createElement("button");
+      remove.className = "delete-document";
+      remove.type = "button";
+      remove.title = "删除文档";
+      remove.textContent = "删除";
+      remove.addEventListener("click", () => deleteDocument(doc));
+
+      row.append(info, remove);
+      return row;
+    }),
+  );
+}
+
+function createDocumentPlaceholder(text) {
+  const empty = document.createElement("div");
+  empty.className = "document-empty";
+  empty.textContent = text;
+  return empty;
+}
+
+async function deleteDocument(doc) {
+  const name = doc.filename || doc.doc_id || "该文档";
+  if (!window.confirm(`确认删除“${name}”？`)) return;
+
+  try {
+    const response = await fetch("/documents/deletedoc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: doc.doc_id }),
+    });
+    const data = await readJson(response);
+    if (!response.ok || data.success === false) {
+      throw new Error(formatErrorDetail(data.detail) || data.message || "删除失败");
+    }
+    setUploadStatus(`${name} 已删除。`);
+    await loadDocuments();
+  } catch (error) {
+    setUploadStatus(error.message || "删除失败", true);
+  }
+}
+
 function resizeMessageInput() {
   messageInput.style.height = "48px";
   const nextHeight = Math.min(Math.max(messageInput.scrollHeight, 48), 144);
@@ -277,6 +386,18 @@ function saveSessions() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
 }
 
+function formatDate(value) {
+  if (!value) return "未知时间";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未知时间";
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 async function readJson(response) {
   const text = await response.text();
   if (!text) return {};
@@ -296,3 +417,5 @@ function formatErrorDetail(detail) {
   }
   return detail;
 }
+
+loadDocuments();
