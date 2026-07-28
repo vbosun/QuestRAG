@@ -1,6 +1,7 @@
 from langchain.tools import tool
 
-from quest_rag.rag.retriever import search
+from quest_rag.rag.document_retriever import search
+from quest_rag.rag.result_validator import validate_search_result
 from quest_rag.rag.storage import get_all_docs, get_doc_by_name
 from quest_rag.schemas.schemas import DocMetadata
 
@@ -9,9 +10,13 @@ from quest_rag.schemas.schemas import DocMetadata
 def retrieve_context(query:str) -> str:
     """ 根据查询目标检索文档,返回查询结果 """
     docs = search(query)
+
+    # 对检索结果进行校验
+    results = validate_search_result(docs,0.75)
+
     serialized = "\n\n".join(
-        (f"来源: {doc.metadata["source"]}\n 内容: {doc.page_content}")
-        for doc in docs
+        (f"来源: {doc["metadata"]["source"]}\n 内容: {doc["text"]}")
+        for doc in results
     )
     print(f"""
           query: {query}

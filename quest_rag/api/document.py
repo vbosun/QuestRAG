@@ -6,9 +6,9 @@ from datetime import datetime
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from logger import logger
 
-from quest_rag.rag.embedding import add_documents
+from quest_rag.rag.document_embedding import add_documents
 from quest_rag.rag.loader import load_file
-from quest_rag.rag.splitter import split_docs
+from quest_rag.rag.document_splitter import split_docs
 from quest_rag.rag.storage import (
     add_doc_metadata,
     delete_doc_metadata,

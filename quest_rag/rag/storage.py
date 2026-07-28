@@ -1,5 +1,5 @@
 
-from quest_rag.rag.embedding import delete_documents
+from quest_rag.rag.document_embedding import delete_documents
 from quest_rag.schemas.schemas import DocMetadata
 
 _doc_store: dict[str, DocMetadata] = {}

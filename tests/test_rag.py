@@ -2,11 +2,11 @@ from math import floor
 
 import pytest
 
-from quest_rag.rag.embedding import add_documents
+from quest_rag.rag.document_embedding import add_documents
 from quest_rag.rag.generator import generate
 from quest_rag.rag.loader import load_file
-from quest_rag.rag.retriever import search
-from quest_rag.rag.splitter import split_docs
+from quest_rag.rag.document_retriever import search
+from quest_rag.rag.document_splitter import split_docs
 
 
 def test_load_file(tmp_path):

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CommonResponse(BaseModel):
@@ -34,3 +34,21 @@ class DocMetadata(BaseModel):
     filename: str
     chunk_count: int
     uploaded_at: datetime
+
+class ValidationResult(BaseModel):
+    passed: bool = Field(
+        description="回答是否通过校验"
+    )
+
+    score: int = Field(
+        description="可信度评分 0-100"
+    )
+
+    reason: str = Field(
+        description="校验原因"
+    )
+
+    unsupported_content: list[str] = Field(
+        default=[],
+        description="无法被资料支持的内容"
+    )

@@ -3,11 +3,9 @@
 """
 
 from langchain.agents import create_agent
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
-from pydantic import SecretStr
 
-from quest_rag.config.config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
+from quest_rag.rag.llm import llm
 from quest_rag.rag.tools import tools
 
 SYSTEM_PROMPT = """
@@ -15,21 +13,13 @@ SYSTEM_PROMPT = """
 """
 
 checkpointer = InMemorySaver()
-llm = ChatOpenAI(
-    base_url=OPENAI_BASE_URL,
-    api_key=SecretStr(OPENAI_API_KEY),
-    model=OPENAI_MODEL,
-    temperature=0.5,
-    max_completion_tokens=25000,
-)
-
 
 _agent = create_agent(
     model=llm, system_prompt=SYSTEM_PROMPT, tools=tools, checkpointer=checkpointer
 )
 
 
-def generate(question: str, thread_id:str='1') -> str:
+def generate(question: str, thread_id: str = '1') -> str:
     result = _agent.invoke(
         {"messages": [{"role": "user", "content": question}]},
         {"configurable": {"thread_id": thread_id}},
@@ -37,9 +27,10 @@ def generate(question: str, thread_id:str='1') -> str:
 
     return result["messages"][-1].content
 
-def history(thread_id:str):
+
+def history(thread_id: str):
     state_snapshot = _agent.get_state({"configurable": {"thread_id": thread_id}})
     formatted_messages = [
-    f"[{msg.type}]: {msg.content}" for msg in state_snapshot.values["messages"]
-]
+        f"[{msg.type}]: {msg.content}" for msg in state_snapshot.values["messages"]
+    ]
     return formatted_messages
