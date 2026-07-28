@@ -58,26 +58,25 @@ def keyword_search(query: str, chunks: list[dict], top_k=3) -> list[dict]:
     # 对于每个chunk,如果匹配的关键词越多,分数越高
     keywords = extract_keywords(query)
     # 最大可能分
-    max_score = 50 + len(keywords) * 35
     for chunk in chunks:
         score = 0
         text: str = chunk["text"]
 
         # 完整query命中
         if query in text:
-            score += 50
+            score += 3
 
         matched_keywords = []
         for kw in keywords:
             count = text.count(kw)
             if count > 0:
                 matched_keywords.append(kw)
-                score += 20
-                score += min(count, 3) * 5
+                score += 1
+                score += min(count-1, 2) * 0.25
 
         if score > 0:
             new_chunk = chunk.copy()
-            new_chunk["score"] = score / max_score  # 归一化
+            new_chunk["score"] = min(score / 3.0, 1.0)  # 归一化
             new_chunk["matched_keywords"] = matched_keywords
             results.append(new_chunk)
     results = sorted(
@@ -134,6 +133,7 @@ def merge_results(vector_results, keywords_results, top_k) -> list[dict]:
                      key=lambda x: x["score"],
                      reverse=True)[:top_k]
 
+    print(f"----------merge_results:{results}")
     return results
 
 
