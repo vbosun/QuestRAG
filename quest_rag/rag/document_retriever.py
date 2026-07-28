@@ -129,17 +129,8 @@ def merge_results(vector_results, keywords_results, top_k) -> list[dict]:
 
         results.append(item)
 
-    candidates = final_results.values()
-    # 优先关键词设置,放置关键词得分过低导致被过滤
-    # if keywords_results:
-    #     candidates = [
-    #         result
-    #         for result in candidates
-    #         if result["keyword_score"] > 0
-    #     ]
-
     # 排序取top_k
-    results = sorted(candidates,
+    results = sorted(results,
                      key=lambda x: x["score"],
                      reverse=True)[:top_k]
 
