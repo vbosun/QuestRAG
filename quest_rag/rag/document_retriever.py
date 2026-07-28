@@ -1,10 +1,12 @@
 import math
 import re
 
+from langchain_core.documents import Document
+
 from quest_rag.rag.document_embedding import vector_store, get_embedding
 
 
-def search(query: str, top_k=3) -> list[dict]:
+def search(query: str, top_k=3) -> list[Document]:
     """向量相似度检索"""
 
     # 用户查询转为嵌入向量
@@ -14,10 +16,21 @@ def search(query: str, top_k=3) -> list[dict]:
     vector_results = vector_search(query_vector, vector_store, top_k)
 
     # 关键词检索
-    keywords_results = keyword_search(query, vector_results, top_k)
+    keywords_results = keyword_search(query, vector_store, top_k)
 
     # 合并两个检索的结果
-    return merge_results(vector_results, keywords_results, top_k)
+    return [
+        Document(
+            page_content=result["text"],
+            metadata={
+                **result["metadata"],
+                "score": result["score"],
+                "vector_score": result["vector_score"],
+                "keyword_score": result["keyword_score"],
+            },
+        )
+        for result in merge_results(vector_results, keywords_results, top_k)
+    ]
 
 
 def vector_search(query_vector: list[float], chunks: list[dict], top_k=3) -> list[dict]:
@@ -95,10 +108,10 @@ def merge_results(vector_results, keywords_results, top_k) -> list[dict]:
         idx: str = kr["id"]
         if idx not in final_results:
             final_results[idx] = {
-                **final_results[idx],
                 "text": kr["text"],
                 "vector_score": 0,
                 "keyword_score": kr["score"],
+                "score": 0,
                 "metadata": kr["metadata"]
             }
         else:
@@ -116,8 +129,17 @@ def merge_results(vector_results, keywords_results, top_k) -> list[dict]:
 
         results.append(item)
 
+    candidates = final_results.values()
+    # 优先关键词设置,放置关键词得分过低导致被过滤
+    # if keywords_results:
+    #     candidates = [
+    #         result
+    #         for result in candidates
+    #         if result["keyword_score"] > 0
+    #     ]
+
     # 排序取top_k
-    results = sorted(final_results.values(),
+    results = sorted(candidates,
                      key=lambda x: x["score"],
                      reverse=True)[:top_k]
 

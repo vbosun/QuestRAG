@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import httpx
 from langchain_core.documents import Document
 from openai import OpenAI
 
@@ -14,7 +15,7 @@ client = OpenAI(
     api_key="111",
     base_url=EMBEDDING_BASE_URL,
     # 绕过本地代理,避免访问本地服务失败(502)
-    # http_client=httpx.Client(trust_env=False),
+    http_client=httpx.Client(trust_env=False),
 )
 
 embeddings = client.embeddings

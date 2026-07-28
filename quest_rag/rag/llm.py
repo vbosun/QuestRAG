@@ -1,3 +1,4 @@
+import httpx
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
@@ -9,4 +10,5 @@ llm = ChatOpenAI(
     model=OPENAI_MODEL,
     temperature=0.5,
     max_completion_tokens=25000,
+    http_client=httpx.Client(trust_env=False),
 )

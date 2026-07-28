@@ -15,7 +15,7 @@ def split_docs(docs: list[Document], chunk_size=50, chunk_overlap=20) -> list[Do
 
         chunks = _split_to_chunks(text, metadata, chunk_size, chunk_overlap)
         if len(chunks) > 0:
-            all_splits.append(chunks)
+            all_splits.extend(chunks)
 
     return all_splits
 
@@ -25,6 +25,10 @@ def _split_to_chunks(text: str, metadata: dict, chunk_size=50, chunk_overlap=20)
     # 校验带分块文本是否为空
     if not text:
         return []
+    if chunk_size <= 0:
+        raise ValueError("chunk_size 必须大于 0")
+    if chunk_overlap >= chunk_size:
+        raise ValueError("chunk_overlap 必须小于 chunk_size")
     # 定义分块结果数组
     chunks = []
     start = 0

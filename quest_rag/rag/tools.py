@@ -15,7 +15,7 @@ def retrieve_context(query:str) -> str:
     results = validate_search_result(docs,0.75)
 
     serialized = "\n\n".join(
-        (f"来源: {doc["metadata"]["source"]}\n 内容: {doc["text"]}")
+        (f"来源: {doc.metadata.get('source', '未知')}\n 内容: {doc.page_content}")
         for doc in results
     )
     print(f"""

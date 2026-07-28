@@ -1,10 +1,11 @@
+from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 
 from quest_rag.rag.llm import llm
 from quest_rag.schemas.schemas import ValidationResult
 
 
-def validate_search_result(results: list[dict], score_threshold=0.75) -> list[dict]:
+def validate_search_result(results: list[Document], score_threshold=0.75) -> list[Document]:
     """
     检索结果校验
     """
@@ -13,18 +14,18 @@ def validate_search_result(results: list[dict], score_threshold=0.75) -> list[di
     ## 分数过滤
     results = [result
                for result in results
-               if result.get("score", 0) >= score_threshold]
+               if result.metadata.get("score", 0) >= score_threshold]
 
     ## 校验空文本
     results = [result
                for result in results
-               if result["text"].strip()]
+               if result.page_content.strip()]
 
     ## 校验重复chunk
     new_results = []
     text_set = set()
     for result in results:
-        text: str = result["text"].strip()
+        text: str = result.page_content.strip()
         if text in text_set:
             continue
 
