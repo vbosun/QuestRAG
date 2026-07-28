@@ -7,12 +7,12 @@ from quest_rag.schemas.schemas import DocMetadata
 
 
 @tool
-def retrieve_context(query:str) -> str:
+def retrieve_context(query: str) -> str:
     """ 根据查询目标检索文档,返回查询结果 """
-    docs = search(query)
+    docs = search(query, 5)
 
     # 对检索结果进行校验
-    results = validate_search_result(docs,0.75)
+    results = validate_search_result(docs, 0.4)
 
     serialized = "\n\n".join(
         (f"来源: {doc.metadata.get('source', '未知')}\n 内容: {doc.page_content}")
@@ -27,7 +27,7 @@ def retrieve_context(query:str) -> str:
 
 
 @tool
-def get_document_list(name:str|None) -> list[DocMetadata]|None:
+def get_document_list(name: str | None) -> list[DocMetadata] | None:
     """
     获取文档信息列表。
 
@@ -38,6 +38,7 @@ def get_document_list(name:str|None) -> list[DocMetadata]|None:
         return get_all_docs()
     else:
         return get_doc_by_name(name)
+
 
 # ── 工具列表 ──
 tools = [retrieve_context, get_document_list]
