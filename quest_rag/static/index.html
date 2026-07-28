@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QuestRAG AI Chat</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div>
+            <span class="brand-mark">Q</span>
+          </div>
+          <div>
+            <h1>QuestRAG</h1>
+            <p>知识库问答</p>
+          </div>
+        </div>
+
+        <button class="new-session" id="newSessionButton" type="button">+ 新会话</button>
+
+        <div class="session-list" id="sessionList" aria-label="会话列表"></div>
+      </aside>
+
+      <main class="chat-panel">
+        <header class="chat-header">
+          <div>
+            <h2 id="sessionTitle">新会话</h2>
+            <p id="sessionMeta">上传文档后，直接围绕资料提问。</p>
+          </div>
+          <div class="header-actions">
+            <label class="upload-button" for="fileInput">
+              <input id="fileInput" type="file" accept=".txt,.pdf,.md" />
+              上传文件
+            </label>
+          </div>
+        </header>
+
+        <section class="upload-status" id="uploadStatus" hidden></section>
+
+        <section class="messages" id="messages" aria-live="polite"></section>
+
+        <form class="composer" id="chatForm">
+          <textarea
+            id="messageInput"
+            rows="1"
+            placeholder="输入问题，按 Enter 发送，Shift + Enter 换行"
+          ></textarea>
+          <button id="sendButton" type="submit">发送</button>
+        </form>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
