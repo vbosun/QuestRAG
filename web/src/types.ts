@@ -84,9 +84,26 @@ export interface EvaluationDocument {
   file_size: number;
   metadata: Record<string, unknown>;
   chunk_count: number;
+  latest_eval_run_id?: string | null;
+  latest_eval_run_name?: string | null;
+  latest_eval_chunk_count?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
   chunks?: DocumentChunk[];
+}
+
+export interface EvaluationDocumentRun {
+  id: string;
+  name: string;
+  status: string;
+  es_index_name: string;
+  clean_options: Partial<CleanOptions>;
+  split_options: Partial<SplitOptions>;
+  retrieval_options: Partial<RetrievalOptions>;
+  summary: Record<string, unknown>;
+  chunk_count: number;
+  created_at?: string | null;
+  completed_at?: string | null;
 }
 
 export interface EvaluationDatasetItem {

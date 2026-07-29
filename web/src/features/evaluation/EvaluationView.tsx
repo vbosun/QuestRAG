@@ -10,13 +10,15 @@ import {
   getEvaluationDataset,
   getEvaluationDocument,
   importEvaluationDataset,
+  listEvaluationDocumentRunChunks,
+  listEvaluationDocumentRuns,
   listEvaluationDatasets,
   listEvaluationDocuments,
   runEvaluation,
   updateEvaluationDataset,
   uploadEvaluationDocuments
 } from "../../api";
-import type { CleanOptions, DocumentInfo, EvaluationDataset, EvaluationDatasetItem, EvaluationDocument, EvaluationRun, RetrievalOptions, SplitOptions } from "../../types";
+import type { CleanOptions, DocumentChunk, DocumentInfo, EvaluationDataset, EvaluationDatasetItem, EvaluationDocument, EvaluationDocumentRun, EvaluationItem, EvaluationRun, RetrievalOptions, SplitOptions } from "../../types";
 import { evalStatusLabel, formatDate, formatRate, summarizeRetrieved } from "../../utils";
 
 const { Text, Title } = Typography;
@@ -43,9 +45,10 @@ export function EvaluationView({
   onRefreshEvaluations: () => Promise<void>;
 }) {
   const { message } = App.useApp();
-  const [mode, setMode] = useState<"list" | "create" | "detail" | "documents" | "documentDetail" | "datasets" | "datasetEdit">(initialMode);
+  const [mode, setMode] = useState<"list" | "create" | "detail" | "documents" | "documentDetail" | "documentRunChunks" | "datasets" | "datasetEdit">(initialMode);
   const [step, setStep] = useState(0);
   const [activeRun, setActiveRun] = useState<EvaluationRun | null>(null);
+  const [activeRetrievedItem, setActiveRetrievedItem] = useState<EvaluationItem | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [running, setRunning] = useState(false);
   const [name, setName] = useState(`检索评测 ${new Date().toLocaleString("zh-CN", { hour12: false })}`);
@@ -54,6 +57,11 @@ export function EvaluationView({
   const [evalDocuments, setEvalDocuments] = useState<EvaluationDocument[]>([]);
   const [evalDatasets, setEvalDatasets] = useState<EvaluationDataset[]>([]);
   const [activeEvalDocument, setActiveEvalDocument] = useState<EvaluationDocument | null>(null);
+  const [activeEvalDocumentRuns, setActiveEvalDocumentRuns] = useState<EvaluationDocumentRun[]>([]);
+  const [activeEvalDocumentRun, setActiveEvalDocumentRun] = useState<EvaluationDocumentRun | null>(null);
+  const [activeEvalRunChunks, setActiveEvalRunChunks] = useState<DocumentChunk[]>([]);
+  const [loadingEvalDocumentRuns, setLoadingEvalDocumentRuns] = useState(false);
+  const [loadingEvalRunChunks, setLoadingEvalRunChunks] = useState(false);
   const [activeDataset, setActiveDataset] = useState<EvaluationDataset | null>(null);
   const [loadingEvalAssets, setLoadingEvalAssets] = useState(false);
   const [uploadingEvalDocuments, setUploadingEvalDocuments] = useState(false);
@@ -77,7 +85,11 @@ export function EvaluationView({
     setMode(initialMode);
     setStep(0);
     setActiveRun(null);
+    setActiveRetrievedItem(null);
     setActiveEvalDocument(null);
+    setActiveEvalDocumentRuns([]);
+    setActiveEvalDocumentRun(null);
+    setActiveEvalRunChunks([]);
     setActiveDataset(null);
   }, [initialMode]);
 
@@ -111,16 +123,26 @@ export function EvaluationView({
     setMode("list");
     setStep(0);
     setActiveRun(null);
+    setActiveRetrievedItem(null);
   }
 
   function showBackButton() {
-    return mode === "create" || mode === "detail" || mode === "documentDetail" || mode === "datasetEdit";
+    return mode === "create" || mode === "detail" || mode === "documentDetail" || mode === "documentRunChunks" || mode === "datasetEdit";
   }
 
   function handleEvalBack() {
+    if (mode === "documentRunChunks") {
+      setMode("documentDetail");
+      setActiveEvalDocumentRun(null);
+      setActiveEvalRunChunks([]);
+      return;
+    }
     if (mode === "documentDetail") {
       setMode("documents");
       setActiveEvalDocument(null);
+      setActiveEvalDocumentRuns([]);
+      setActiveEvalDocumentRun(null);
+      setActiveEvalRunChunks([]);
       return;
     }
     if (mode === "datasetEdit") {
@@ -132,6 +154,7 @@ export function EvaluationView({
   }
 
   function evalBackLabel() {
+    if (mode === "documentRunChunks") return "返回评测记录";
     if (mode === "documentDetail") return "返回评测文档";
     if (mode === "datasetEdit") return "返回评测集";
     return "返回评测记录";
@@ -268,6 +291,40 @@ export function EvaluationView({
     await refreshEvalAssets();
   }
 
+  async function openEvalDocument(record: EvaluationDocument) {
+    setMode("documentDetail");
+    setLoadingEvalDocumentRuns(true);
+    setActiveEvalDocumentRun(null);
+    setActiveEvalRunChunks([]);
+    try {
+      const [detail, runs] = await Promise.all([
+        getEvaluationDocument(record.id),
+        listEvaluationDocumentRuns(record.id)
+      ]);
+      setActiveEvalDocument(detail);
+      setActiveEvalDocumentRuns(runs);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "读取评测文档失败");
+    } finally {
+      setLoadingEvalDocumentRuns(false);
+    }
+  }
+
+  async function openEvalDocumentRunChunks(run: EvaluationDocumentRun) {
+    if (!activeEvalDocument) return;
+    setMode("documentRunChunks");
+    setActiveEvalDocumentRun(run);
+    setLoadingEvalRunChunks(true);
+    try {
+      setActiveEvalRunChunks(await listEvaluationDocumentRunChunks(activeEvalDocument.id, run.id));
+    } catch (error) {
+      setActiveEvalRunChunks([]);
+      message.error(error instanceof Error ? error.message : "读取评测分块失败");
+    } finally {
+      setLoadingEvalRunChunks(false);
+    }
+  }
+
   function datasetSourceOptions() {
     return [
       JOB_SOURCE_OPTION,
@@ -299,7 +356,7 @@ export function EvaluationView({
                 ? "新建评测"
                 : mode === "detail"
                   ? "评测详情"
-                  : mode === "documents" || mode === "documentDetail"
+                  : mode === "documents" || mode === "documentDetail" || mode === "documentRunChunks"
                     ? "评测文档"
                     : mode === "datasets" || mode === "datasetEdit"
                       ? "评测集"
@@ -584,17 +641,27 @@ export function EvaluationView({
             pagination={false}
             rowKey="id"
             onRow={(record) => ({
-              onClick: async () => {
-                const detail = await getEvaluationDocument(record.id);
-                setActiveEvalDocument(detail);
-                setMode("documentDetail");
-              }
+              onClick: () => void openEvalDocument(record)
             })}
             columns={[
               { title: "#", width: 54, render: (_value, _record, index) => index + 1 },
               { title: "名称", dataIndex: "title", render: (_value, doc) => <Text strong>{doc.title || doc.filename}</Text> },
               { title: "类型", dataIndex: "file_type", width: 100, render: (value) => <Tag>{String(value).toUpperCase()}</Tag> },
               { title: "基准分块", dataIndex: "chunk_count", width: 120 },
+              {
+                title: "最新评测分块",
+                dataIndex: "latest_eval_chunk_count",
+                width: 140,
+                render: (value: number | null | undefined, doc) =>
+                  value === null || value === undefined ? (
+                    <Text type="secondary">暂无</Text>
+                  ) : (
+                    <Space size={4}>
+                      <Text>{value}</Text>
+                      {doc.latest_eval_run_name && <Text type="secondary">({doc.latest_eval_run_name})</Text>}
+                    </Space>
+                  )
+              },
               { title: "上传时间", dataIndex: "created_at", width: 180, render: (value: string) => formatDate(value) },
               {
                 title: "操作",
@@ -626,17 +693,66 @@ export function EvaluationView({
           <div className="document-chunks-page-head">
             <div>
               <Title level={4}>{activeEvalDocument?.title || "评测文档"}</Title>
-              <Text type="secondary">{activeEvalDocument?.chunks?.length || 0} 个基准片段</Text>
+              <Text type="secondary">
+                {loadingEvalDocumentRuns ? "正在读取关联评测记录" : `${activeEvalDocumentRuns.length} 条关联评测记录`}
+              </Text>
+            </div>
+          </div>
+          <Table<EvaluationDocumentRun>
+            className="knowledge-table"
+            dataSource={activeEvalDocumentRuns}
+            loading={loadingEvalDocumentRuns}
+            locale={{ emptyText: <Empty description="该文档还没有参与评测记录" /> }}
+            pagination={false}
+            rowKey="id"
+            onRow={(record) => ({
+              onClick: () => void openEvalDocumentRunChunks(record)
+            })}
+            columns={[
+              { title: "#", width: 54, render: (_value, _record, index) => index + 1 },
+              { title: "评测记录", dataIndex: "name", render: (value) => <Text strong>{String(value)}</Text> },
+              { title: "状态", dataIndex: "status", width: 100, render: (value) => <Tag>{evalStatusLabel(String(value))}</Tag> },
+              { title: "分块数量", dataIndex: "chunk_count", width: 110 },
+              {
+                title: "分块策略",
+                dataIndex: "split_options",
+                width: 210,
+                render: (value: Partial<SplitOptions>) =>
+                  `长度 ${value?.chunk_size ?? "-"} / 重叠 ${value?.chunk_overlap ?? "-"}`
+              },
+              { title: "评测时间", dataIndex: "created_at", width: 180, render: (value: string) => formatDate(value) }
+            ]}
+          />
+        </main>
+      )}
+
+      {mode === "documentRunChunks" && (
+        <main className="document-chunks-page">
+          <div className="document-chunks-page-head">
+            <div>
+              <Title level={4}>{activeEvalDocumentRun?.name || "评测分块"}</Title>
+              <Text type="secondary">
+                {loadingEvalRunChunks ? "正在读取分块" : `${activeEvalRunChunks.length} 个历史分块`}
+              </Text>
             </div>
           </div>
           <List
             className="chunk-list chunk-page-list"
-            dataSource={activeEvalDocument?.chunks || []}
+            dataSource={activeEvalRunChunks}
+            loading={loadingEvalRunChunks}
             locale={{ emptyText: <Empty description="暂无分块" /> }}
             renderItem={(chunk) => (
               <List.Item className="chunk-list-item chunk-page-item">
                 <List.Item.Meta
-                  title={<Tag>片段 {String(chunk.metadata.chunk_index ?? "")}</Tag>}
+                  title={
+                    <Space wrap>
+                      <Tag>片段 {String(chunk.metadata.chunk_index ?? "")}</Tag>
+                      <Text type="secondary">{chunk.length} 字</Text>
+                      {chunk.metadata.page !== undefined && chunk.metadata.page !== null && (
+                        <Text type="secondary">页码 {String(chunk.metadata.page)}</Text>
+                      )}
+                    </Space>
+                  }
                   description={<Text className="chunk-preview">{chunk.text}</Text>}
                 />
               </List.Item>
@@ -949,7 +1065,7 @@ export function EvaluationView({
                 <List
                   dataSource={activeRun.items || []}
                   renderItem={(item) => (
-                    <List.Item className="eval-result-item">
+                    <List.Item className="eval-result-item clickable" onClick={() => setActiveRetrievedItem(item)}>
                       <List.Item.Meta
                         title={
                           <Space wrap>
@@ -966,12 +1082,92 @@ export function EvaluationView({
                           <div className="eval-item-body">
                             <Text>{item.question}</Text>
                             <Text type="secondary">召回：{summarizeRetrieved(item.retrieved)}</Text>
+                            <Text type="secondary">点击查看本次召回结果</Text>
                           </div>
                         }
                       />
                     </List.Item>
                   )}
                 />
+                <Modal
+                  destroyOnClose
+                  footer={null}
+                  onCancel={() => setActiveRetrievedItem(null)}
+                  open={!!activeRetrievedItem}
+                  title={activeRetrievedItem ? `召回结果：${activeRetrievedItem.question_id || activeRetrievedItem.id}` : "召回结果"}
+                  width={1080}
+                >
+                  {activeRetrievedItem && (
+                    <div className="retrieval-modal">
+                      <aside className="retrieval-baseline">
+                        <div className="retrieval-question">
+                          <Text type="secondary">用户问题</Text>
+                          <Text strong>{activeRetrievedItem.question}</Text>
+                        </div>
+                        <div className="baseline-block">
+                          <Text type="secondary">期望答案要点</Text>
+                          <pre>{activeRetrievedItem.expected_answer || "未填写"}</pre>
+                        </div>
+                        <div className="baseline-block">
+                          <Text type="secondary">期望证据文本</Text>
+                          <pre>{activeRetrievedItem.expected_chunk_text || "未填写"}</pre>
+                        </div>
+                        <div className="baseline-block">
+                          <Text type="secondary">期望来源</Text>
+                          <Space wrap>
+                            {(activeRetrievedItem.expected_source_ids || []).length ? (
+                              activeRetrievedItem.expected_source_ids.map((sourceId) => (
+                                <Tag key={sourceId}>{sourceId === JOB_SOURCE_ID ? "岗位库（ES）" : sourceId}</Tag>
+                              ))
+                            ) : (
+                              <Tag>未设置</Tag>
+                            )}
+                          </Space>
+                        </div>
+                        <div className="baseline-block">
+                          <Text type="secondary">本题指标</Text>
+                          <Space wrap>
+                            <Tag color={activeRetrievedItem.metrics?.source_hit ? "success" : "error"}>
+                              {activeRetrievedItem.metrics?.source_hit ? "来源命中" : "来源未命中"}
+                            </Tag>
+                            <Tag color={activeRetrievedItem.metrics?.evidence_hit ? "success" : "default"}>
+                              {activeRetrievedItem.metrics?.evidence_hit ? "证据命中" : "证据未命中"}
+                            </Tag>
+                            <Text type="secondary">MRR: {String(activeRetrievedItem.metrics?.mrr ?? "-")}</Text>
+                            <Text type="secondary">证据分: {String(activeRetrievedItem.metrics?.evidence_score ?? "-")}</Text>
+                          </Space>
+                        </div>
+                      </aside>
+                      <section className="retrieval-results">
+                        <Text strong>本次召回结果</Text>
+                        <List
+                          dataSource={activeRetrievedItem.retrieved || []}
+                          locale={{ emptyText: <Empty description="本题没有召回结果" /> }}
+                          renderItem={(retrieved) => {
+                            const metadata = (retrieved.metadata || {}) as Record<string, unknown>;
+                            const filename = String(retrieved.filename || metadata.title || metadata.filename || "未知来源");
+                            const sourceType = metadata.source_type === "job" ? "岗位" : "文档";
+                            return (
+                              <List.Item className="retrieval-result-item">
+                                <div className="retrieval-result-body">
+                                  <Space wrap>
+                                    <Tag color="blue">#{String(retrieved.rank ?? "-")}</Tag>
+                                    <Tag>{sourceType}</Tag>
+                                    <Text strong>{filename}</Text>
+                                    <Text type="secondary">分数 {String(retrieved.score ?? "-")}</Text>
+                                    <Text type="secondary">关键词 {String(retrieved.keyword_score ?? "-")}</Text>
+                                    <Text type="secondary">向量 {String(retrieved.vector_score ?? "-")}</Text>
+                                  </Space>
+                                  <pre>{String(retrieved.text || "暂无文本")}</pre>
+                                </div>
+                              </List.Item>
+                            );
+                          }}
+                        />
+                      </section>
+                    </div>
+                  )}
+                </Modal>
               </section>
             </>
           )}

@@ -110,6 +110,9 @@ class EvaluationDocumentSummary(BaseModel):
     file_size: int
     metadata: dict
     chunk_count: int = 0
+    latest_eval_run_id: str | None = None
+    latest_eval_run_name: str | None = None
+    latest_eval_chunk_count: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

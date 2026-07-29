@@ -78,7 +78,8 @@ def delete_run(run_id: str):
 @router.get("/documents/list", response_model=list[EvaluationDocumentSummary])
 def list_eval_documents():
     init_db()
-    return [with_baseline_chunk_count(doc) for doc in list_evaluation_documents()]
+    runs = list_evaluation_runs()
+    return [with_latest_eval_chunk_count(with_baseline_chunk_count(doc), runs) for doc in list_evaluation_documents()]
 
 
 @router.post("/documents/upload", response_model=list[EvaluationDocumentSummary])
@@ -98,6 +99,45 @@ def get_eval_document(doc_id: str):
         raise HTTPException(status_code=404, detail="评测文档不存在")
     chunks = build_baseline_chunks(doc)
     return {**with_baseline_chunk_count(doc), "chunks": chunks}
+
+
+@router.get("/documents/{doc_id}/runs")
+def list_eval_document_runs(doc_id: str):
+    init_db()
+    if not get_evaluation_document(doc_id):
+        raise HTTPException(status_code=404, detail="评测文档不存在")
+    runs = []
+    for run in list_evaluation_runs():
+        if not run_includes_doc(run, doc_id):
+            continue
+        runs.append(
+            {
+                "id": run["id"],
+                "name": run["name"],
+                "status": run["status"],
+                "es_index_name": run["es_index_name"],
+                "clean_options": run.get("clean_options", {}),
+                "split_options": run.get("split_options", {}),
+                "retrieval_options": run.get("retrieval_options", {}),
+                "summary": run.get("summary", {}),
+                "chunk_count": count_run_doc_chunks(run, doc_id),
+                "created_at": run.get("created_at"),
+                "completed_at": run.get("completed_at"),
+            }
+        )
+    return runs
+
+
+@router.get("/documents/{doc_id}/runs/{run_id}/chunks")
+def list_eval_document_run_chunks(doc_id: str, run_id: str):
+    init_db()
+    run = get_evaluation_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="评测记录不存在")
+    if not run_includes_doc(run, doc_id):
+        raise HTTPException(status_code=404, detail="该评测记录未使用此文档")
+    backend = ElasticsearchVectorBackend(ELASTICSEARCH_URL, run["es_index_name"])
+    return backend.list_chunks(doc_id)
 
 
 @router.delete("/documents/{doc_id}", response_model=CommonResponse)
@@ -277,6 +317,37 @@ def with_baseline_chunk_count(doc: dict) -> dict:
     else:
         chunk_count = int((doc.get("metadata") or {}).get("baseline_chunk_count") or 0)
     return {**doc, "chunk_count": chunk_count}
+
+
+def with_latest_eval_chunk_count(doc: dict, runs: list[dict]) -> dict:
+    for run in runs:
+        if not run_includes_doc(run, doc["id"]):
+            continue
+        return {
+            **doc,
+            "latest_eval_run_id": run["id"],
+            "latest_eval_run_name": run["name"],
+            "latest_eval_chunk_count": count_run_doc_chunks(run, doc["id"]),
+        }
+    return doc
+
+
+def run_includes_doc(run: dict, doc_id: str) -> bool:
+    scope = run.get("document_scope") or {}
+    return doc_id in (scope.get("doc_ids") or [])
+
+
+def count_run_doc_chunks(run: dict, doc_id: str) -> int:
+    try:
+        backend = ElasticsearchVectorBackend(ELASTICSEARCH_URL, run["es_index_name"])
+        response = backend.client.count(
+            index=run["es_index_name"],
+            query={"term": {"metadata.doc_id": doc_id}},
+            ignore_unavailable=True,
+        )
+        return int(response.get("count", 0))
+    except Exception:
+        return 0
 
 
 def build_baseline_chunks(doc: dict) -> list[dict]:

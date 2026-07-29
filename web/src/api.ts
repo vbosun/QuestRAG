@@ -7,6 +7,7 @@ import type {
   EvaluationDataset,
   EvaluationDatasetItem,
   EvaluationDocument,
+  EvaluationDocumentRun,
   EvaluationRun,
   RetrievalOptions,
   DocumentStage,
@@ -71,6 +72,22 @@ export async function getEvaluationDocument(id: string): Promise<EvaluationDocum
   const data = await readJson(response);
   if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测文档失败");
   return data as EvaluationDocument;
+}
+
+export async function listEvaluationDocumentRuns(id: string): Promise<EvaluationDocumentRun[]> {
+  const response = await fetch(`/evaluations/documents/${encodeURIComponent(id)}/runs`);
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测文档记录失败");
+  return Array.isArray(data) ? data : [];
+}
+
+export async function listEvaluationDocumentRunChunks(id: string, runId: string): Promise<DocumentChunk[]> {
+  const response = await fetch(
+    `/evaluations/documents/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/chunks`
+  );
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测分块失败");
+  return Array.isArray(data) ? data : [];
 }
 
 export async function deleteEvaluationDocument(id: string) {
