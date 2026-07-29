@@ -39,6 +39,76 @@ export interface SplitOptions {
   attach_title: boolean;
 }
 
+export interface RetrievalOptions {
+  top_k: number;
+  mode: "hybrid" | "vector" | "keyword";
+  score_threshold: number;
+  vector_weight: number;
+  keyword_weight: number;
+}
+
+export interface EvaluationRun {
+  id: string;
+  name: string;
+  status: string;
+  dataset_path: string;
+  es_index_name: string;
+  document_scope: Record<string, unknown>;
+  clean_options: Partial<CleanOptions>;
+  split_options: Partial<SplitOptions>;
+  retrieval_options: Partial<RetrievalOptions>;
+  summary: Record<string, unknown>;
+  error?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+  items?: EvaluationItem[];
+}
+
+export interface EvaluationItem {
+  id: string;
+  question_id?: string | null;
+  question: string;
+  expected_answer?: string | null;
+  expected_source_ids: string[];
+  expected_chunk_ids: string[];
+  expected_chunk_text?: string | null;
+  retrieved: Array<Record<string, unknown>>;
+  metrics: Record<string, unknown>;
+}
+
+export interface EvaluationDocument {
+  id: string;
+  filename: string;
+  title: string;
+  file_type: string;
+  file_size: number;
+  metadata: Record<string, unknown>;
+  chunk_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+  chunks?: DocumentChunk[];
+}
+
+export interface EvaluationDatasetItem {
+  id: string;
+  question: string;
+  expected_answer?: string | null;
+  expected_source_ids: string[];
+  expected_evidence?: string | null;
+  should_refuse: boolean;
+  focus?: string | null;
+  note?: string | null;
+}
+
+export interface EvaluationDataset {
+  id: string;
+  name: string;
+  item_count?: number;
+  items?: EvaluationDatasetItem[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface DocumentStage {
   stage_id: string;
   filename: string;

@@ -725,6 +725,130 @@ body {
   white-space: pre-wrap;
 }
 
+.eval-step-panel {
+  display: grid;
+  gap: 16px;
+  max-width: 1080px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 18px;
+}
+
+.eval-step-panel label,
+.eval-option-grid label {
+  display: grid;
+  gap: 8px;
+}
+
+.eval-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.eval-document-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 14px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.eval-option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.eval-option-grid .ant-input-number,
+.eval-option-grid .ant-select {
+  width: 100%;
+}
+
+.eval-confirm {
+  max-width: 960px;
+}
+
+.eval-step-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.eval-detail-page {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 22px;
+}
+
+.eval-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stat-tile {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 14px;
+}
+
+.stat-tile strong {
+  color: var(--primary);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.eval-detail-card {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 14px;
+}
+
+.eval-detail-card h4.ant-typography {
+  margin: 0 0 12px;
+  letter-spacing: 0;
+}
+
+.eval-result-item.ant-list-item {
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  padding: 12px !important;
+}
+
+.eval-item-body {
+  display: grid;
+  gap: 6px;
+  line-height: 1.65;
+}
+
+.dataset-edit-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.2fr) minmax(220px, 0.8fr);
+  gap: 10px;
+  width: 100%;
+}
+
 .ingest-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

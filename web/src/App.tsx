@@ -8,6 +8,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
+  ExperimentOutlined,
   FileTextOutlined,
   MessageOutlined,
   PlusOutlined,
@@ -48,11 +49,24 @@ import remarkGfm from "remark-gfm";
 import {
   commitDocumentStage,
   deleteDocument,
+  deleteEvaluation,
+  deleteEvaluationDataset,
+  deleteEvaluationDocument,
+  getEvaluation,
+  getEvaluationDataset,
+  getEvaluationDocument,
+  importEvaluationDataset,
   listDocuments,
   listDocumentChunks,
+  listEvaluationDatasets,
+  listEvaluationDocuments,
+  listEvaluations,
   previewDocumentStage,
+  runEvaluation,
   stageDocument,
   streamChat,
+  updateEvaluationDataset,
+  uploadEvaluationDocuments,
   uploadDocument
 } from "./api";
 import { parseMessageParts } from "./artifacts";
@@ -67,6 +81,11 @@ import type {
   DocumentInfo,
   DocumentMetadataInput,
   DocumentStage,
+  EvaluationDataset,
+  EvaluationDatasetItem,
+  EvaluationDocument,
+  EvaluationRun,
+  RetrievalOptions,
   MessagePart,
   Session,
   SplitOptions
@@ -107,6 +126,9 @@ function Workspace() {
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [documentError, setDocumentError] = useState("");
   const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [evaluations, setEvaluations] = useState<EvaluationRun[]>([]);
+  const [evaluationError, setEvaluationError] = useState("");
+  const [loadingEvaluations, setLoadingEvaluations] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -130,6 +152,7 @@ function Workspace() {
 
   useEffect(() => {
     void refreshDocuments();
+    void refreshEvaluations();
   }, []);
 
   useEffect(() => {
@@ -200,6 +223,25 @@ function Workspace() {
     await deleteDocument(doc.doc_id);
     message.success(`${doc.filename || doc.doc_id} 已删除`);
     await refreshDocuments();
+  }
+
+  async function refreshEvaluations() {
+    setLoadingEvaluations(true);
+    setEvaluationError("");
+    try {
+      setEvaluations(await listEvaluations());
+    } catch (error) {
+      setEvaluations([]);
+      setEvaluationError(error instanceof Error ? error.message : "读取评测记录失败");
+    } finally {
+      setLoadingEvaluations(false);
+    }
+  }
+
+  async function handleDeleteEvaluation(run: EvaluationRun) {
+    await deleteEvaluation(run.id);
+    message.success(`${run.name} 已删除`);
+    await refreshEvaluations();
   }
 
   async function sendMessage() {
@@ -344,7 +386,8 @@ function Workspace() {
           selectedKeys={[activeMenu]}
           items={[
             { key: "chat", icon: <MessageOutlined />, label: "助手聊天" },
-            { key: "knowledge", icon: <BookOutlined />, label: "知识库管理" }
+            { key: "knowledge", icon: <BookOutlined />, label: "知识库管理" },
+            { key: "evaluation", icon: <ExperimentOutlined />, label: "评测工作" }
           ]}
           onClick={({ key }) => setActiveMenu(key)}
         />
@@ -368,13 +411,23 @@ function Workspace() {
             sending={sending}
             sessions={sessions}
           />
-        ) : (
+        ) : activeMenu === "knowledge" ? (
           <KnowledgeView
             documents={documents}
             documentError={documentError}
             loadingDocuments={loadingDocuments}
             onDeleteDocument={handleDeleteDocument}
             onRefreshDocuments={refreshDocuments}
+          />
+        ) : (
+          <EvaluationView
+            documents={documents}
+            evaluationError={evaluationError}
+            evaluations={evaluations}
+            loadingEvaluations={loadingEvaluations}
+            onDeleteEvaluation={handleDeleteEvaluation}
+            onRefreshDocuments={refreshDocuments}
+            onRefreshEvaluations={refreshEvaluations}
           />
         )}
       </Content>
@@ -810,6 +863,705 @@ function ReportCard({ artifact }: { artifact: Extract<MessagePart, { type: "repo
   );
 }
 
+function EvaluationView({
+  documents,
+  evaluationError,
+  evaluations,
+  loadingEvaluations,
+  onDeleteEvaluation,
+  onRefreshDocuments,
+  onRefreshEvaluations
+}: {
+  documents: DocumentInfo[];
+  evaluationError: string;
+  evaluations: EvaluationRun[];
+  loadingEvaluations: boolean;
+  onDeleteEvaluation: (run: EvaluationRun) => Promise<void>;
+  onRefreshDocuments: () => Promise<void>;
+  onRefreshEvaluations: () => Promise<void>;
+}) {
+  const { message } = App.useApp();
+  const [mode, setMode] = useState<"list" | "create" | "detail" | "documents" | "documentDetail" | "datasets" | "datasetEdit">("list");
+  const [step, setStep] = useState(0);
+  const [activeRun, setActiveRun] = useState<EvaluationRun | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [name, setName] = useState(`检索评测 ${new Date().toLocaleString("zh-CN", { hour12: false })}`);
+  const [datasetId, setDatasetId] = useState("");
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  const [evalDocuments, setEvalDocuments] = useState<EvaluationDocument[]>([]);
+  const [evalDatasets, setEvalDatasets] = useState<EvaluationDataset[]>([]);
+  const [activeEvalDocument, setActiveEvalDocument] = useState<EvaluationDocument | null>(null);
+  const [activeDataset, setActiveDataset] = useState<EvaluationDataset | null>(null);
+  const [loadingEvalAssets, setLoadingEvalAssets] = useState(false);
+  const [uploadingEvalDocuments, setUploadingEvalDocuments] = useState(false);
+  const [importingDataset, setImportingDataset] = useState(false);
+  const [cleanOptions, setCleanOptions] = useState<CleanOptions>({
+    trim_lines: true,
+    normalize_spaces: true,
+    merge_blank_lines: true,
+    merge_broken_lines: false
+  });
+
+  useEffect(() => {
+    void refreshEvalAssets();
+  }, []);
+
+  async function refreshEvalAssets() {
+    setLoadingEvalAssets(true);
+    try {
+      const [docs, datasets] = await Promise.all([listEvaluationDocuments(), listEvaluationDatasets()]);
+      setEvalDocuments(docs);
+      setEvalDatasets(datasets);
+      if (!datasetId && datasets[0]?.id) setDatasetId(datasets[0].id);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "读取评测资产失败");
+    } finally {
+      setLoadingEvalAssets(false);
+    }
+  }
+  const [splitOptions, setSplitOptions] = useState<SplitOptions>({
+    chunk_size: 500,
+    chunk_overlap: 100,
+    attach_title: true
+  });
+  const [retrievalOptions, setRetrievalOptions] = useState<RetrievalOptions>({
+    top_k: 5,
+    mode: "hybrid",
+    score_threshold: 0,
+    vector_weight: 0.6,
+    keyword_weight: 0.4
+  });
+
+  function backToList() {
+    setMode("list");
+    setStep(0);
+    setActiveRun(null);
+  }
+
+  async function openDetail(run: EvaluationRun) {
+    setMode("detail");
+    setLoadingDetail(true);
+    try {
+      setActiveRun(await getEvaluation(run.id));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "读取评测详情失败");
+      setMode("list");
+    } finally {
+      setLoadingDetail(false);
+    }
+  }
+
+  async function submitEvaluation() {
+    if (!datasetId) {
+      message.warning("请先选择评测集");
+      return;
+    }
+    setRunning(true);
+    try {
+      const result = await runEvaluation({
+        name,
+        dataset_id: datasetId,
+        document_ids: selectedDocIds,
+        clean_options: cleanOptions,
+        split_options: splitOptions,
+        retrieval_options: retrievalOptions
+      });
+      message.success("评测完成");
+      setActiveRun(result);
+      setMode("detail");
+      await onRefreshEvaluations();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "评测运行失败");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  function updateDatasetItem(index: number, patch: Partial<EvaluationDatasetItem>) {
+    setActiveDataset((current) => {
+      if (!current) return current;
+      const items = [...(current.items || [])];
+      items[index] = { ...items[index], ...patch };
+      return { ...current, items };
+    });
+  }
+
+  return (
+    <section className="view-shell knowledge-view">
+      <header className="panel-header knowledge-header">
+        <div className="knowledge-title">
+          {mode !== "list" && (
+            <Button icon={<ArrowLeftOutlined />} onClick={backToList} type="text">
+              返回评测列表
+            </Button>
+          )}
+          <div>
+            <Title level={3}>
+              {mode === "create"
+                ? "新建评测"
+                : mode === "detail"
+                  ? "评测详情"
+                  : mode === "documents" || mode === "documentDetail"
+                    ? "评测文档"
+                    : mode === "datasets" || mode === "datasetEdit"
+                      ? "评测集"
+                      : "评测工作"}
+            </Title>
+            <Text type={evaluationError ? "danger" : "secondary"}>
+              {mode === "create"
+                ? "调整清洗、分块和检索策略后运行检索评测"
+                : mode === "detail"
+                  ? activeRun?.name || "查看评测参数和报告"
+                  : evaluationError || `${evaluations.length} 条评测记录`}
+            </Text>
+          </div>
+        </div>
+        <Space wrap>
+          {mode === "list" && (
+            <Button icon={<ReloadOutlined />} onClick={onRefreshEvaluations}>
+              刷新
+            </Button>
+          )}
+        </Space>
+      </header>
+
+      {mode === "list" && (
+        <main className="knowledge-table-page">
+          <div className="knowledge-table-head">
+            <div>
+              <Title level={4}>评测记录</Title>
+              <Text type="secondary">每次评测保留独立历史索引，删除记录时会同时删除对应索引。</Text>
+            </div>
+            <Space>
+              <Button icon={<PlusOutlined />} onClick={() => setMode("create")} type="primary">
+                新建评测
+              </Button>
+              <Button onClick={() => setMode("documents")}>评测文档</Button>
+              <Button onClick={() => setMode("datasets")}>评测集</Button>
+            </Space>
+          </div>
+          <Table<EvaluationRun>
+            className="knowledge-table"
+            dataSource={evaluations}
+            loading={loadingEvaluations}
+            locale={{ emptyText: <Empty description="还没有评测记录" /> }}
+            pagination={false}
+            rowKey="id"
+            onRow={(record) => ({ onClick: () => void openDetail(record) })}
+            columns={[
+              { title: "#", width: 54, render: (_value, _record, index) => index + 1 },
+              {
+                title: "名称",
+                dataIndex: "name",
+                render: (value: string, run) => (
+                  <Space direction="vertical" size={0}>
+                    <Text strong>{value}</Text>
+                    <Text type="secondary">{run.dataset_path}</Text>
+                  </Space>
+                )
+              },
+              {
+                title: "问题数",
+                width: 100,
+                render: (_value, run) => <Text>{String(run.summary?.question_count ?? "-")}</Text>
+              },
+              {
+                title: "文档命中率",
+                width: 120,
+                render: (_value, run) => <Text>{formatRate(run.summary?.source_hit_rate)}</Text>
+              },
+              {
+                title: "MRR",
+                width: 90,
+                render: (_value, run) => <Text>{String(run.summary?.mrr ?? "-")}</Text>
+              },
+              {
+                title: "状态",
+                width: 100,
+                render: (_value, run) => <Tag color={run.status === "completed" ? "success" : run.status === "failed" ? "error" : "processing"}>{evalStatusLabel(run.status)}</Tag>
+              },
+              {
+                title: "创建时间",
+                dataIndex: "created_at",
+                width: 180,
+                render: (value: string) => formatDate(value)
+              },
+              {
+                title: "操作",
+                width: 110,
+                render: (_value, run) => (
+                  <Popconfirm
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    okText="删除"
+                    onConfirm={() => onDeleteEvaluation(run)}
+                    title={`确认删除“${run.name}”？`}
+                    description="会同时删除这条评测对应的历史索引。"
+                  >
+                    <Button danger size="small" type="link" onClick={(event) => event.stopPropagation()}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                )
+              }
+            ]}
+          />
+        </main>
+      )}
+
+      {mode === "create" && (
+        <main className="ingest-panel">
+          <Steps
+            current={step}
+            items={[
+              { title: "评测范围" },
+              { title: "清洗策略" },
+              { title: "分块策略" },
+              { title: "检索策略" },
+              { title: "确认运行" }
+            ]}
+          />
+          <section className="ingest-section">
+            <div className="eval-step-panel">
+              {step === 0 && (
+                <>
+                  <label>
+                    <Text strong>评测名称</Text>
+                    <Input value={name} onChange={(event) => setName(event.target.value)} />
+                  </label>
+                  <label>
+                    <Text strong>评测集</Text>
+                    <Select
+                      loading={loadingEvalAssets}
+                      options={evalDatasets.map((dataset) => ({ value: dataset.id, label: `${dataset.name}（${dataset.item_count ?? dataset.items?.length ?? 0}题）` }))}
+                      placeholder="请选择评测集"
+                      value={datasetId || undefined}
+                      onChange={setDatasetId}
+                    />
+                  </label>
+                  <div>
+                    <div className="eval-section-title">
+                      <Text strong>文档范围</Text>
+                      <Button size="small" onClick={refreshEvalAssets}>
+                        刷新评测文档
+                      </Button>
+                    </div>
+                    <Checkbox.Group
+                      className="eval-document-grid"
+                      value={selectedDocIds}
+                      onChange={(values) => setSelectedDocIds(values.map(String))}
+                    >
+                      {evalDocuments.map((doc) => (
+                        <Checkbox key={doc.id} value={doc.id}>
+                          {doc.title || doc.filename}
+                        </Checkbox>
+                      ))}
+                    </Checkbox.Group>
+                    <Text type="secondary">不勾选时默认评测全部评测文档。</Text>
+                  </div>
+                </>
+              )}
+              {step === 1 && (
+                <div className="eval-option-grid">
+                  {renderCleanCheckbox("去除行首尾空白", "trim_lines")}
+                  {renderCleanCheckbox("规范连续空格", "normalize_spaces")}
+                  {renderCleanCheckbox("合并多余空行", "merge_blank_lines")}
+                  {renderCleanCheckbox("合并断行", "merge_broken_lines")}
+                </div>
+              )}
+              {step === 2 && (
+                <div className="eval-option-grid">
+                  <label>
+                    <Text strong>分块长度</Text>
+                    <InputNumber min={50} max={3000} value={splitOptions.chunk_size} onChange={(value) => setSplitOptions({ ...splitOptions, chunk_size: Number(value || 500) })} />
+                  </label>
+                  <label>
+                    <Text strong>重叠长度</Text>
+                    <InputNumber min={0} max={1000} value={splitOptions.chunk_overlap} onChange={(value) => setSplitOptions({ ...splitOptions, chunk_overlap: Number(value || 0) })} />
+                  </label>
+                  <Checkbox checked={splitOptions.attach_title} onChange={(event) => setSplitOptions({ ...splitOptions, attach_title: event.target.checked })}>
+                    附加文档标题
+                  </Checkbox>
+                </div>
+              )}
+              {step === 3 && (
+                <div className="eval-option-grid">
+                  <label>
+                    <Text strong>检索模式</Text>
+                    <Select
+                      value={retrievalOptions.mode}
+                      options={[
+                        { value: "hybrid", label: "混合检索" },
+                        { value: "vector", label: "向量检索" },
+                        { value: "keyword", label: "关键词检索" }
+                      ]}
+                      onChange={(value) => setRetrievalOptions({ ...retrievalOptions, mode: value })}
+                    />
+                  </label>
+                  <label>
+                    <Text strong>Top K</Text>
+                    <InputNumber min={1} max={20} value={retrievalOptions.top_k} onChange={(value) => setRetrievalOptions({ ...retrievalOptions, top_k: Number(value || 5) })} />
+                  </label>
+                  <label>
+                    <Text strong>最低分数阈值</Text>
+                    <InputNumber min={0} max={2} step={0.05} value={retrievalOptions.score_threshold} onChange={(value) => setRetrievalOptions({ ...retrievalOptions, score_threshold: Number(value || 0) })} />
+                  </label>
+                  <label>
+                    <Text strong>向量权重</Text>
+                    <InputNumber min={0} max={1} step={0.1} value={retrievalOptions.vector_weight} onChange={(value) => setRetrievalOptions({ ...retrievalOptions, vector_weight: Number(value || 0) })} />
+                  </label>
+                  <label>
+                    <Text strong>关键词权重</Text>
+                    <InputNumber min={0} max={1} step={0.1} value={retrievalOptions.keyword_weight} onChange={(value) => setRetrievalOptions({ ...retrievalOptions, keyword_weight: Number(value || 0) })} />
+                  </label>
+                </div>
+              )}
+              {step === 4 && (
+                <div className="eval-confirm">
+                  <Descriptions bordered column={1} size="small">
+                    <Descriptions.Item label="评测名称">{name}</Descriptions.Item>
+                    <Descriptions.Item label="评测集">{evalDatasets.find((dataset) => dataset.id === datasetId)?.name || datasetId || "未选择"}</Descriptions.Item>
+                    <Descriptions.Item label="文档范围">{selectedDocIds.length ? `${selectedDocIds.length} 个评测文档` : "全部评测文档"}</Descriptions.Item>
+                    <Descriptions.Item label="清洗策略">{JSON.stringify(cleanOptions)}</Descriptions.Item>
+                    <Descriptions.Item label="分块策略">{JSON.stringify(splitOptions)}</Descriptions.Item>
+                    <Descriptions.Item label="检索策略">{JSON.stringify(retrievalOptions)}</Descriptions.Item>
+                  </Descriptions>
+                </div>
+              )}
+            </div>
+          </section>
+          <div className="eval-step-actions">
+            <Button disabled={step === 0 || running} onClick={() => setStep((value) => Math.max(value - 1, 0))}>
+              上一步
+            </Button>
+            {step < 4 ? (
+              <Button type="primary" onClick={() => setStep((value) => Math.min(value + 1, 4))}>
+                下一步
+              </Button>
+            ) : (
+              <Button loading={running} type="primary" onClick={submitEvaluation}>
+                开始评测
+              </Button>
+            )}
+          </div>
+        </main>
+      )}
+
+      {mode === "documents" && (
+        <main className="knowledge-table-page">
+          <div className="knowledge-table-head">
+            <div>
+              <Title level={4}>评测文档</Title>
+              <Text type="secondary">评测专用文档，不参与正式知识库问答。</Text>
+            </div>
+            <Space>
+              <Upload
+                accept=".txt,.pdf,.md"
+                customRequest={({ file, onError, onSuccess }: UploadRequestOption) => {
+                  setUploadingEvalDocuments(true);
+                  message.loading({ content: "正在上传评测文档...", key: "eval-doc-upload", duration: 0 });
+                  uploadEvaluationDocuments([file as File])
+                    .then(async (data) => {
+                      onSuccess?.(data);
+                      message.success({ content: "评测文档已上传", key: "eval-doc-upload" });
+                      await refreshEvalAssets();
+                    })
+                    .catch((error) => {
+                      message.error({ content: error instanceof Error ? error.message : "上传评测文档失败", key: "eval-doc-upload" });
+                      onError?.(error);
+                    })
+                    .finally(() => setUploadingEvalDocuments(false));
+                }}
+                multiple
+                showUploadList={false}
+              >
+                <Button icon={<UploadOutlined />} loading={uploadingEvalDocuments} type="primary">上传评测文档</Button>
+              </Upload>
+              <Button icon={<ReloadOutlined />} onClick={refreshEvalAssets}>刷新</Button>
+            </Space>
+          </div>
+          <Table<EvaluationDocument>
+            className="knowledge-table"
+            dataSource={evalDocuments}
+            loading={loadingEvalAssets}
+            locale={{ emptyText: <Empty description="还没有评测文档" /> }}
+            pagination={false}
+            rowKey="id"
+            onRow={(record) => ({
+              onClick: async () => {
+                const detail = await getEvaluationDocument(record.id);
+                setActiveEvalDocument(detail);
+                setMode("documentDetail");
+              }
+            })}
+            columns={[
+              { title: "#", width: 54, render: (_value, _record, index) => index + 1 },
+              { title: "名称", dataIndex: "title", render: (_value, doc) => <Text strong>{doc.title || doc.filename}</Text> },
+              { title: "类型", dataIndex: "file_type", width: 100, render: (value) => <Tag>{String(value).toUpperCase()}</Tag> },
+              { title: "基准分块", dataIndex: "chunk_count", width: 120 },
+              { title: "上传时间", dataIndex: "created_at", width: 180, render: (value: string) => formatDate(value) },
+              {
+                title: "操作",
+                width: 100,
+                render: (_value, doc) => (
+                  <Popconfirm
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    okText="删除"
+                    onConfirm={async (event) => {
+                      event?.stopPropagation();
+                      await deleteEvaluationDocument(doc.id);
+                      message.success("评测文档已删除");
+                      await refreshEvalAssets();
+                    }}
+                    title={`确认删除“${doc.title || doc.filename}”？`}
+                  >
+                    <Button danger size="small" type="link" onClick={(event) => event.stopPropagation()}>删除</Button>
+                  </Popconfirm>
+                )
+              }
+            ]}
+          />
+        </main>
+      )}
+
+      {mode === "documentDetail" && (
+        <main className="document-chunks-page">
+          <div className="document-chunks-page-head">
+            <div>
+              <Title level={4}>{activeEvalDocument?.title || "评测文档"}</Title>
+              <Text type="secondary">{activeEvalDocument?.chunks?.length || 0} 个基准片段</Text>
+            </div>
+          </div>
+          <List
+            className="chunk-list chunk-page-list"
+            dataSource={activeEvalDocument?.chunks || []}
+            locale={{ emptyText: <Empty description="暂无分块" /> }}
+            renderItem={(chunk) => (
+              <List.Item className="chunk-list-item chunk-page-item">
+                <List.Item.Meta
+                  title={<Tag>片段 {String(chunk.metadata.chunk_index ?? "")}</Tag>}
+                  description={<Text className="chunk-preview">{chunk.text}</Text>}
+                />
+              </List.Item>
+            )}
+          />
+        </main>
+      )}
+
+      {mode === "datasets" && (
+        <main className="knowledge-table-page">
+          <div className="knowledge-table-head">
+            <div>
+              <Title level={4}>评测集</Title>
+              <Text type="secondary">评测集使用评测文档和证据文本作为命中标准，不再绑定 chunk_id。</Text>
+            </div>
+            <Space>
+              <Upload
+                accept=".csv"
+                customRequest={({ file, onError, onSuccess }: UploadRequestOption) => {
+                  setImportingDataset(true);
+                  message.loading({ content: "正在导入评测集...", key: "dataset-import", duration: 0 });
+                  importEvaluationDataset(file as File)
+                    .then(async (data) => {
+                      onSuccess?.(data);
+                      message.success({ content: "评测集已导入", key: "dataset-import" });
+                      await refreshEvalAssets();
+                    })
+                    .catch((error) => {
+                      message.error({ content: error instanceof Error ? error.message : "导入评测集失败", key: "dataset-import" });
+                      onError?.(error);
+                    })
+                    .finally(() => setImportingDataset(false));
+                }}
+                maxCount={1}
+                showUploadList={false}
+              >
+                <Button icon={<UploadOutlined />} loading={importingDataset} type="primary">导入评测集</Button>
+              </Upload>
+              <Button icon={<ReloadOutlined />} onClick={refreshEvalAssets}>刷新</Button>
+            </Space>
+          </div>
+          <Table<EvaluationDataset>
+            className="knowledge-table"
+            dataSource={evalDatasets}
+            loading={loadingEvalAssets}
+            locale={{ emptyText: <Empty description="还没有评测集" /> }}
+            pagination={false}
+            rowKey="id"
+            onRow={(record) => ({
+              onClick: async () => {
+                setActiveDataset(await getEvaluationDataset(record.id));
+                setMode("datasetEdit");
+              }
+            })}
+            columns={[
+              { title: "#", width: 54, render: (_value, _record, index) => index + 1 },
+              { title: "名称", dataIndex: "name", render: (value) => <Text strong>{String(value)}</Text> },
+              { title: "题目数", dataIndex: "item_count", width: 100 },
+              { title: "更新时间", dataIndex: "updated_at", width: 180, render: (value: string) => formatDate(value) },
+              {
+                title: "操作",
+                width: 180,
+                render: (_value, dataset) => (
+                  <Space size={4} onClick={(event) => event.stopPropagation()}>
+                    <Button size="small" type="link" onClick={() => window.open(`/evaluations/datasets/${encodeURIComponent(dataset.id)}/export`, "_blank")}>导出</Button>
+                    <Popconfirm
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      okText="删除"
+                      onConfirm={async () => {
+                        await deleteEvaluationDataset(dataset.id);
+                        message.success("评测集已删除");
+                        await refreshEvalAssets();
+                      }}
+                      title={`确认删除“${dataset.name}”？`}
+                    >
+                      <Button danger size="small" type="link">删除</Button>
+                    </Popconfirm>
+                  </Space>
+                )
+              }
+            ]}
+          />
+        </main>
+      )}
+
+      {mode === "datasetEdit" && (
+        <main className="eval-detail-page">
+          {!activeDataset ? (
+            <Empty description="正在读取评测集" />
+          ) : (
+            <section className="eval-detail-card">
+              <div className="ingest-card-header">
+                <Title level={4}>{activeDataset.name}</Title>
+                <Button
+                  type="primary"
+                  onClick={async () => {
+                    await updateEvaluationDataset(activeDataset.id, {
+                      name: activeDataset.name,
+                      items: activeDataset.items || []
+                    });
+                    message.success("评测集已保存");
+                    await refreshEvalAssets();
+                  }}
+                >
+                  保存修改
+                </Button>
+              </div>
+              <List
+                dataSource={activeDataset.items || []}
+                renderItem={(item, index) => (
+                  <List.Item className="eval-result-item">
+                    <div className="dataset-edit-row">
+                      <Input
+                        value={item.question}
+                        onChange={(event) => updateDatasetItem(index, { question: event.target.value })}
+                      />
+                      <Input
+                        value={item.expected_evidence || ""}
+                        placeholder="期望证据文本"
+                        onChange={(event) => updateDatasetItem(index, { expected_evidence: event.target.value })}
+                      />
+                      <Select
+                        mode="multiple"
+                        value={item.expected_source_ids}
+                        placeholder="期望来源评测文档"
+                        options={evalDocuments.map((doc) => ({ value: doc.id, label: doc.title || doc.filename }))}
+                        onChange={(value) => updateDatasetItem(index, { expected_source_ids: value })}
+                      />
+                    </div>
+                  </List.Item>
+                )}
+              />
+            </section>
+          )}
+        </main>
+      )}
+
+      {mode === "detail" && (
+        <main className="eval-detail-page">
+          {loadingDetail || !activeRun ? (
+            <Empty description="正在读取评测详情" />
+          ) : (
+            <>
+              <section className="eval-summary-grid">
+                <StatTile label="问题数" value={String(activeRun.summary?.question_count ?? "-")} />
+                <StatTile label="文档命中率" value={formatRate(activeRun.summary?.source_hit_rate)} />
+                <StatTile label="证据命中率" value={formatRate(activeRun.summary?.evidence_hit_rate)} />
+                <StatTile label="MRR" value={String(activeRun.summary?.mrr ?? "-")} />
+              </section>
+              <section className="eval-detail-card">
+                <Title level={4}>参数快照</Title>
+                <Descriptions bordered column={2} size="small">
+                  <Descriptions.Item label="历史索引">{activeRun.es_index_name}</Descriptions.Item>
+                  <Descriptions.Item label="状态">{evalStatusLabel(activeRun.status)}</Descriptions.Item>
+                  <Descriptions.Item label="评测集">{activeRun.dataset_path}</Descriptions.Item>
+                  <Descriptions.Item label="文档范围">{JSON.stringify(activeRun.document_scope)}</Descriptions.Item>
+                  <Descriptions.Item label="清洗策略">{JSON.stringify(activeRun.clean_options)}</Descriptions.Item>
+                  <Descriptions.Item label="分块策略">{JSON.stringify(activeRun.split_options)}</Descriptions.Item>
+                  <Descriptions.Item label="检索策略">{JSON.stringify(activeRun.retrieval_options)}</Descriptions.Item>
+                  {activeRun.error && <Descriptions.Item label="错误">{activeRun.error}</Descriptions.Item>}
+                </Descriptions>
+              </section>
+              <section className="eval-detail-card">
+                <Title level={4}>评测明细</Title>
+                <List
+                  dataSource={activeRun.items || []}
+                  renderItem={(item) => (
+                    <List.Item className="eval-result-item">
+                      <List.Item.Meta
+                        title={
+                          <Space wrap>
+                            <Text strong>{item.question_id || item.id}</Text>
+                            <Tag color={item.metrics?.source_hit ? "success" : "error"}>
+                              {item.metrics?.source_hit ? "文档命中" : "文档未命中"}
+                            </Tag>
+                            <Tag color={item.metrics?.evidence_hit ? "success" : "default"}>
+                              {item.metrics?.evidence_hit ? "证据命中" : "证据未命中"}
+                            </Tag>
+                          </Space>
+                        }
+                        description={
+                          <div className="eval-item-body">
+                            <Text>{item.question}</Text>
+                            <Text type="secondary">召回：{summarizeRetrieved(item.retrieved)}</Text>
+                          </div>
+                        }
+                      />
+                    </List.Item>
+                  )}
+                />
+              </section>
+            </>
+          )}
+        </main>
+      )}
+    </section>
+  );
+
+  function renderCleanCheckbox(label: string, key: keyof CleanOptions) {
+    return (
+      <Checkbox
+        checked={cleanOptions[key]}
+        onChange={(event) => setCleanOptions({ ...cleanOptions, [key]: event.target.checked })}
+      >
+        {label}
+      </Checkbox>
+    );
+  }
+}
+
+function StatTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="stat-tile">
+      <Text type="secondary">{label}</Text>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 function KnowledgeView({
   documents,
   documentError,
@@ -832,6 +1584,7 @@ function KnowledgeView({
   const [cleanOptions, setCleanOptions] = useState<CleanOptions | null>(null);
   const [splitOptions, setSplitOptions] = useState<SplitOptions | null>(null);
   const [step, setStep] = useState(0);
+  const [stagingDocument, setStagingDocument] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [documentSearch, setDocumentSearch] = useState("");
@@ -905,13 +1658,22 @@ function KnowledgeView({
   }
 
   async function handleStageFile(file: File) {
-    const result = await stageDocument(file);
-    setStage(result);
-    setMetadata(result.metadata);
-    setCleanOptions(result.clean_options);
-    setSplitOptions(result.split_options);
-    setStep(1);
-    message.success("文档已解析，请补充信息并确认预览");
+    setStagingDocument(true);
+    message.loading({ content: "正在解析文档...", key: "stage-document", duration: 0 });
+    try {
+      const result = await stageDocument(file);
+      setStage(result);
+      setMetadata(result.metadata);
+      setCleanOptions(result.clean_options);
+      setSplitOptions(result.split_options);
+      setStep(1);
+      message.success({ content: "文档已解析，请补充信息并确认预览", key: "stage-document" });
+    } catch (error) {
+      message.error({ content: error instanceof Error ? error.message : "文档解析失败", key: "stage-document" });
+      throw error;
+    } finally {
+      setStagingDocument(false);
+    }
   }
 
   async function handlePreview() {
@@ -1015,7 +1777,6 @@ function KnowledgeView({
               <Text type="secondary">知识库的所有文件都在这里显示，上传完成后即可被助手检索和引用。</Text>
             </div>
             <Space>
-              <Button>元数据</Button>
               <Button icon={<UploadOutlined />} onClick={() => startUpload()} type="primary">
                 添加文件
               </Button>
@@ -1105,7 +1866,7 @@ function KnowledgeView({
                 title: "操作",
                 width: 160,
                 render: (_value: unknown, doc: DocumentInfo) => (
-                  <Space size={4}>
+                  <Space size={4} onClick={(event) => event.stopPropagation()}>
                     <Button
                       icon={<EyeOutlined />}
                       size="small"
@@ -1131,7 +1892,14 @@ function KnowledgeView({
                       cancelText="取消"
                       okButtonProps={{ danger: true }}
                       okText="删除"
-                      onConfirm={() => onDeleteDocument(doc)}
+                      onCancel={(event) => event?.stopPropagation()}
+                      onConfirm={(event) => {
+                        event?.stopPropagation();
+                        void onDeleteDocument(doc);
+                        if (selectedDoc?.doc_id === doc.doc_id) {
+                          backToList();
+                        }
+                      }}
                       title={`确认删除“${doc.filename || doc.doc_id}”？`}
                       description="会同时删除文档记录、分块和向量索引。"
                     >
@@ -1232,6 +2000,7 @@ function KnowledgeView({
             {!stage ? (
               <Upload.Dragger
                 accept=".txt,.pdf,.md"
+                disabled={stagingDocument}
                 customRequest={({ file, onError, onSuccess }: UploadRequestOption) => {
                   handleStageFile(file as File)
                     .then((data) => onSuccess?.(data))
@@ -1243,7 +2012,7 @@ function KnowledgeView({
                 <p className="upload-icon">
                   <UploadOutlined />
                 </p>
-                <p className="upload-title">选择要入库的文档</p>
+                <p className="upload-title">{stagingDocument ? "正在解析文档" : "选择要入库的文档"}</p>
                 <p className="upload-hint">支持 txt、pdf、md。上传后先预览，不会立即写入知识库。</p>
               </Upload.Dragger>
             ) : (
@@ -1572,6 +2341,23 @@ function formatDate(value?: string) {
     hour: "2-digit",
     minute: "2-digit"
   });
+}
+
+function formatRate(value: unknown) {
+  if (typeof value !== "number") return "-";
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
+function evalStatusLabel(status: string) {
+  return { completed: "已完成", failed: "失败", running: "运行中" }[status] || status;
+}
+
+function summarizeRetrieved(retrieved: Array<Record<string, unknown>>) {
+  if (!retrieved?.length) return "无";
+  return retrieved
+    .slice(0, 3)
+    .map((item) => `#${String(item.rank)} ${String(item.filename || item.doc_id || "未知")} ${String(item.score ?? "")}`)
+    .join("；");
 }
 
 function formatFileSize(value: number) {

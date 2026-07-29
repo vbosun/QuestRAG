@@ -150,6 +150,29 @@ class ElasticsearchVectorBackend(VectorBackend):
         keyword_results = self._keyword_search(query, top_k)
         return merge_results(vector_results, keyword_results, top_k)
 
+    def search_with_options(
+        self,
+        query: str,
+        query_vector: list[float],
+        top_k: int,
+        mode: str = "hybrid",
+        vector_weight: float = 0.6,
+        keyword_weight: float = 0.4,
+    ) -> list[dict]:
+        mode = mode if mode in {"hybrid", "vector", "keyword"} else "hybrid"
+        vector_results = [] if mode == "keyword" else self._vector_search(query_vector, top_k)
+        keyword_results = [] if mode == "vector" else self._keyword_search(query, top_k)
+        return merge_results(
+            vector_results,
+            keyword_results,
+            top_k,
+            vector_weight=vector_weight,
+            keyword_weight=keyword_weight,
+        )
+
+    def delete_index(self):
+        self.client.indices.delete(index=self.index_name, ignore_unavailable=True)
+
     def list_documents(self) -> list[dict]:
         response = self.client.search(
             index=self.index_name,
@@ -344,7 +367,13 @@ def keyword_search(query: str, chunks: list[dict], top_k=3) -> list[dict]:
     )[:top_k]
 
 
-def merge_results(vector_results, keyword_results, top_k) -> list[dict]:
+def merge_results(
+    vector_results,
+    keyword_results,
+    top_k,
+    vector_weight: float = 0.6,
+    keyword_weight: float = 0.4,
+) -> list[dict]:
     final_results = {}
     for vr in vector_results:
         idx: str = vr["id"]
@@ -372,8 +401,15 @@ def merge_results(vector_results, keyword_results, top_k) -> list[dict]:
             final_results[idx]["keyword_score"] = kr.get("keyword_score", kr["score"])
 
     results = []
+    total_weight = vector_weight + keyword_weight
+    if total_weight <= 0:
+        vector_weight = 0.6
+        keyword_weight = 0.4
+        total_weight = 1.0
     for item in final_results.values():
-        item["score"] = item["vector_score"] * 0.6 + item["keyword_score"] * 0.4
+        item["score"] = (
+            item["vector_score"] * vector_weight + item["keyword_score"] * keyword_weight
+        ) / total_weight
         results.append(item)
 
     return sorted(

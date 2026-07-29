@@ -4,6 +4,11 @@ import type {
   DocumentChunk,
   DocumentInfo,
   DocumentMetadataInput,
+  EvaluationDataset,
+  EvaluationDatasetItem,
+  EvaluationDocument,
+  EvaluationRun,
+  RetrievalOptions,
   DocumentStage,
   SplitOptions,
   StreamEvent
@@ -16,6 +21,124 @@ export async function listDocuments(): Promise<DocumentInfo[]> {
     throw new Error(formatErrorDetail(data.detail) || "读取文档失败");
   }
   return Array.isArray(data) ? data : [];
+}
+
+export async function listEvaluations(): Promise<EvaluationRun[]> {
+  const response = await fetch("/evaluations");
+  const data = await readJson(response);
+  if (!response.ok) {
+    throw new Error(formatErrorDetail(data.detail) || "读取评测记录失败");
+  }
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getEvaluation(id: string): Promise<EvaluationRun> {
+  const response = await fetch(`/evaluations/runs/${encodeURIComponent(id)}`);
+  const data = await readJson(response);
+  if (!response.ok) {
+    throw new Error(formatErrorDetail(data.detail) || "读取评测详情失败");
+  }
+  return data as EvaluationRun;
+}
+
+export async function deleteEvaluation(id: string) {
+  const response = await fetch(`/evaluations/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const data = await readJson(response);
+  if (!response.ok || data.success === false) {
+    throw new Error(formatErrorDetail(data.detail) || data.message || "删除评测失败");
+  }
+  return data;
+}
+
+export async function listEvaluationDocuments(): Promise<EvaluationDocument[]> {
+  const response = await fetch("/evaluations/documents/list");
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测文档失败");
+  return Array.isArray(data) ? data : [];
+}
+
+export async function uploadEvaluationDocuments(files: File[]): Promise<EvaluationDocument[]> {
+  const formData = new FormData();
+  for (const file of files) formData.append("files", file);
+  const response = await fetch("/evaluations/documents/upload", { method: "POST", body: formData });
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "上传评测文档失败");
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getEvaluationDocument(id: string): Promise<EvaluationDocument> {
+  const response = await fetch(`/evaluations/documents/${encodeURIComponent(id)}`);
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测文档失败");
+  return data as EvaluationDocument;
+}
+
+export async function deleteEvaluationDocument(id: string) {
+  const response = await fetch(`/evaluations/documents/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const data = await readJson(response);
+  if (!response.ok || data.success === false) throw new Error(formatErrorDetail(data.detail) || data.message || "删除评测文档失败");
+  return data;
+}
+
+export async function listEvaluationDatasets(): Promise<EvaluationDataset[]> {
+  const response = await fetch("/evaluations/datasets/list");
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测集失败");
+  return Array.isArray(data) ? data : [];
+}
+
+export async function importEvaluationDataset(file: File): Promise<EvaluationDataset> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch("/evaluations/datasets/import", { method: "POST", body: formData });
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "导入评测集失败");
+  return data as EvaluationDataset;
+}
+
+export async function getEvaluationDataset(id: string): Promise<EvaluationDataset> {
+  const response = await fetch(`/evaluations/datasets/${encodeURIComponent(id)}`);
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测集失败");
+  return data as EvaluationDataset;
+}
+
+export async function updateEvaluationDataset(id: string, payload: { name: string; items: EvaluationDatasetItem[] }): Promise<EvaluationDataset> {
+  const response = await fetch(`/evaluations/datasets/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "保存评测集失败");
+  return data as EvaluationDataset;
+}
+
+export async function deleteEvaluationDataset(id: string) {
+  const response = await fetch(`/evaluations/datasets/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const data = await readJson(response);
+  if (!response.ok || data.success === false) throw new Error(formatErrorDetail(data.detail) || data.message || "删除评测集失败");
+  return data;
+}
+
+export async function runEvaluation(payload: {
+  name: string;
+  dataset_id: string;
+  document_ids: string[];
+  clean_options: CleanOptions;
+  split_options: SplitOptions;
+  retrieval_options: RetrievalOptions;
+}): Promise<EvaluationRun> {
+  const response = await fetch("/evaluations/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await readJson(response);
+  if (!response.ok) {
+    throw new Error(formatErrorDetail(data.detail) || "评测运行失败");
+  }
+  return data as EvaluationRun;
 }
 
 export async function uploadDocument(file: File) {

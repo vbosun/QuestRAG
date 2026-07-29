@@ -13,3 +13,7 @@ VECTOR_BACKEND = os.environ.get("VECTOR_BACKEND", "memory").lower()
 ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
 ELASTICSEARCH_INDEX = os.environ.get("ELASTICSEARCH_INDEX", "questrag_chunks")
 ELASTICSEARCH_JOBS_INDEX = os.environ.get("ELASTICSEARCH_JOBS_INDEX", "questrag_jobs")
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://postgres:difyai123456@192.168.1.43:5432/quest_rag",
+)

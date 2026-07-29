@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import uuid
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from quest_rag.rag.storage import (
     get_all_docs,
     get_doc_by_id,
 )
+from quest_rag.rag.pg_store import delete_document as delete_pg_document
+from quest_rag.rag.pg_store import upsert_document
 from quest_rag.rag.vector_backend import backend
 from quest_rag.schemas.schemas import (
     CommonResponse,
@@ -109,8 +112,10 @@ def commit_stage(req: DocumentStageRequest):
             uploaded_at=datetime.now(),
         )
         add_doc_metadata(doc)
+        save_document_source(doc_id, req.metadata, req.clean_options, stage)
         if req.replace_doc_id:
             delete_doc_metadata(req.replace_doc_id)
+            delete_pg_document(req.replace_doc_id)
         _staged_documents.pop(req.stage_id, None)
         return DocumentCommitResponse(
             success=True,
@@ -164,6 +169,12 @@ async def upload(file: UploadFile = File(...)):
             uploaded_at=datetime.now()
         )
         add_doc_metadata(doc)
+        save_document_source(
+            doc_id,
+            DocumentMetadataInput(title=Path(filename).stem),
+            CleanOptions(),
+            {"filename": filename, "docs": docs},
+        )
 
         # 7. 返回结果
         return UploadResponse(
@@ -203,6 +214,7 @@ def deletedoc(doc_info:DocInfo):
     doc_meta = get_doc_by_id(doc_info.id)
     if doc_meta:
         delete_doc_metadata(doc_info.id)
+        delete_pg_document(doc_info.id)
     return CommonResponse(
         success=True,message=f"删除成功:{doc_info.id}"
     )
@@ -315,5 +327,33 @@ def clean_document_text(text: str, options: CleanOptions) -> str:
     if options.merge_blank_lines:
         text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def save_document_source(
+    doc_id: str,
+    metadata: DocumentMetadataInput,
+    clean_options: CleanOptions,
+    stage: dict,
+):
+    raw_pages = [
+        {
+            "text": doc.page_content,
+            "metadata": doc.metadata or {},
+        }
+        for doc in stage.get("docs", [])
+    ]
+    raw_text = "\n\n".join(page["text"] for page in raw_pages)
+    upsert_document(
+        doc_id=doc_id,
+        filename=stage.get("filename") or metadata.title,
+        title=metadata.title,
+        raw_text=raw_text,
+        raw_pages=raw_pages,
+        metadata={
+            "document": metadata.model_dump(),
+            "clean_options": clean_options.model_dump(),
+        },
+        content_hash=hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+    )
 
 

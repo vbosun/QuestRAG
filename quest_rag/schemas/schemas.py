@@ -85,6 +85,75 @@ class SplitOptions(BaseModel):
     attach_title: bool = True
 
 
+class RetrievalOptions(BaseModel):
+    top_k: int = Field(default=5, ge=1, le=20)
+    mode: Literal["hybrid", "vector", "keyword"] = "hybrid"
+    score_threshold: float = Field(default=0.0, ge=0, le=2)
+    vector_weight: float = Field(default=0.6, ge=0, le=1)
+    keyword_weight: float = Field(default=0.4, ge=0, le=1)
+
+
+class EvaluationRunRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    dataset_id: str = Field(min_length=1)
+    document_ids: list[str] = Field(default_factory=list)
+    clean_options: CleanOptions = Field(default_factory=CleanOptions)
+    split_options: SplitOptions = Field(default_factory=SplitOptions)
+    retrieval_options: RetrievalOptions = Field(default_factory=RetrievalOptions)
+
+
+class EvaluationDocumentSummary(BaseModel):
+    id: str
+    filename: str
+    title: str
+    file_type: str
+    file_size: int
+    metadata: dict
+    chunk_count: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class EvaluationDocumentDetail(EvaluationDocumentSummary):
+    chunks: list[dict] = Field(default_factory=list)
+
+
+class EvaluationDatasetItem(BaseModel):
+    id: str = Field(min_length=1, max_length=40)
+    question: str = Field(min_length=1)
+    expected_answer: str | None = None
+    expected_source_ids: list[str] = Field(default_factory=list)
+    expected_evidence: str | None = None
+    should_refuse: bool = False
+    focus: str | None = None
+    note: str | None = None
+
+
+class EvaluationDatasetInput(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    items: list[EvaluationDatasetItem] = Field(default_factory=list)
+
+
+class EvaluationRunSummary(BaseModel):
+    id: str
+    name: str
+    status: str
+    dataset_path: str
+    es_index_name: str
+    document_scope: dict
+    clean_options: dict
+    split_options: dict
+    retrieval_options: dict
+    summary: dict
+    error: str | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
+class EvaluationRunDetail(EvaluationRunSummary):
+    items: list[dict] = Field(default_factory=list)
+
+
 class DocumentStageResponse(BaseModel):
     stage_id: str
     filename: str
