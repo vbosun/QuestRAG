@@ -120,7 +120,7 @@ class EvaluationDocumentDetail(EvaluationDocumentSummary):
 
 class EvaluationDatasetItem(BaseModel):
     id: str = Field(min_length=1, max_length=40)
-    question: str = Field(min_length=1)
+    question: str = ""
     expected_answer: str | None = None
     expected_source_ids: list[str] = Field(default_factory=list)
     expected_evidence: str | None = None

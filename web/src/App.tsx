@@ -31,6 +31,7 @@ import {
   Layout,
   List,
   Menu,
+  Modal,
   Popconfirm,
   Select,
   Space,
@@ -48,6 +49,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   commitDocumentStage,
+  createEvaluationDataset,
   deleteDocument,
   deleteEvaluation,
   deleteEvaluationDataset,
@@ -382,12 +384,22 @@ function Workspace() {
           </div>
         </div>
         <Menu
+          defaultOpenKeys={["evaluation"]}
           mode="inline"
           selectedKeys={[activeMenu]}
           items={[
             { key: "chat", icon: <MessageOutlined />, label: "助手聊天" },
             { key: "knowledge", icon: <BookOutlined />, label: "知识库管理" },
-            { key: "evaluation", icon: <ExperimentOutlined />, label: "评测工作" }
+            {
+              key: "evaluation",
+              icon: <ExperimentOutlined />,
+              label: "评测工作",
+              children: [
+                { key: "evaluation-runs", label: "评测记录" },
+                { key: "evaluation-documents", label: "评测文档" },
+                { key: "evaluation-datasets", label: "评测集" }
+              ]
+            }
           ]}
           onClick={({ key }) => setActiveMenu(key)}
         />
@@ -424,6 +436,13 @@ function Workspace() {
             documents={documents}
             evaluationError={evaluationError}
             evaluations={evaluations}
+            initialMode={
+              activeMenu === "evaluation-documents"
+                ? "documents"
+                : activeMenu === "evaluation-datasets"
+                  ? "datasets"
+                  : "list"
+            }
             loadingEvaluations={loadingEvaluations}
             onDeleteEvaluation={handleDeleteEvaluation}
             onRefreshDocuments={refreshDocuments}
@@ -867,6 +886,7 @@ function EvaluationView({
   documents,
   evaluationError,
   evaluations,
+  initialMode,
   loadingEvaluations,
   onDeleteEvaluation,
   onRefreshDocuments,
@@ -875,13 +895,14 @@ function EvaluationView({
   documents: DocumentInfo[];
   evaluationError: string;
   evaluations: EvaluationRun[];
+  initialMode: "list" | "documents" | "datasets";
   loadingEvaluations: boolean;
   onDeleteEvaluation: (run: EvaluationRun) => Promise<void>;
   onRefreshDocuments: () => Promise<void>;
   onRefreshEvaluations: () => Promise<void>;
 }) {
   const { message } = App.useApp();
-  const [mode, setMode] = useState<"list" | "create" | "detail" | "documents" | "documentDetail" | "datasets" | "datasetEdit">("list");
+  const [mode, setMode] = useState<"list" | "create" | "detail" | "documents" | "documentDetail" | "datasets" | "datasetEdit">(initialMode);
   const [step, setStep] = useState(0);
   const [activeRun, setActiveRun] = useState<EvaluationRun | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -896,6 +917,10 @@ function EvaluationView({
   const [loadingEvalAssets, setLoadingEvalAssets] = useState(false);
   const [uploadingEvalDocuments, setUploadingEvalDocuments] = useState(false);
   const [importingDataset, setImportingDataset] = useState(false);
+  const [editingDatasetItemIndex, setEditingDatasetItemIndex] = useState<number | null>(null);
+  const [datasetItemModalOpen, setDatasetItemModalOpen] = useState(false);
+  const [datasetItemDraft, setDatasetItemDraft] = useState<EvaluationDatasetItem | null>(null);
+  const [savingDatasetItem, setSavingDatasetItem] = useState(false);
   const [cleanOptions, setCleanOptions] = useState<CleanOptions>({
     trim_lines: true,
     normalize_spaces: true,
@@ -906,6 +931,14 @@ function EvaluationView({
   useEffect(() => {
     void refreshEvalAssets();
   }, []);
+
+  useEffect(() => {
+    setMode(initialMode);
+    setStep(0);
+    setActiveRun(null);
+    setActiveEvalDocument(null);
+    setActiveDataset(null);
+  }, [initialMode]);
 
   async function refreshEvalAssets() {
     setLoadingEvalAssets(true);
@@ -937,6 +970,30 @@ function EvaluationView({
     setMode("list");
     setStep(0);
     setActiveRun(null);
+  }
+
+  function showBackButton() {
+    return mode === "create" || mode === "detail" || mode === "documentDetail" || mode === "datasetEdit";
+  }
+
+  function handleEvalBack() {
+    if (mode === "documentDetail") {
+      setMode("documents");
+      setActiveEvalDocument(null);
+      return;
+    }
+    if (mode === "datasetEdit") {
+      setMode("datasets");
+      setActiveDataset(null);
+      return;
+    }
+    backToList();
+  }
+
+  function evalBackLabel() {
+    if (mode === "documentDetail") return "返回评测文档";
+    if (mode === "datasetEdit") return "返回评测集";
+    return "返回评测记录";
   }
 
   async function openDetail(run: EvaluationRun) {
@@ -978,6 +1035,20 @@ function EvaluationView({
     }
   }
 
+  function createBlankDataset() {
+    setActiveDataset({
+      id: `draft_${crypto.randomUUID()}`,
+      name: `新评测集 ${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+      item_count: 0,
+      items: []
+    });
+    setMode("datasetEdit");
+  }
+
+  function isDraftDataset(dataset: EvaluationDataset) {
+    return dataset.id.startsWith("draft_");
+  }
+
   function updateDatasetItem(index: number, patch: Partial<EvaluationDatasetItem>) {
     setActiveDataset((current) => {
       if (!current) return current;
@@ -987,13 +1058,82 @@ function EvaluationView({
     });
   }
 
+  function createBlankDatasetItem(): EvaluationDatasetItem {
+    return {
+      id: `Q${String((activeDataset?.items || []).length + 1).padStart(3, "0")}`,
+      question: "",
+      expected_answer: "",
+      expected_source_ids: [],
+      expected_evidence: "",
+      should_refuse: false,
+      focus: "",
+      note: ""
+    };
+  }
+
+  function openDatasetItemModal(index: number | null) {
+    setEditingDatasetItemIndex(index);
+    setDatasetItemDraft(index === null ? createBlankDatasetItem() : { ...(activeDataset?.items || [])[index] });
+    setDatasetItemModalOpen(true);
+  }
+
+  async function saveDatasetItem() {
+    if (!activeDataset || !datasetItemDraft) return;
+    if (!datasetItemDraft.id.trim() || !datasetItemDraft.question.trim()) {
+      message.warning("请填写题目 ID 和用户问题");
+      return;
+    }
+    setSavingDatasetItem(true);
+    try {
+      const items = [...(activeDataset.items || [])];
+      if (editingDatasetItemIndex === null) {
+        items.push(datasetItemDraft);
+      } else {
+        items[editingDatasetItemIndex] = datasetItemDraft;
+      }
+      if (isDraftDataset(activeDataset)) {
+        setActiveDataset({ ...activeDataset, items, item_count: items.length });
+        setDatasetItemModalOpen(false);
+        setDatasetItemDraft(null);
+        setEditingDatasetItemIndex(null);
+        message.success("问题记录已加入草稿");
+        return;
+      }
+      const saved = await updateEvaluationDataset(activeDataset.id, { name: activeDataset.name, items });
+      setActiveDataset(saved);
+      setDatasetItemModalOpen(false);
+      setDatasetItemDraft(null);
+      setEditingDatasetItemIndex(null);
+      message.success("问题记录已保存");
+      await refreshEvalAssets();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "保存问题记录失败");
+    } finally {
+      setSavingDatasetItem(false);
+    }
+  }
+
+  async function deleteDatasetItem(index: number) {
+    if (!activeDataset) return;
+    const items = (activeDataset.items || []).filter((_item, itemIndex) => itemIndex !== index);
+    if (isDraftDataset(activeDataset)) {
+      setActiveDataset({ ...activeDataset, items, item_count: items.length });
+      message.success("问题记录已删除");
+      return;
+    }
+    const saved = await updateEvaluationDataset(activeDataset.id, { name: activeDataset.name, items });
+    setActiveDataset(saved);
+    message.success("问题记录已删除");
+    await refreshEvalAssets();
+  }
+
   return (
     <section className="view-shell knowledge-view">
       <header className="panel-header knowledge-header">
         <div className="knowledge-title">
-          {mode !== "list" && (
-            <Button icon={<ArrowLeftOutlined />} onClick={backToList} type="text">
-              返回评测列表
+          {showBackButton() && (
+            <Button icon={<ArrowLeftOutlined />} onClick={handleEvalBack} type="text">
+              {evalBackLabel()}
             </Button>
           )}
           <div>
@@ -1037,8 +1177,6 @@ function EvaluationView({
               <Button icon={<PlusOutlined />} onClick={() => setMode("create")} type="primary">
                 新建评测
               </Button>
-              <Button onClick={() => setMode("documents")}>评测文档</Button>
-              <Button onClick={() => setMode("datasets")}>评测集</Button>
             </Space>
           </div>
           <Table<EvaluationRun>
@@ -1358,6 +1496,9 @@ function EvaluationView({
               <Text type="secondary">评测集使用评测文档和证据文本作为命中标准，不再绑定 chunk_id。</Text>
             </div>
             <Space>
+              <Button icon={<PlusOutlined />} onClick={createBlankDataset} type="primary">
+                新建评测集
+              </Button>
               <Upload
                 accept=".csv"
                 customRequest={({ file, onError, onSuccess }: UploadRequestOption) => {
@@ -1435,46 +1576,187 @@ function EvaluationView({
           ) : (
             <section className="eval-detail-card">
               <div className="ingest-card-header">
-                <Title level={4}>{activeDataset.name}</Title>
-                <Button
-                  type="primary"
-                  onClick={async () => {
-                    await updateEvaluationDataset(activeDataset.id, {
-                      name: activeDataset.name,
-                      items: activeDataset.items || []
-                    });
-                    message.success("评测集已保存");
-                    await refreshEvalAssets();
-                  }}
-                >
-                  保存修改
-                </Button>
+                <Input
+                  value={activeDataset.name}
+                  onChange={(event) => setActiveDataset({ ...activeDataset, name: event.target.value })}
+                />
+                <Space>
+                  {isDraftDataset(activeDataset) && <Tag color="warning">未保存</Tag>}
+                  <Button icon={<PlusOutlined />} onClick={() => openDatasetItemModal(null)} type="primary">
+                    新增问题记录
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      const saved = isDraftDataset(activeDataset)
+                        ? await createEvaluationDataset({
+                            name: activeDataset.name,
+                            items: activeDataset.items || []
+                          })
+                        : await updateEvaluationDataset(activeDataset.id, {
+                            name: activeDataset.name,
+                            items: activeDataset.items || []
+                          });
+                      setActiveDataset(saved);
+                      message.success("评测集已保存");
+                      await refreshEvalAssets();
+                    }}
+                  >
+                    {isDraftDataset(activeDataset) ? "保存评测集" : "保存名称"}
+                  </Button>
+                </Space>
               </div>
-              <List
+              <Table<EvaluationDatasetItem>
+                className="knowledge-table"
                 dataSource={activeDataset.items || []}
-                renderItem={(item, index) => (
-                  <List.Item className="eval-result-item">
-                    <div className="dataset-edit-row">
+                locale={{ emptyText: <Empty description="还没有问题记录" /> }}
+                pagination={false}
+                rowKey={(item, index) => `${item.id}-${index}`}
+                onRow={(_record, index) => ({
+                  onClick: () => openDatasetItemModal(index ?? null)
+                })}
+                columns={[
+                  { title: "#", width: 54, render: (_value, _record, index) => index + 1 },
+                  { title: "ID", dataIndex: "id", width: 100 },
+                  {
+                    title: "用户问题",
+                    dataIndex: "question",
+                    ellipsis: true,
+                    render: (value) => <Text strong>{String(value || "-")}</Text>
+                  },
+                  {
+                    title: "期望来源",
+                    dataIndex: "expected_source_ids",
+                    width: 220,
+                    render: (value: string[]) => `${value?.length || 0} 个文档`
+                  },
+                  {
+                    title: "是否拒答",
+                    dataIndex: "should_refuse",
+                    width: 100,
+                    render: (value: boolean) => (value ? <Tag color="warning">是</Tag> : <Tag>否</Tag>)
+                  },
+                  {
+                    title: "评测重点",
+                    dataIndex: "focus",
+                    width: 220,
+                    ellipsis: true,
+                    render: (value) => String(value || "-")
+                  },
+                  {
+                    title: "操作",
+                    width: 150,
+                    render: (_value, _item, index) => (
+                      <Space size={4} onClick={(event) => event.stopPropagation()}>
+                        <Button size="small" type="link" onClick={() => openDatasetItemModal(index)}>
+                          编辑
+                        </Button>
+                        <Popconfirm
+                          cancelText="取消"
+                          okButtonProps={{ danger: true }}
+                          okText="删除"
+                          onConfirm={() => deleteDatasetItem(index)}
+                          title="确认删除这条问题记录？"
+                        >
+                          <Button danger size="small" type="link">
+                            删除
+                          </Button>
+                        </Popconfirm>
+                      </Space>
+                    )
+                  }
+                ]}
+              />
+              <Modal
+                confirmLoading={savingDatasetItem}
+                destroyOnClose
+                okText="保存"
+                onCancel={() => {
+                  if (!savingDatasetItem) {
+                    setDatasetItemModalOpen(false);
+                    setDatasetItemDraft(null);
+                    setEditingDatasetItemIndex(null);
+                  }
+                }}
+                onOk={saveDatasetItem}
+                open={datasetItemModalOpen}
+                title={editingDatasetItemIndex === null ? "新增问题记录" : "编辑问题记录"}
+                width={760}
+              >
+                {datasetItemDraft && (
+                  <div className="dataset-edit-grid dataset-item-modal-grid">
+                    <label>
+                      <Text type="secondary">ID</Text>
                       <Input
-                        value={item.question}
-                        onChange={(event) => updateDatasetItem(index, { question: event.target.value })}
+                        value={datasetItemDraft.id}
+                        placeholder="题目 ID"
+                        onChange={(event) => setDatasetItemDraft({ ...datasetItemDraft, id: event.target.value })}
                       />
+                    </label>
+                    <label className="span-2">
+                      <Text type="secondary">用户问题</Text>
                       <Input
-                        value={item.expected_evidence || ""}
-                        placeholder="期望证据文本"
-                        onChange={(event) => updateDatasetItem(index, { expected_evidence: event.target.value })}
+                        value={datasetItemDraft.question}
+                        placeholder="用户会怎么问"
+                        onChange={(event) => setDatasetItemDraft({ ...datasetItemDraft, question: event.target.value })}
                       />
+                    </label>
+                    <label className="span-3">
+                      <Text type="secondary">期望答案要点</Text>
+                      <Input.TextArea
+                        value={datasetItemDraft.expected_answer || ""}
+                        placeholder="回答里应该覆盖的要点"
+                        autoSize={{ minRows: 2, maxRows: 5 }}
+                        onChange={(event) => setDatasetItemDraft({ ...datasetItemDraft, expected_answer: event.target.value })}
+                      />
+                    </label>
+                    <label className="span-3">
+                      <Text type="secondary">期望来源评测文档</Text>
                       <Select
                         mode="multiple"
-                        value={item.expected_source_ids}
-                        placeholder="期望来源评测文档"
+                        value={datasetItemDraft.expected_source_ids}
+                        placeholder="选择应该被召回的评测文档"
                         options={evalDocuments.map((doc) => ({ value: doc.id, label: doc.title || doc.filename }))}
-                        onChange={(value) => updateDatasetItem(index, { expected_source_ids: value })}
+                        onChange={(value) => setDatasetItemDraft({ ...datasetItemDraft, expected_source_ids: value })}
                       />
-                    </div>
-                  </List.Item>
+                    </label>
+                    <label className="span-3">
+                      <Text type="secondary">期望证据文本</Text>
+                      <Input.TextArea
+                        value={datasetItemDraft.expected_evidence || ""}
+                        placeholder="用于判断召回文本是否命中的关键原文"
+                        autoSize={{ minRows: 3, maxRows: 8 }}
+                        onChange={(event) => setDatasetItemDraft({ ...datasetItemDraft, expected_evidence: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <Text type="secondary">是否应拒答</Text>
+                      <Checkbox
+                        checked={Boolean(datasetItemDraft.should_refuse)}
+                        onChange={(event) => setDatasetItemDraft({ ...datasetItemDraft, should_refuse: event.target.checked })}
+                      >
+                        应拒答
+                      </Checkbox>
+                    </label>
+                    <label className="span-2">
+                      <Text type="secondary">评测重点</Text>
+                      <Input
+                        value={datasetItemDraft.focus || ""}
+                        placeholder="例如来源命中、排序、岗位字段覆盖"
+                        onChange={(event) => setDatasetItemDraft({ ...datasetItemDraft, focus: event.target.value })}
+                      />
+                    </label>
+                    <label className="span-3">
+                      <Text type="secondary">备注</Text>
+                      <Input.TextArea
+                        value={datasetItemDraft.note || ""}
+                        placeholder="可选备注"
+                        autoSize={{ minRows: 2, maxRows: 4 }}
+                        onChange={(event) => setDatasetItemDraft({ ...datasetItemDraft, note: event.target.value })}
+                      />
+                    </label>
+                  </div>
                 )}
-              />
+              </Modal>
             </section>
           )}
         </main>

@@ -96,6 +96,17 @@ export async function importEvaluationDataset(file: File): Promise<EvaluationDat
   return data as EvaluationDataset;
 }
 
+export async function createEvaluationDataset(payload: { name: string; items: EvaluationDatasetItem[] }): Promise<EvaluationDataset> {
+  const response = await fetch("/evaluations/datasets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await readJson(response);
+  if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "新建评测集失败");
+  return data as EvaluationDataset;
+}
+
 export async function getEvaluationDataset(id: string): Promise<EvaluationDataset> {
   const response = await fetch(`/evaluations/datasets/${encodeURIComponent(id)}`);
   const data = await readJson(response);

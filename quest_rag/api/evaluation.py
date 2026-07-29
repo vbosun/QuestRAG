@@ -4,6 +4,7 @@ import re
 import tempfile
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from langchain_core.documents import Document
@@ -124,6 +125,14 @@ async def import_dataset(file: UploadFile = File(...)):
     return get_evaluation_dataset(dataset_id)
 
 
+@router.post("/datasets")
+def create_dataset(req: EvaluationDatasetInput):
+    init_db()
+    dataset_id = f"dataset_{uuid.uuid4().hex[:12]}"
+    upsert_evaluation_dataset({"id": dataset_id, "name": req.name, "items": [item.model_dump() for item in req.items]})
+    return get_evaluation_dataset(dataset_id)
+
+
 @router.get("/datasets/{dataset_id}")
 def get_dataset(dataset_id: str):
     init_db()
@@ -178,7 +187,12 @@ def export_dataset(dataset_id: str):
     return Response(
         content="\ufeff" + buffer.getvalue(),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{dataset["name"]}.csv"'},
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=dataset.csv; "
+                f"filename*=UTF-8''{quote(str(dataset['name']))}.csv"
+            )
+        },
     )
 
 
@@ -334,6 +348,8 @@ def parse_dataset_csv(text: str) -> list[dict]:
 def evaluate_items(eval_id: str, eval_backend: ElasticsearchVectorBackend, rows: list[dict], options) -> list[dict]:
     items = []
     for index, row in enumerate(rows, start=1):
+        if not (row.get("question") or "").strip():
+            continue
         query_vector = get_embedding(row["question"])
         results = eval_backend.search_with_options(
             row["question"],
