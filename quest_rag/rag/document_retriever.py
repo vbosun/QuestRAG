@@ -13,9 +13,11 @@ def search(query: str, top_k=3) -> list[Document]:
     query_vector = get_embedding(query)
 
     # 向量检索
+    vector_results = []
     vector_results = vector_search(query_vector, vector_store, top_k)
 
     # 关键词检索
+    keywords_results = []
     keywords_results = keyword_search(query, vector_store, top_k)
 
     # 合并两个检索的结果

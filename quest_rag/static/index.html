@@ -3,69 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>QuestRAG AI Chat</title>
+    <title>QuestRAG</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5/dist/reset.css" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <div>
-            <span class="brand-mark">Q</span>
-          </div>
-          <div>
-            <h1>QuestRAG</h1>
-            <p>知识库问答</p>
-          </div>
-        </div>
+    <div id="root"></div>
 
-        <button class="new-session" id="newSessionButton" type="button">+ 新会话</button>
-
-        <div class="session-list" id="sessionList" aria-label="会话列表"></div>
-
-        <section class="knowledge-panel" aria-label="知识库管理">
-          <div class="knowledge-header">
-            <div>
-              <h2>知识库</h2>
-              <p id="knowledgeMeta">正在读取文档</p>
-            </div>
-            <button class="icon-button" id="refreshDocumentsButton" type="button" title="刷新文档">
-              ↻
-            </button>
-          </div>
-          <div class="knowledge-actions">
-            <label class="knowledge-upload" for="fileInput">
-              <input id="fileInput" type="file" accept=".txt,.pdf,.md" />
-              上传文档
-            </label>
-          </div>
-          <div class="document-list" id="documentList" aria-label="文档列表"></div>
-        </section>
-      </aside>
-
-      <main class="chat-panel">
-        <header class="chat-header">
-          <div>
-            <h2 id="sessionTitle">新会话</h2>
-            <p id="sessionMeta">上传文档后，直接围绕资料提问。</p>
-          </div>
-        </header>
-
-        <section class="upload-status" id="uploadStatus" hidden></section>
-
-        <section class="messages" id="messages" aria-live="polite"></section>
-
-        <form class="composer" id="chatForm">
-          <textarea
-            id="messageInput"
-            rows="1"
-            placeholder="输入问题，按 Enter 发送，Shift + Enter 换行"
-          ></textarea>
-          <button id="sendButton" type="submit">发送</button>
-        </form>
-      </main>
-    </div>
-
+    <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/antd@5/dist/antd.min.js"></script>
     <script src="/static/app.js"></script>
   </body>
 </html>
