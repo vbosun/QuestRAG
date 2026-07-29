@@ -105,6 +105,7 @@ class DocumentStageRequest(BaseModel):
     metadata: DocumentMetadataInput
     clean_options: CleanOptions
     split_options: SplitOptions
+    replace_doc_id: str | None = None
 
 
 class DocumentCommitResponse(BaseModel):
@@ -115,6 +116,13 @@ class DocumentCommitResponse(BaseModel):
 
 class DocInfo(BaseModel):
     id: str
+
+
+class DocumentChunk(BaseModel):
+    chunk_id: str
+    text: str
+    metadata: dict
+    length: int
 
 
 class DocMetadata(BaseModel):

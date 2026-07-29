@@ -1,6 +1,7 @@
 import type {
   CleanOptions,
   DocumentCommitResult,
+  DocumentChunk,
   DocumentInfo,
   DocumentMetadataInput,
   DocumentStage,
@@ -50,6 +51,7 @@ export async function previewDocumentStage(payload: {
   metadata: DocumentMetadataInput;
   clean_options: CleanOptions;
   split_options: SplitOptions;
+  replace_doc_id?: string;
 }): Promise<DocumentStage> {
   const response = await fetch("/documents/stage/preview", {
     method: "POST",
@@ -68,6 +70,7 @@ export async function commitDocumentStage(payload: {
   metadata: DocumentMetadataInput;
   clean_options: CleanOptions;
   split_options: SplitOptions;
+  replace_doc_id?: string;
 }): Promise<DocumentCommitResult> {
   const response = await fetch("/documents/stage/commit", {
     method: "POST",
@@ -92,6 +95,19 @@ export async function deleteDocument(docId: string) {
     throw new Error(formatErrorDetail(data.detail) || data.message || "删除失败");
   }
   return data;
+}
+
+export async function listDocumentChunks(docId: string): Promise<DocumentChunk[]> {
+  const response = await fetch("/documents/chunks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: docId })
+  });
+  const data = await readJson(response);
+  if (!response.ok) {
+    throw new Error(formatErrorDetail(data.detail) || "读取分块失败");
+  }
+  return Array.isArray(data) ? data : [];
 }
 
 export async function streamChat(

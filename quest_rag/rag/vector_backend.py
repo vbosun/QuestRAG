@@ -33,6 +33,10 @@ class VectorBackend(ABC):
     def list_documents(self) -> list[dict]:
         pass
 
+    @abstractmethod
+    def list_chunks(self, doc_id: str) -> list[dict]:
+        pass
+
 
 class MemoryVectorBackend(VectorBackend):
     def add_documents(self, docs: list[Document], embeddings: list[list[float]]) -> list[str]:
@@ -82,6 +86,19 @@ class MemoryVectorBackend(VectorBackend):
             )
             item["chunk_count"] += 1
         return list(docs.values())
+
+    def list_chunks(self, doc_id: str) -> list[dict]:
+        chunks = [
+            {
+                "chunk_id": chunk["id"],
+                "text": chunk["text"],
+                "metadata": chunk.get("metadata", {}),
+                "length": len(chunk.get("text", "")),
+            }
+            for chunk in vector_store
+            if chunk.get("metadata", {}).get("doc_id") == doc_id
+        ]
+        return sorted(chunks, key=lambda item: item["metadata"].get("chunk_index", 0))
 
 
 class ElasticsearchVectorBackend(VectorBackend):
@@ -180,6 +197,26 @@ class ElasticsearchVectorBackend(VectorBackend):
                 }
             )
         return docs
+
+    def list_chunks(self, doc_id: str) -> list[dict]:
+        response = self.client.search(
+            index=self.index_name,
+            size=1000,
+            query={"term": {"metadata.doc_id": doc_id}},
+            sort=[
+                {"metadata.chunk_index": {"order": "asc", "missing": "_last"}},
+            ],
+            _source=["text", "metadata"],
+        )
+        return [
+            {
+                "chunk_id": hit["_id"],
+                "text": hit["_source"].get("text", ""),
+                "metadata": hit["_source"].get("metadata", {}),
+                "length": len(hit["_source"].get("text", "")),
+            }
+            for hit in response["hits"]["hits"]
+        ]
 
     def _ensure_index(self, dims: int):
         if self.client.indices.exists(index=self.index_name):

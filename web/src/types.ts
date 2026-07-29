@@ -9,6 +9,13 @@ export interface DocumentInfo {
   uploaded_at?: string;
 }
 
+export interface DocumentChunk {
+  chunk_id: string;
+  text: string;
+  metadata: Record<string, unknown>;
+  length: number;
+}
+
 export interface DocumentMetadataInput {
   title: string;
   category: string;

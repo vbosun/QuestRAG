@@ -3,9 +3,11 @@ import {
   BarChartOutlined,
   BookOutlined,
   CheckCircleOutlined,
+  ArrowLeftOutlined,
   CopyOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  EyeOutlined,
   FileTextOutlined,
   MessageOutlined,
   PlusOutlined,
@@ -32,6 +34,7 @@ import {
   Select,
   Space,
   Steps,
+  Table,
   Tag,
   Tooltip,
   Typography,
@@ -46,6 +49,7 @@ import {
   commitDocumentStage,
   deleteDocument,
   listDocuments,
+  listDocumentChunks,
   previewDocumentStage,
   stageDocument,
   streamChat,
@@ -59,6 +63,7 @@ import type {
   ChatMessage,
   CitationSource,
   CleanOptions,
+  DocumentChunk,
   DocumentInfo,
   DocumentMetadataInput,
   DocumentStage,
@@ -820,12 +825,84 @@ function KnowledgeView({
 }) {
   const { message } = App.useApp();
   const [stage, setStage] = useState<DocumentStage | null>(null);
+  const [mode, setMode] = useState<"list" | "chunks" | "upload">("list");
+  const [selectedDocId, setSelectedDocId] = useState<string | undefined>(documents[0]?.doc_id);
+  const [replaceDoc, setReplaceDoc] = useState<DocumentInfo | null>(null);
   const [metadata, setMetadata] = useState<DocumentMetadataInput | null>(null);
   const [cleanOptions, setCleanOptions] = useState<CleanOptions | null>(null);
   const [splitOptions, setSplitOptions] = useState<SplitOptions | null>(null);
   const [step, setStep] = useState(0);
   const [previewing, setPreviewing] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [documentSearch, setDocumentSearch] = useState("");
+  const [documentFilter, setDocumentFilter] = useState("all");
+  const [documentSort, setDocumentSort] = useState("uploaded_desc");
+  const [chunks, setChunks] = useState<DocumentChunk[]>([]);
+  const [loadingChunks, setLoadingChunks] = useState(false);
+  const [chunksReloadKey, setChunksReloadKey] = useState(0);
+  const [activeChunk, setActiveChunk] = useState<DocumentChunk | null>(null);
+  const selectedDoc = documents.find((doc) => doc.doc_id === selectedDocId);
+  const visibleDocuments = documents
+    .filter((doc) => {
+      const name = doc.filename || doc.doc_id || "";
+      const keyword = documentSearch.trim().toLowerCase();
+      if (documentFilter !== "all" && doc.filename && !doc.filename.toLowerCase().endsWith(documentFilter)) {
+        return false;
+      }
+      return !keyword || name.toLowerCase().includes(keyword) || doc.doc_id.toLowerCase().includes(keyword);
+    })
+    .sort((a, b) => {
+      if (documentSort === "name_asc") return (a.filename || "").localeCompare(b.filename || "", "zh-CN");
+      if (documentSort === "chunks_desc") return (b.chunk_count || 0) - (a.chunk_count || 0);
+      return new Date(b.uploaded_at || 0).getTime() - new Date(a.uploaded_at || 0).getTime();
+    });
+
+  useEffect(() => {
+    if (!documents.length) {
+      setSelectedDocId(undefined);
+      return;
+    }
+    if (!selectedDocId || !documents.some((doc) => doc.doc_id === selectedDocId)) {
+      setSelectedDocId(documents[0].doc_id);
+    }
+  }, [documents, selectedDocId]);
+
+  useEffect(() => {
+    if (mode !== "chunks" || !selectedDoc?.doc_id) {
+      setChunks([]);
+      return;
+    }
+    setLoadingChunks(true);
+    listDocumentChunks(selectedDoc.doc_id)
+      .then(setChunks)
+      .catch((error) => {
+        setChunks([]);
+        message.error(error instanceof Error ? error.message : "读取分块失败");
+      })
+      .finally(() => setLoadingChunks(false));
+  }, [mode, selectedDoc?.doc_id, chunksReloadKey, message]);
+
+  function startUpload(doc?: DocumentInfo) {
+    resetStage();
+    setReplaceDoc(doc || null);
+    setMode("upload");
+    if (doc) {
+      message.info(`将更新：${doc.filename}`);
+    }
+  }
+
+  function backToList() {
+    resetStage();
+    setReplaceDoc(null);
+    setActiveChunk(null);
+    setMode("list");
+  }
+
+  function openDocumentChunks(doc: DocumentInfo) {
+    setSelectedDocId(doc.doc_id);
+    setActiveChunk(null);
+    setMode("chunks");
+  }
 
   async function handleStageFile(file: File) {
     const result = await stageDocument(file);
@@ -845,7 +922,8 @@ function KnowledgeView({
         stage_id: stage.stage_id,
         metadata,
         clean_options: cleanOptions,
-        split_options: splitOptions
+        split_options: splitOptions,
+        replace_doc_id: replaceDoc?.doc_id
       });
       setStage(result);
       setStep(2);
@@ -865,11 +943,14 @@ function KnowledgeView({
         stage_id: stage.stage_id,
         metadata,
         clean_options: cleanOptions,
-        split_options: splitOptions
+        split_options: splitOptions,
+        replace_doc_id: replaceDoc?.doc_id
       });
       setStep(3);
-      message.success(`入库完成，生成 ${result.chunk_count} 个片段`);
+      message.success(`${replaceDoc ? "更新" : "入库"}完成，生成 ${result.chunk_count} 个片段`);
       await onRefreshDocuments();
+      setSelectedDocId(result.doc_id);
+      backToList();
     } catch (error) {
       message.error(error instanceof Error ? error.message : "入库失败");
     } finally {
@@ -888,11 +969,37 @@ function KnowledgeView({
   return (
     <section className="view-shell knowledge-view">
       <header className="panel-header knowledge-header">
-        <div>
-          <Title level={3}>知识库管理</Title>
+        <div className="knowledge-title">
+          {mode === "upload" && (
+            <Button icon={<ArrowLeftOutlined />} onClick={backToList} type="text">
+              返回
+            </Button>
+          )}
+          {mode === "chunks" && (
+            <Button icon={<ArrowLeftOutlined />} onClick={backToList} type="text">
+              返回文档列表
+            </Button>
+          )}
+          <div>
+          <Title level={3}>
+            {mode === "upload"
+              ? replaceDoc
+                ? "更新文档"
+                : "上传文档"
+              : mode === "chunks"
+                ? "文档分块"
+                : "知识库管理"}
+          </Title>
           <Text type={documentError ? "danger" : "secondary"}>
-            {documentError || (documents.length ? `${documents.length} 个文档` : "暂无文档")}
+            {mode === "upload"
+              ? replaceDoc
+                ? `处理新文档完成后，将替换 ${replaceDoc.filename}`
+                : "按步骤确认后再写入知识库"
+              : mode === "chunks"
+                ? selectedDoc?.filename || "查看文档分块"
+                : documentError || (documents.length ? `${documents.length} 个文档` : "暂无文档")}
           </Text>
+          </div>
         </div>
         <Space wrap>
           <Button icon={<ReloadOutlined />} onClick={onRefreshDocuments}>
@@ -900,51 +1007,215 @@ function KnowledgeView({
           </Button>
         </Space>
       </header>
-      <div className="knowledge-workspace">
-        <aside className="knowledge-documents">
-          <Space className="section-title" direction="vertical" size={2}>
-            <Text strong>已入库文档</Text>
-            <Text type="secondary">当前知识库内容</Text>
-          </Space>
-          <List
-            className="document-list"
-            dataSource={documents}
+      {mode === "list" ? (
+        <main className="knowledge-table-page">
+          <div className="knowledge-table-head">
+            <div>
+              <Title level={4}>文档</Title>
+              <Text type="secondary">知识库的所有文件都在这里显示，上传完成后即可被助手检索和引用。</Text>
+            </div>
+            <Space>
+              <Button>元数据</Button>
+              <Button icon={<UploadOutlined />} onClick={() => startUpload()} type="primary">
+                添加文件
+              </Button>
+            </Space>
+          </div>
+
+          <div className="knowledge-toolbar">
+            <Select
+              className="knowledge-filter"
+              options={[
+                { value: "all", label: "全部" },
+                { value: ".pdf", label: "PDF" },
+                { value: ".txt", label: "TXT" },
+                { value: ".md", label: "Markdown" }
+              ]}
+              value={documentFilter}
+              onChange={setDocumentFilter}
+            />
+            <Input
+              allowClear
+              className="knowledge-search"
+              placeholder="搜索"
+              value={documentSearch}
+              onChange={(event) => setDocumentSearch(event.target.value)}
+            />
+            <Select
+              className="knowledge-sort"
+              options={[
+                { value: "uploaded_desc", label: "排序：上传时间" },
+                { value: "name_asc", label: "排序：名称" },
+                { value: "chunks_desc", label: "排序：片段数" }
+              ]}
+              value={documentSort}
+              onChange={setDocumentSort}
+            />
+          </div>
+
+          <Table<DocumentInfo>
+            className="knowledge-table"
+            dataSource={visibleDocuments}
             loading={loadingDocuments}
             locale={{ emptyText: <Empty description="还没有文档" /> }}
-            renderItem={(doc) => {
-              const name = doc.filename || doc.doc_id || "未命名文档";
-              return (
-                <List.Item
-                  actions={[
+            pagination={false}
+            rowKey="doc_id"
+            onRow={(record) => ({
+              onClick: () => openDocumentChunks(record)
+            })}
+            size="middle"
+            columns={[
+              {
+                title: "#",
+                width: 54,
+                render: (_value: unknown, _record: DocumentInfo, index: number) => index + 1
+              },
+              {
+                title: "名称",
+                dataIndex: "filename",
+                render: (_value: unknown, doc: DocumentInfo) => (
+                  <Space>
+                    <span className="document-file-icon">{documentExt(doc.filename || doc.doc_id)}</span>
+                    <Text strong>{doc.filename || doc.doc_id}</Text>
+                  </Space>
+                )
+              },
+              {
+                title: "分段模式",
+                width: 140,
+                render: () => <Tag>通用</Tag>
+              },
+              {
+                title: "召回次数",
+                width: 120,
+                render: (_value: unknown, doc: DocumentInfo) => <Text>{doc.chunk_count || 0}</Text>
+              },
+              {
+                title: "上传时间",
+                dataIndex: "uploaded_at",
+                width: 180,
+                render: (value: string | undefined) => formatDate(value)
+              },
+              {
+                title: "状态",
+                width: 120,
+                render: () => <Tag color="success">可用</Tag>
+              },
+              {
+                title: "操作",
+                width: 160,
+                render: (_value: unknown, doc: DocumentInfo) => (
+                  <Space size={4}>
+                    <Button
+                      icon={<EyeOutlined />}
+                      size="small"
+                      type="link"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openDocumentChunks(doc);
+                      }}
+                    >
+                      分块
+                    </Button>
+                    <Button
+                      size="small"
+                      type="link"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        startUpload(doc);
+                      }}
+                    >
+                      更新
+                    </Button>
                     <Popconfirm
                       cancelText="取消"
-                      key="delete"
                       okButtonProps={{ danger: true }}
                       okText="删除"
                       onConfirm={() => onDeleteDocument(doc)}
-                      title={`确认删除“${name}”？`}
+                      title={`确认删除“${doc.filename || doc.doc_id}”？`}
+                      description="会同时删除文档记录、分块和向量索引。"
                     >
-                      <Button danger type="link">
+                      <Button danger size="small" type="link" onClick={(event) => event.stopPropagation()}>
                         删除
                       </Button>
                     </Popconfirm>
-                  ]}
-                >
-                  <List.Item.Meta
-                    avatar={<Avatar className="document-avatar">文</Avatar>}
-                    title={<Text strong>{name}</Text>}
-                    description={
-                      <Space wrap size={8}>
-                        <Tag>{doc.chunk_count || 0} 个片段</Tag>
-                        <Text type="secondary">{formatDate(doc.uploaded_at)}</Text>
-                      </Space>
-                    }
-                  />
-                </List.Item>
-              );
-            }}
+                  </Space>
+                )
+              }
+            ]}
           />
-        </aside>
+        </main>
+      ) : mode === "chunks" ? (
+        <main className="document-chunks-page">
+          <div className="document-chunks-page-head">
+            <div>
+              <Title level={4}>{selectedDoc?.filename || "文档分块"}</Title>
+              <Text type="secondary">
+                {loadingChunks ? "正在读取分块" : `${chunks.length} 个片段，点击片段查看完整内容`}
+              </Text>
+            </div>
+            <Space>
+              <Button
+                icon={<ReloadOutlined />}
+                loading={loadingChunks}
+                onClick={() => setChunksReloadKey((value) => value + 1)}
+              >
+                刷新分块
+              </Button>
+              {selectedDoc && (
+                <Button onClick={() => startUpload(selectedDoc)}>
+                  更新文档
+                </Button>
+              )}
+            </Space>
+          </div>
+          <List
+            className="chunk-list chunk-page-list"
+            dataSource={chunks}
+            loading={loadingChunks}
+            locale={{ emptyText: <Empty description="该文档暂无分块" /> }}
+            renderItem={(chunk) => (
+              <List.Item className="chunk-list-item chunk-page-item" onClick={() => setActiveChunk(chunk)}>
+                <List.Item.Meta
+                  title={
+                    <Space wrap>
+                      <Tag color="blue">片段 {String(chunk.metadata.chunk_index ?? chunk.chunk_id.slice(-6))}</Tag>
+                      <Text strong>{chunk.length} 字</Text>
+                      {chunk.metadata.page !== undefined && chunk.metadata.page !== null && (
+                        <Text type="secondary">页码 {String(chunk.metadata.page)}</Text>
+                      )}
+                    </Space>
+                  }
+                  description={<Text className="chunk-preview">{chunk.text}</Text>}
+                />
+              </List.Item>
+            )}
+          />
+          <Drawer
+            className="chunk-drawer"
+            destroyOnClose
+            onClose={() => setActiveChunk(null)}
+            open={!!activeChunk}
+            placement="right"
+            title="分块详情"
+            width={520}
+          >
+            {activeChunk && (
+              <div className="chunk-detail">
+                <Descriptions bordered column={1} size="small">
+                  <Descriptions.Item label="文档">{selectedDoc?.filename}</Descriptions.Item>
+                  <Descriptions.Item label="片段序号">
+                    {String(activeChunk.metadata.chunk_index ?? "无")}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="页码">{String(activeChunk.metadata.page ?? "无")}</Descriptions.Item>
+                  <Descriptions.Item label="长度">{activeChunk.length} 字</Descriptions.Item>
+                </Descriptions>
+                <pre>{activeChunk.text}</pre>
+              </div>
+            )}
+          </Drawer>
+        </main>
+      ) : (
 
         <main className="ingest-panel">
           <Steps
@@ -1138,7 +1409,7 @@ function KnowledgeView({
                       重新生成预览
                     </Button>
                     <Button disabled={!stage.chunk_count} loading={committing} onClick={handleCommit}>
-                      确认入库
+                      {replaceDoc ? "确认更新" : "确认入库"}
                     </Button>
                   </Space>
                 </section>
@@ -1188,7 +1459,7 @@ function KnowledgeView({
             )}
           </section>
         </main>
-      </div>
+      )}
     </section>
   );
 }
@@ -1307,4 +1578,9 @@ function formatFileSize(value: number) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function documentExt(value: string) {
+  const ext = value.includes(".") ? value.split(".").pop()?.toUpperCase() : "DOC";
+  return ext?.slice(0, 3) || "DOC";
 }

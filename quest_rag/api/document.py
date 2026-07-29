@@ -18,9 +18,11 @@ from quest_rag.rag.storage import (
     get_all_docs,
     get_doc_by_id,
 )
+from quest_rag.rag.vector_backend import backend
 from quest_rag.schemas.schemas import (
     CommonResponse,
     CleanOptions,
+    DocumentChunk,
     DocumentCommitResponse,
     DocumentMetadataInput,
     DocumentStageRequest,
@@ -85,7 +87,11 @@ def commit_stage(req: DocumentStageRequest):
     """确认入库：清洗、分块、向量化并写入知识库。"""
     stage = ensure_stage(req.stage_id)
     try:
-        docs = prepare_docs_for_ingest(req.stage_id, req.metadata, req.clean_options)
+        doc_id = build_doc_id(req.metadata.title or stage["filename"])
+        if req.replace_doc_id and req.replace_doc_id == doc_id:
+            doc_id = f"{doc_id}::{uuid.uuid4().hex[:8]}"
+
+        docs = prepare_docs_for_ingest(req.stage_id, req.metadata, req.clean_options, doc_id)
         chunks = split_docs(
             docs=docs,
             chunk_size=req.split_options.chunk_size,
@@ -96,7 +102,6 @@ def commit_stage(req: DocumentStageRequest):
                 chunk.page_content = f"{req.metadata.title}\n{chunk.page_content}"
 
         ids = add_documents(chunks)
-        doc_id = docs[0].metadata["doc_id"] if docs else f"kb::{stage['filename']}"
         doc = DocMetadata(
             doc_id=doc_id,
             filename=req.metadata.title or stage["filename"],
@@ -104,6 +109,8 @@ def commit_stage(req: DocumentStageRequest):
             uploaded_at=datetime.now(),
         )
         add_doc_metadata(doc)
+        if req.replace_doc_id:
+            delete_doc_metadata(req.replace_doc_id)
         _staged_documents.pop(req.stage_id, None)
         return DocumentCommitResponse(
             success=True,
@@ -179,6 +186,14 @@ def doclist():
     """查看文档列表"""
     return get_all_docs()
 
+
+@router.post("/chunks", response_model=list[DocumentChunk])
+def chunks(doc_info: DocInfo):
+    """查看指定文档的分块列表。"""
+    if not (doc_info and doc_info.id):
+        raise HTTPException(status_code=400, detail="无效的文档ID")
+    return backend.list_chunks(doc_info.id)
+
 @router.post("/deletedoc", response_model=CommonResponse)
 def deletedoc(doc_info:DocInfo):
     """删除指定文档"""
@@ -248,10 +263,11 @@ def prepare_docs_for_ingest(
     stage_id: str,
     metadata: DocumentMetadataInput,
     clean_options: CleanOptions,
+    doc_id: str | None = None,
 ) -> list[Document]:
     stage = ensure_stage(stage_id)
     filename = stage["filename"]
-    doc_id = f"kb::{metadata.title or Path(filename).stem}"
+    resolved_doc_id = doc_id or build_doc_id(metadata.title or Path(filename).stem)
     docs = []
     for doc in stage["docs"]:
         cleaned = clean_document_text(doc.page_content, clean_options)
@@ -262,7 +278,7 @@ def prepare_docs_for_ingest(
                 page_content=cleaned,
                 metadata={
                     **(doc.metadata or {}),
-                    "doc_id": doc_id,
+                    "doc_id": resolved_doc_id,
                     "filename": metadata.title or filename,
                     "original_filename": filename,
                     "source_type": "knowledge_document",
@@ -276,6 +292,11 @@ def prepare_docs_for_ingest(
             )
         )
     return docs
+
+
+def build_doc_id(title: str) -> str:
+    normalized = re.sub(r"\s+", " ", title).strip() or "未命名文档"
+    return f"kb::{normalized}"
 
 
 def clean_document_text(text: str, options: CleanOptions) -> str:
