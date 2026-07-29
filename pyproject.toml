@@ -12,6 +12,7 @@ dependencies = [
     "langchain-community>=0.4.1",
     "langchain-openai",
     "logger>=1.4",
+    "elasticsearch>=8.15.0,<9.0.0",
     "pypdf>=6.10.2",
     "pytest>=9.0.3",
     "python-multipart>=0.0.27",
@@ -24,4 +25,5 @@ select = ["E", "W", "F", "I", "UP"]
 # 忽略特定的规则
 ignore = ["E501", "F401"]
 
-
+[tool.pytest.ini_options]
+pythonpath = ["."]

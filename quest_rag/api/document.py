@@ -46,10 +46,14 @@ async def upload(file: UploadFile = File(...)):
 
     try:
         docs = load_file(file_path=tmp_path, file_type=ext)
-        doc_meta = docs[0].metadata
         doc_id = f"{uuid.uuid4().hex}_{file.filename}"
-        doc_meta["doc_id"] = doc_id
-        docs[0].metadata = doc_meta
+        for doc_item in docs:
+            doc_item.metadata = {
+                **doc_item.metadata,
+                "doc_id": doc_id,
+                "filename": filename,
+                "source_type": "knowledge_document",
+            }
 
         chunks = split_docs(docs=docs)
         ids = add_documents(chunks)

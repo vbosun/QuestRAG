@@ -12,12 +12,25 @@ app.include_router(chat.router)
 app.include_router(document.router)
 
 STATIC_DIR = Path(__file__).parent / "static"
+WEB_DIST_DIR = Path(__file__).parent.parent / "web" / "dist"
+WEB_ASSETS_DIR = WEB_DIST_DIR / "assets"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+if WEB_ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=WEB_ASSETS_DIR), name="web-assets")
 
 
 @app.get("/", include_in_schema=False)
 def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    if WEB_DIST_DIR.exists():
+        return FileResponse(
+            WEB_DIST_DIR / "index.html",
+            headers={"Cache-Control": "no-cache"},
+        )
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 if __name__ == "__main__":
