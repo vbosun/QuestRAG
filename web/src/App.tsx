@@ -2,6 +2,7 @@ import {
   ArrowsAltOutlined,
   BarChartOutlined,
   BookOutlined,
+  CheckCircleOutlined,
   CopyOutlined,
   DeleteOutlined,
   DownloadOutlined,
@@ -17,14 +18,20 @@ import {
   App,
   Avatar,
   Button,
+  Checkbox,
   ConfigProvider,
+  Descriptions,
   Drawer,
   Empty,
+  Input,
+  InputNumber,
   Layout,
   List,
   Menu,
   Popconfirm,
+  Select,
   Space,
+  Steps,
   Tag,
   Tooltip,
   Typography,
@@ -35,7 +42,15 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { deleteDocument, listDocuments, streamChat, uploadDocument } from "./api";
+import {
+  commitDocumentStage,
+  deleteDocument,
+  listDocuments,
+  previewDocumentStage,
+  stageDocument,
+  streamChat,
+  uploadDocument
+} from "./api";
 import { parseMessageParts } from "./artifacts";
 import { downloadText, messagePartsToMarkdown } from "./download";
 import type {
@@ -43,9 +58,13 @@ import type {
   ChartArtifact,
   ChatMessage,
   CitationSource,
+  CleanOptions,
   DocumentInfo,
+  DocumentMetadataInput,
+  DocumentStage,
   MessagePart,
-  Session
+  Session,
+  SplitOptions
 } from "./types";
 
 const STORAGE_KEY = "questrag.chat.sessions.v2";
@@ -351,7 +370,6 @@ function Workspace() {
             loadingDocuments={loadingDocuments}
             onDeleteDocument={handleDeleteDocument}
             onRefreshDocuments={refreshDocuments}
-            onUploadFile={handleUpload}
           />
         )}
       </Content>
@@ -792,16 +810,81 @@ function KnowledgeView({
   documentError,
   loadingDocuments,
   onDeleteDocument,
-  onRefreshDocuments,
-  onUploadFile
+  onRefreshDocuments
 }: {
   documents: DocumentInfo[];
   documentError: string;
   loadingDocuments: boolean;
   onDeleteDocument: (doc: DocumentInfo) => Promise<void>;
   onRefreshDocuments: () => Promise<void>;
-  onUploadFile: (file: File) => Promise<void>;
 }) {
+  const { message } = App.useApp();
+  const [stage, setStage] = useState<DocumentStage | null>(null);
+  const [metadata, setMetadata] = useState<DocumentMetadataInput | null>(null);
+  const [cleanOptions, setCleanOptions] = useState<CleanOptions | null>(null);
+  const [splitOptions, setSplitOptions] = useState<SplitOptions | null>(null);
+  const [step, setStep] = useState(0);
+  const [previewing, setPreviewing] = useState(false);
+  const [committing, setCommitting] = useState(false);
+
+  async function handleStageFile(file: File) {
+    const result = await stageDocument(file);
+    setStage(result);
+    setMetadata(result.metadata);
+    setCleanOptions(result.clean_options);
+    setSplitOptions(result.split_options);
+    setStep(1);
+    message.success("文档已解析，请补充信息并确认预览");
+  }
+
+  async function handlePreview() {
+    if (!stage || !metadata || !cleanOptions || !splitOptions) return;
+    setPreviewing(true);
+    try {
+      const result = await previewDocumentStage({
+        stage_id: stage.stage_id,
+        metadata,
+        clean_options: cleanOptions,
+        split_options: splitOptions
+      });
+      setStage(result);
+      setStep(2);
+      message.success("预览已更新");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "生成预览失败");
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function handleCommit() {
+    if (!stage || !metadata || !cleanOptions || !splitOptions) return;
+    setCommitting(true);
+    try {
+      const result = await commitDocumentStage({
+        stage_id: stage.stage_id,
+        metadata,
+        clean_options: cleanOptions,
+        split_options: splitOptions
+      });
+      setStep(3);
+      message.success(`入库完成，生成 ${result.chunk_count} 个片段`);
+      await onRefreshDocuments();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "入库失败");
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  function resetStage() {
+    setStage(null);
+    setMetadata(null);
+    setCleanOptions(null);
+    setSplitOptions(null);
+    setStep(0);
+  }
+
   return (
     <section className="view-shell knowledge-view">
       <header className="panel-header knowledge-header">
@@ -812,50 +895,300 @@ function KnowledgeView({
           </Text>
         </div>
         <Space wrap>
-          <FileUploadButton buttonText="上传文档" onUploadFile={onUploadFile} />
           <Button icon={<ReloadOutlined />} onClick={onRefreshDocuments}>
             刷新
           </Button>
         </Space>
       </header>
-      <List
-        className="document-list"
-        dataSource={documents}
-        loading={loadingDocuments}
-        locale={{ emptyText: <Empty description="还没有文档" /> }}
-        renderItem={(doc) => {
-          const name = doc.filename || doc.doc_id || "未命名文档";
-          return (
-            <List.Item
-              actions={[
-                <Popconfirm
-                  cancelText="取消"
-                  key="delete"
-                  okButtonProps={{ danger: true }}
-                  okText="删除"
-                  onConfirm={() => onDeleteDocument(doc)}
-                  title={`确认删除“${name}”？`}
+      <div className="knowledge-workspace">
+        <aside className="knowledge-documents">
+          <Space className="section-title" direction="vertical" size={2}>
+            <Text strong>已入库文档</Text>
+            <Text type="secondary">当前知识库内容</Text>
+          </Space>
+          <List
+            className="document-list"
+            dataSource={documents}
+            loading={loadingDocuments}
+            locale={{ emptyText: <Empty description="还没有文档" /> }}
+            renderItem={(doc) => {
+              const name = doc.filename || doc.doc_id || "未命名文档";
+              return (
+                <List.Item
+                  actions={[
+                    <Popconfirm
+                      cancelText="取消"
+                      key="delete"
+                      okButtonProps={{ danger: true }}
+                      okText="删除"
+                      onConfirm={() => onDeleteDocument(doc)}
+                      title={`确认删除“${name}”？`}
+                    >
+                      <Button danger type="link">
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  ]}
                 >
-                  <Button danger type="link">
-                    删除
-                  </Button>
-                </Popconfirm>
-              ]}
-            >
-              <List.Item.Meta
-                avatar={<Avatar className="document-avatar">文</Avatar>}
-                title={<Text strong>{name}</Text>}
-                description={
-                  <Space wrap size={8}>
-                    <Tag>{doc.chunk_count || 0} 个片段</Tag>
-                    <Text type="secondary">{formatDate(doc.uploaded_at)}</Text>
+                  <List.Item.Meta
+                    avatar={<Avatar className="document-avatar">文</Avatar>}
+                    title={<Text strong>{name}</Text>}
+                    description={
+                      <Space wrap size={8}>
+                        <Tag>{doc.chunk_count || 0} 个片段</Tag>
+                        <Text type="secondary">{formatDate(doc.uploaded_at)}</Text>
+                      </Space>
+                    }
+                  />
+                </List.Item>
+              );
+            }}
+          />
+        </aside>
+
+        <main className="ingest-panel">
+          <Steps
+            current={step}
+            items={[
+              { title: "选择文档" },
+              { title: "补充信息" },
+              { title: "预览确认" },
+              { title: "入库完成" }
+            ]}
+          />
+
+          <section className="ingest-section">
+            {!stage ? (
+              <Upload.Dragger
+                accept=".txt,.pdf,.md"
+                customRequest={({ file, onError, onSuccess }: UploadRequestOption) => {
+                  handleStageFile(file as File)
+                    .then((data) => onSuccess?.(data))
+                    .catch((error) => onError?.(error));
+                }}
+                maxCount={1}
+                showUploadList={false}
+              >
+                <p className="upload-icon">
+                  <UploadOutlined />
+                </p>
+                <p className="upload-title">选择要入库的文档</p>
+                <p className="upload-hint">支持 txt、pdf、md。上传后先预览，不会立即写入知识库。</p>
+              </Upload.Dragger>
+            ) : (
+              <div className="ingest-grid">
+                <section className="ingest-card">
+                  <div className="ingest-card-header">
+                    <Text strong>文档信息</Text>
+                    <Button size="small" onClick={resetStage}>
+                      重新选择
+                    </Button>
+                  </div>
+                  <Descriptions column={2} size="small">
+                    <Descriptions.Item label="文件">{stage.filename}</Descriptions.Item>
+                    <Descriptions.Item label="类型">{stage.file_type}</Descriptions.Item>
+                    <Descriptions.Item label="页/段">{stage.page_count}</Descriptions.Item>
+                    <Descriptions.Item label="大小">{formatFileSize(stage.file_size)}</Descriptions.Item>
+                  </Descriptions>
+                  {metadata && (
+                    <div className="metadata-form">
+                      <label>
+                        <Text type="secondary">文档名称</Text>
+                        <Input
+                          value={metadata.title}
+                          onChange={(event) => setMetadata({ ...metadata, title: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <Text type="secondary">文档类型</Text>
+                        <Select
+                          value={metadata.category}
+                          options={[
+                            { value: "policy", label: "政策文件" },
+                            { value: "guide", label: "办事指南" },
+                            { value: "faq", label: "常见问答" },
+                            { value: "notice", label: "通知公告" },
+                            { value: "other", label: "其他" }
+                          ]}
+                          onChange={(value) => setMetadata({ ...metadata, category: value })}
+                        />
+                      </label>
+                      <label>
+                        <Text type="secondary">发布机构</Text>
+                        <Input
+                          value={metadata.organization || ""}
+                          onChange={(event) => setMetadata({ ...metadata, organization: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <Text type="secondary">适用地区</Text>
+                        <Input
+                          value={metadata.region || ""}
+                          onChange={(event) => setMetadata({ ...metadata, region: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <Text type="secondary">发布时间</Text>
+                        <Input
+                          placeholder="例如 2024-06-01"
+                          value={metadata.publish_date || ""}
+                          onChange={(event) => setMetadata({ ...metadata, publish_date: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <Text type="secondary">关键词</Text>
+                        <Input
+                          placeholder="用逗号分隔"
+                          value={metadata.keywords.join(",")}
+                          onChange={(event) =>
+                            setMetadata({
+                              ...metadata,
+                              keywords: event.target.value
+                                .split(/[,，]/)
+                                .map((item) => item.trim())
+                                .filter(Boolean)
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="metadata-wide">
+                        <Text type="secondary">备注</Text>
+                        <Input.TextArea
+                          rows={2}
+                          value={metadata.notes || ""}
+                          onChange={(event) => setMetadata({ ...metadata, notes: event.target.value })}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </section>
+
+                <section className="ingest-card">
+                  <Text strong>清洗与分块</Text>
+                  {cleanOptions && (
+                    <div className="option-grid">
+                      <Checkbox
+                        checked={cleanOptions.trim_lines}
+                        onChange={(event) => setCleanOptions({ ...cleanOptions, trim_lines: event.target.checked })}
+                      >
+                        去除行首尾空格
+                      </Checkbox>
+                      <Checkbox
+                        checked={cleanOptions.normalize_spaces}
+                        onChange={(event) =>
+                          setCleanOptions({ ...cleanOptions, normalize_spaces: event.target.checked })
+                        }
+                      >
+                        合并多余空格
+                      </Checkbox>
+                      <Checkbox
+                        checked={cleanOptions.merge_blank_lines}
+                        onChange={(event) =>
+                          setCleanOptions({ ...cleanOptions, merge_blank_lines: event.target.checked })
+                        }
+                      >
+                        合并连续空行
+                      </Checkbox>
+                      <Checkbox
+                        checked={cleanOptions.merge_broken_lines}
+                        onChange={(event) =>
+                          setCleanOptions({ ...cleanOptions, merge_broken_lines: event.target.checked })
+                        }
+                      >
+                        合并断行
+                      </Checkbox>
+                    </div>
+                  )}
+                  {splitOptions && (
+                    <div className="split-controls">
+                      <label>
+                        <Text type="secondary">片段长度</Text>
+                        <InputNumber
+                          min={50}
+                          max={3000}
+                          value={splitOptions.chunk_size}
+                          onChange={(value) =>
+                            setSplitOptions({ ...splitOptions, chunk_size: Number(value || 500) })
+                          }
+                        />
+                      </label>
+                      <label>
+                        <Text type="secondary">重叠长度</Text>
+                        <InputNumber
+                          min={0}
+                          max={1000}
+                          value={splitOptions.chunk_overlap}
+                          onChange={(value) =>
+                            setSplitOptions({ ...splitOptions, chunk_overlap: Number(value || 0) })
+                          }
+                        />
+                      </label>
+                      <Checkbox
+                        checked={splitOptions.attach_title}
+                        onChange={(event) =>
+                          setSplitOptions({ ...splitOptions, attach_title: event.target.checked })
+                        }
+                      >
+                        每个片段附带文档标题
+                      </Checkbox>
+                    </div>
+                  )}
+                  <Space>
+                    <Button loading={previewing} onClick={handlePreview} type="primary">
+                      重新生成预览
+                    </Button>
+                    <Button disabled={!stage.chunk_count} loading={committing} onClick={handleCommit}>
+                      确认入库
+                    </Button>
                   </Space>
-                }
-              />
-            </List.Item>
-          );
-        }}
-      />
+                </section>
+
+                <section className="ingest-card preview-card">
+                  <div className="ingest-card-header">
+                    <Text strong>清洗预览</Text>
+                    <Tag>{stage.chunk_count} 个片段</Tag>
+                  </div>
+                  <div className="preview-columns">
+                    <div>
+                      <Text type="secondary">原文片段</Text>
+                      <pre>{stage.raw_preview || "暂无内容"}</pre>
+                    </div>
+                    <div>
+                      <Text type="secondary">清洗后</Text>
+                      <pre>{stage.cleaned_preview || "暂无内容"}</pre>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="ingest-card preview-card">
+                  <div className="ingest-card-header">
+                    <Text strong>分块预览</Text>
+                    {step === 3 && (
+                      <Tag color="success" icon={<CheckCircleOutlined />}>
+                        已入库
+                      </Tag>
+                    )}
+                  </div>
+                  <div className="chunk-preview-list">
+                    {stage.chunk_preview.map((chunk) => (
+                      <article className="chunk-preview" key={chunk.index}>
+                        <Space wrap>
+                          <Tag>#{chunk.index}</Tag>
+                          <Text type="secondary">{chunk.length} 字</Text>
+                          {chunk.page !== undefined && chunk.page !== null && (
+                            <Text type="secondary">页码 {chunk.page}</Text>
+                          )}
+                        </Space>
+                        <p>{chunk.text}</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            )}
+          </section>
+        </main>
+      </div>
     </section>
   );
 }
@@ -968,4 +1301,10 @@ function formatDate(value?: string) {
     hour: "2-digit",
     minute: "2-digit"
   });
+}
+
+function formatFileSize(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }

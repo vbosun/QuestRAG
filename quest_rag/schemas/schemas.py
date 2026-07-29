@@ -61,6 +61,58 @@ class UploadResponse(BaseModel):
     chunk_count: int
     message: str
 
+
+class DocumentMetadataInput(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    category: str = Field(default="policy", max_length=40)
+    organization: str | None = Field(default=None, max_length=120)
+    publish_date: str | None = Field(default=None, max_length=40)
+    region: str | None = Field(default=None, max_length=80)
+    keywords: list[str] = Field(default_factory=list, max_length=20)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class CleanOptions(BaseModel):
+    trim_lines: bool = True
+    normalize_spaces: bool = True
+    merge_blank_lines: bool = True
+    merge_broken_lines: bool = False
+
+
+class SplitOptions(BaseModel):
+    chunk_size: int = Field(default=500, ge=50, le=3000)
+    chunk_overlap: int = Field(default=100, ge=0, le=1000)
+    attach_title: bool = True
+
+
+class DocumentStageResponse(BaseModel):
+    stage_id: str
+    filename: str
+    file_type: str
+    file_size: int
+    page_count: int
+    metadata: DocumentMetadataInput
+    clean_options: CleanOptions
+    split_options: SplitOptions
+    raw_preview: str
+    cleaned_preview: str
+    chunk_count: int
+    chunk_preview: list[dict]
+
+
+class DocumentStageRequest(BaseModel):
+    stage_id: str
+    metadata: DocumentMetadataInput
+    clean_options: CleanOptions
+    split_options: SplitOptions
+
+
+class DocumentCommitResponse(BaseModel):
+    success: bool
+    doc_id: str
+    chunk_count: int
+    message: str
+
 class DocInfo(BaseModel):
     id: str
 

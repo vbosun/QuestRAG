@@ -1,4 +1,12 @@
-import type { DocumentInfo, StreamEvent } from "./types";
+import type {
+  CleanOptions,
+  DocumentCommitResult,
+  DocumentInfo,
+  DocumentMetadataInput,
+  DocumentStage,
+  SplitOptions,
+  StreamEvent
+} from "./types";
 
 export async function listDocuments(): Promise<DocumentInfo[]> {
   const response = await fetch("/documents/doclist", { method: "POST" });
@@ -21,6 +29,56 @@ export async function uploadDocument(file: File) {
     throw new Error(data.detail || data.message || "上传失败");
   }
   return data;
+}
+
+export async function stageDocument(file: File): Promise<DocumentStage> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch("/documents/stage", {
+    method: "POST",
+    body: formData
+  });
+  const data = await readJson(response);
+  if (!response.ok) {
+    throw new Error(formatErrorDetail(data.detail) || "文档解析失败");
+  }
+  return data as DocumentStage;
+}
+
+export async function previewDocumentStage(payload: {
+  stage_id: string;
+  metadata: DocumentMetadataInput;
+  clean_options: CleanOptions;
+  split_options: SplitOptions;
+}): Promise<DocumentStage> {
+  const response = await fetch("/documents/stage/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await readJson(response);
+  if (!response.ok) {
+    throw new Error(formatErrorDetail(data.detail) || "生成预览失败");
+  }
+  return data as DocumentStage;
+}
+
+export async function commitDocumentStage(payload: {
+  stage_id: string;
+  metadata: DocumentMetadataInput;
+  clean_options: CleanOptions;
+  split_options: SplitOptions;
+}): Promise<DocumentCommitResult> {
+  const response = await fetch("/documents/stage/commit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await readJson(response);
+  if (!response.ok || data.success === false) {
+    throw new Error(formatErrorDetail(data.detail) || data.message || "入库失败");
+  }
+  return data as DocumentCommitResult;
 }
 
 export async function deleteDocument(docId: string) {

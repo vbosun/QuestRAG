@@ -9,6 +9,57 @@ export interface DocumentInfo {
   uploaded_at?: string;
 }
 
+export interface DocumentMetadataInput {
+  title: string;
+  category: string;
+  organization?: string | null;
+  publish_date?: string | null;
+  region?: string | null;
+  keywords: string[];
+  notes?: string | null;
+}
+
+export interface CleanOptions {
+  trim_lines: boolean;
+  normalize_spaces: boolean;
+  merge_blank_lines: boolean;
+  merge_broken_lines: boolean;
+}
+
+export interface SplitOptions {
+  chunk_size: number;
+  chunk_overlap: number;
+  attach_title: boolean;
+}
+
+export interface DocumentStage {
+  stage_id: string;
+  filename: string;
+  file_type: string;
+  file_size: number;
+  page_count: number;
+  metadata: DocumentMetadataInput;
+  clean_options: CleanOptions;
+  split_options: SplitOptions;
+  raw_preview: string;
+  cleaned_preview: string;
+  chunk_count: number;
+  chunk_preview: Array<{
+    index: number;
+    text: string;
+    length: number;
+    page?: number | null;
+    chunk_index?: number | null;
+  }>;
+}
+
+export interface DocumentCommitResult {
+  success: boolean;
+  doc_id: string;
+  chunk_count: number;
+  message: string;
+}
+
 export interface ChartDatum {
   name: string;
   value: number;
