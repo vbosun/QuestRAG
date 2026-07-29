@@ -497,6 +497,10 @@ function ChatBubble({ message }: { message: ChatMessage }) {
   const [expanded, setExpanded] = useState(false);
   const [activeCitation, setActiveCitation] = useState<CitationSource | null>(null);
   const isUser = message.role === "user";
+  const hasAssistantContent = Boolean((message.raw || "").trim() || message.parts?.some((part) => {
+    if (part.type === "markdown") return Boolean(part.content.trim());
+    return true;
+  }));
   const parts = isUser
     ? [{ type: "markdown", content: message.content || "" } as MessagePart]
     : message.parts || [{ type: "markdown", content: message.raw || "" }];
@@ -529,7 +533,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
             <CitationList citations={message.citations} onSelectCitation={setActiveCitation} />
           )}
         </div>
-        {!isUser && (
+        {!isUser && hasAssistantContent && (
           <Space className="message-actions" size={4} wrap>
             <Tooltip title={expanded ? "收起回答" : "展开回答"}>
               <Button
