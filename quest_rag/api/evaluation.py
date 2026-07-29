@@ -13,6 +13,7 @@ from quest_rag.api.document import clean_document_text
 from quest_rag.core.config import ELASTICSEARCH_URL
 from quest_rag.rag.document_embedding import get_embedding
 from quest_rag.rag.document_splitter import split_docs
+from quest_rag.rag.job_retriever import search_jobs
 from quest_rag.rag.loader import load_file
 from quest_rag.rag.pg_store import (
     add_evaluation_items,
@@ -46,6 +47,7 @@ from quest_rag.schemas.schemas import (
 
 router = APIRouter(prefix="/evaluations", tags=["EVALUATION"])
 SUPPORTED_TYPES = {"txt", "pdf", "md"}
+JOB_SOURCE_ID = "jobs::__es_index__"
 
 
 @router.get("", response_model=list[EvaluationRunSummary])
@@ -350,19 +352,24 @@ def evaluate_items(eval_id: str, eval_backend: ElasticsearchVectorBackend, rows:
     for index, row in enumerate(rows, start=1):
         if not (row.get("question") or "").strip():
             continue
-        query_vector = get_embedding(row["question"])
-        results = eval_backend.search_with_options(
-            row["question"],
-            query_vector,
-            options.top_k,
-            mode=options.mode,
-            vector_weight=options.vector_weight,
-            keyword_weight=options.keyword_weight,
-        )
-        retrieved = [serialize_result(result, rank) for rank, result in enumerate(results, start=1)]
+        expected_source_ids = row.get("expected_source_ids", [])
+        if JOB_SOURCE_ID in expected_source_ids:
+            results = search_jobs(row["question"], options.top_k)
+            retrieved = [serialize_job_result(result, rank) for rank, result in enumerate(results, start=1)]
+        else:
+            query_vector = get_embedding(row["question"])
+            results = eval_backend.search_with_options(
+                row["question"],
+                query_vector,
+                options.top_k,
+                mode=options.mode,
+                vector_weight=options.vector_weight,
+                keyword_weight=options.keyword_weight,
+            )
+            retrieved = [serialize_result(result, rank) for rank, result in enumerate(results, start=1)]
         if options.score_threshold:
             retrieved = [item for item in retrieved if item["score"] >= options.score_threshold]
-        metrics = calculate_metrics(retrieved, row.get("expected_source_ids", []), row.get("expected_evidence", ""), options.top_k)
+        metrics = calculate_metrics(retrieved, expected_source_ids, row.get("expected_evidence", ""), options.top_k)
         items.append(
             {
                 "id": f"{eval_id}_item_{index:04d}",
@@ -370,7 +377,7 @@ def evaluate_items(eval_id: str, eval_backend: ElasticsearchVectorBackend, rows:
                 "question_id": row.get("id") or f"Q{index:04d}",
                 "question": row["question"],
                 "expected_answer": row.get("expected_answer"),
-                "expected_source_ids": row.get("expected_source_ids", []),
+                "expected_source_ids": expected_source_ids,
                 "expected_chunk_ids": [],
                 "expected_chunk_text": row.get("expected_evidence", ""),
                 "retrieved": retrieved,
@@ -412,6 +419,49 @@ def serialize_result(result: dict, rank: int) -> dict:
         "vector_score": round(float(result.get("vector_score", 0)), 6),
         "keyword_score": round(float(result.get("keyword_score", 0)), 6),
         "metadata": metadata,
+    }
+
+
+def serialize_job_result(job: dict, rank: int) -> dict:
+    text = "\n".join(
+        [
+            f"岗位: {job.get('title') or ''}",
+            f"单位: {job.get('company') or ''}",
+            f"地点: {job.get('address') or ''}",
+            f"薪资: {job.get('salary') or ''}",
+            f"学历: {job.get('education') or ''}",
+            f"经验: {job.get('experience') or ''}",
+            f"行业: {job.get('industry') or ''}",
+            f"类别: {job.get('category') or ''}",
+            f"招聘人数: {job.get('headcount') or ''}",
+            f"来源: {job.get('source') or ''}",
+        ]
+    )
+    return {
+        "rank": rank,
+        "chunk_id": job.get("id"),
+        "doc_id": JOB_SOURCE_ID,
+        "filename": "岗位库（ES）",
+        "text": text,
+        "score": round(float(job.get("score", 0)), 6),
+        "vector_score": round(float(job.get("vector_score", 0)), 6),
+        "keyword_score": round(float(job.get("keyword_score", 0)), 6),
+        "metadata": {
+            "source_type": "job",
+            "job_id": job.get("id"),
+            "title": job.get("title"),
+            "company": job.get("company"),
+            "address": job.get("address"),
+            "salary": job.get("salary"),
+            "education": job.get("education"),
+            "experience": job.get("experience"),
+            "industry": job.get("industry"),
+            "category": job.get("category"),
+            "headcount": job.get("headcount"),
+            "updated": job.get("updated"),
+            "source": job.get("source"),
+            "url": job.get("url"),
+        },
     }
 
 
