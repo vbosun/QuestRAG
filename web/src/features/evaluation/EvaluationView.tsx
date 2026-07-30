@@ -6,6 +6,7 @@ import {
   createEvaluationDataset,
   deleteEvaluationDataset,
   deleteEvaluationDocument,
+  exportEvaluationDataset,
   getEvaluation,
   getEvaluationDataset,
   getEvaluationDocument,
@@ -109,7 +110,9 @@ export function EvaluationView({
   const [splitOptions, setSplitOptions] = useState<SplitOptions>({
     chunk_size: 500,
     chunk_overlap: 100,
-    attach_title: true
+    attach_title: true,
+    strategy: "fixed",
+    separator_preset: "general"
   });
   const [retrievalOptions, setRetrievalOptions] = useState<RetrievalOptions>({
     top_k: 5,
@@ -525,13 +528,45 @@ export function EvaluationView({
               {step === 2 && (
                 <div className="eval-option-grid">
                   <label>
+                    <Text strong>分块策略</Text>
+                    <Select
+                      value={splitOptions.strategy}
+                      options={[
+                        { value: "fixed", label: "固定长度" },
+                        { value: "structure", label: "结构感知" },
+                        { value: "recursive", label: "递归分块" }
+                      ]}
+                      onChange={(value) =>
+                        setSplitOptions({
+                          ...splitOptions,
+                          strategy: value as SplitOptions["strategy"],
+                          chunk_overlap: value === "structure" ? 0 : splitOptions.chunk_overlap
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
                     <Text strong>分块长度</Text>
                     <InputNumber min={50} max={3000} value={splitOptions.chunk_size} onChange={(value) => setSplitOptions({ ...splitOptions, chunk_size: Number(value || 500) })} />
                   </label>
                   <label>
-                    <Text strong>重叠长度</Text>
+                    <Text strong>重叠长度{splitOptions.strategy === "structure" ? "（建议为0）" : ""}</Text>
                     <InputNumber min={0} max={1000} value={splitOptions.chunk_overlap} onChange={(value) => setSplitOptions({ ...splitOptions, chunk_overlap: Number(value || 0) })} />
                   </label>
+                  {splitOptions.strategy === "recursive" && (
+                    <label>
+                      <Text strong>分隔符预设</Text>
+                      <Select
+                        value={splitOptions.separator_preset}
+                        options={[
+                          { value: "general", label: "通用（中英混合）" },
+                          { value: "chinese", label: "中文优先" },
+                          { value: "english", label: "英文优先" }
+                        ]}
+                        onChange={(value) => setSplitOptions({ ...splitOptions, separator_preset: value as SplitOptions["separator_preset"] })}
+                      />
+                    </label>
+                  )}
                   <Checkbox checked={splitOptions.attach_title} onChange={(event) => setSplitOptions({ ...splitOptions, attach_title: event.target.checked })}>
                     附加文档标题
                   </Checkbox>
@@ -576,7 +611,15 @@ export function EvaluationView({
                     <Descriptions.Item label="评测集">{evalDatasets.find((dataset) => dataset.id === datasetId)?.name || datasetId || "未选择"}</Descriptions.Item>
                     <Descriptions.Item label="文档范围">{selectedDocIds.length ? `${selectedDocIds.length} 个评测文档` : "全部评测文档"}</Descriptions.Item>
                     <Descriptions.Item label="清洗策略">{JSON.stringify(cleanOptions)}</Descriptions.Item>
-                    <Descriptions.Item label="分块策略">{JSON.stringify(splitOptions)}</Descriptions.Item>
+                    <Descriptions.Item label="分块策略">
+                      {{
+                        fixed: "固定长度",
+                        structure: "结构感知",
+                        recursive: "递归分块"
+                      }[splitOptions.strategy]} / 长度 {splitOptions.chunk_size} / 重叠 {splitOptions.chunk_overlap}
+                      {splitOptions.strategy === "recursive" ? ` / 分隔符 ${splitOptions.separator_preset === "chinese" ? "中文" : splitOptions.separator_preset === "english" ? "英文" : "通用"}` : ""}
+                      {splitOptions.attach_title ? " / 附标题" : ""}
+                    </Descriptions.Item>
                     <Descriptions.Item label="检索策略">{JSON.stringify(retrievalOptions)}</Descriptions.Item>
                   </Descriptions>
                 </div>
@@ -717,8 +760,11 @@ export function EvaluationView({
                 title: "分块策略",
                 dataIndex: "split_options",
                 width: 210,
-                render: (value: Partial<SplitOptions>) =>
-                  `长度 ${value?.chunk_size ?? "-"} / 重叠 ${value?.chunk_overlap ?? "-"}`
+                render: (value: Partial<SplitOptions>) => {
+                  const strategy = value?.strategy || "fixed";
+                  const labels: Record<string, string> = { fixed: "固定", structure: "结构", recursive: "递归" };
+                  return `${labels[strategy] || strategy} / ${value?.chunk_size ?? "-"} / ${value?.chunk_overlap ?? "-"}`;
+                }
               },
               { title: "评测时间", dataIndex: "created_at", width: 180, render: (value: string) => formatDate(value) }
             ]}
@@ -820,7 +866,25 @@ export function EvaluationView({
                 width: 180,
                 render: (_value, dataset) => (
                   <Space size={4} onClick={(event) => event.stopPropagation()}>
-                    <Button size="small" type="link" onClick={() => window.open(`/evaluations/datasets/${encodeURIComponent(dataset.id)}/export`, "_blank")}>导出</Button>
+                    <Button
+                      size="small"
+                      type="link"
+                      onClick={async () => {
+                        try {
+                          const blob = await exportEvaluationDataset(dataset.id);
+                          const url = URL.createObjectURL(blob);
+                          const anchor = document.createElement("a");
+                          anchor.href = url;
+                          anchor.download = `${dataset.name}.csv`;
+                          anchor.click();
+                          URL.revokeObjectURL(url);
+                        } catch (error) {
+                          message.error(error instanceof Error ? error.message : "导出评测集失败");
+                        }
+                      }}
+                    >
+                      导出
+                    </Button>
                     <Popconfirm
                       cancelText="取消"
                       okButtonProps={{ danger: true }}
@@ -1045,6 +1109,8 @@ export function EvaluationView({
                 <StatTile label="问题数" value={String(activeRun.summary?.question_count ?? "-")} />
                 <StatTile label="文档命中率" value={formatRate(activeRun.summary?.source_hit_rate)} />
                 <StatTile label="证据命中率" value={formatRate(activeRun.summary?.evidence_hit_rate)} />
+                <StatTile label="拒答通过率" value={formatRate(activeRun.summary?.refusal_hit_rate)} />
+                <StatTile label="总通过率" value={formatRate(activeRun.summary?.pass_rate)} />
                 <StatTile label="MRR" value={String(activeRun.summary?.mrr ?? "-")} />
               </section>
               <section className="eval-detail-card">
@@ -1055,7 +1121,14 @@ export function EvaluationView({
                   <Descriptions.Item label="评测集">{activeRun.dataset_path}</Descriptions.Item>
                   <Descriptions.Item label="文档范围">{JSON.stringify(activeRun.document_scope)}</Descriptions.Item>
                   <Descriptions.Item label="清洗策略">{JSON.stringify(activeRun.clean_options)}</Descriptions.Item>
-                  <Descriptions.Item label="分块策略">{JSON.stringify(activeRun.split_options)}</Descriptions.Item>
+                  <Descriptions.Item label="分块策略">
+                    {(() => {
+                      const opts = activeRun.split_options || {};
+                      const strategy = String(opts.strategy || "fixed");
+                      const labels: Record<string, string> = { fixed: "固定长度", structure: "结构感知", recursive: "递归分块" };
+                      return `${labels[strategy] || strategy} / 长度 ${opts.chunk_size ?? "-"} / 重叠 ${opts.chunk_overlap ?? "-"}${strategy === "recursive" ? ` / ${opts.separator_preset === "chinese" ? "中文" : opts.separator_preset === "english" ? "英文" : "通用"}` : ""}${opts.attach_title ? " / 附标题" : ""}`;
+                    })()}
+                  </Descriptions.Item>
                   <Descriptions.Item label="检索策略">{JSON.stringify(activeRun.retrieval_options)}</Descriptions.Item>
                   {activeRun.error && <Descriptions.Item label="错误">{activeRun.error}</Descriptions.Item>}
                 </Descriptions>
@@ -1070,12 +1143,20 @@ export function EvaluationView({
                         title={
                           <Space wrap>
                             <Text strong>{item.question_id || item.id}</Text>
-                            <Tag color={item.metrics?.source_hit ? "success" : "error"}>
-                              {item.metrics?.source_hit ? "文档命中" : "文档未命中"}
-                            </Tag>
-                            <Tag color={item.metrics?.evidence_hit ? "success" : "default"}>
-                              {item.metrics?.evidence_hit ? "证据命中" : "证据未命中"}
-                            </Tag>
+                            {item.should_refuse || item.metrics?.should_refuse ? (
+                              <Tag color={item.metrics?.refusal_hit ? "success" : "error"}>
+                                {item.metrics?.refusal_hit ? "拒答通过" : "拒答未通过"}
+                              </Tag>
+                            ) : (
+                              <>
+                                <Tag color={item.metrics?.source_hit ? "success" : "error"}>
+                                  {item.metrics?.source_hit ? "文档命中" : "文档未命中"}
+                                </Tag>
+                                <Tag color={item.metrics?.evidence_hit ? "success" : "default"}>
+                                  {item.metrics?.evidence_hit ? "证据命中" : "证据未命中"}
+                                </Tag>
+                              </>
+                            )}
                           </Space>
                         }
                         description={
@@ -1127,19 +1208,53 @@ export function EvaluationView({
                         <div className="baseline-block">
                           <Text type="secondary">本题指标</Text>
                           <Space wrap>
-                            <Tag color={activeRetrievedItem.metrics?.source_hit ? "success" : "error"}>
-                              {activeRetrievedItem.metrics?.source_hit ? "来源命中" : "来源未命中"}
-                            </Tag>
-                            <Tag color={activeRetrievedItem.metrics?.evidence_hit ? "success" : "default"}>
-                              {activeRetrievedItem.metrics?.evidence_hit ? "证据命中" : "证据未命中"}
-                            </Tag>
+                            {activeRetrievedItem.should_refuse || activeRetrievedItem.metrics?.should_refuse ? (
+                              <>
+                                <Tag color={activeRetrievedItem.metrics?.refusal_hit ? "success" : "error"}>
+                                  {activeRetrievedItem.metrics?.refusal_hit ? "拒答通过" : "拒答未通过"}
+                                </Tag>
+                                <Text type="secondary">最高召回分: {String(activeRetrievedItem.metrics?.best_score ?? "-")}</Text>
+                                <Text type="secondary">拒答阈值: {String(activeRetrievedItem.metrics?.refusal_score_threshold ?? "-")}</Text>
+                              </>
+                            ) : (
+                              <>
+                                <Tag color={activeRetrievedItem.metrics?.source_hit ? "success" : "error"}>
+                                  {activeRetrievedItem.metrics?.source_hit ? "来源命中" : "来源未命中"}
+                                </Tag>
+                                <Tag color={activeRetrievedItem.metrics?.evidence_hit ? "success" : "default"}>
+                                  {activeRetrievedItem.metrics?.evidence_hit ? "证据命中" : "证据未命中"}
+                                </Tag>
+                                <Text type="secondary">证据分: {String(activeRetrievedItem.metrics?.evidence_score ?? "-")}</Text>
+                              </>
+                            )}
                             <Text type="secondary">MRR: {String(activeRetrievedItem.metrics?.mrr ?? "-")}</Text>
-                            <Text type="secondary">证据分: {String(activeRetrievedItem.metrics?.evidence_score ?? "-")}</Text>
                           </Space>
                         </div>
                       </aside>
                       <section className="retrieval-results">
                         <Text strong>本次召回结果</Text>
+                        <div className="baseline-block retrieval-query-block">
+                          <Text type="secondary">本次检索 Query</Text>
+                          {(activeRetrievedItem.retrieval_queries || []).length ? (
+                            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                              {(activeRetrievedItem.retrieval_queries || []).map((query, index) => (
+                                <div className="retrieval-query-item" key={`${String(query.query || "")}-${index}`}>
+                                  <Space wrap>
+                                    <Tag>{String(query.type || "query")}</Tag>
+                                    <Tag color={query.target === "jobs" ? "purple" : "blue"}>
+                                      {query.target === "jobs" ? "岗位库" : "评测文档"}
+                                    </Tag>
+                                    <Text type="secondary">topK {String(query.top_k ?? "-")}</Text>
+                                    <Text type="secondary">模式 {String(query.mode ?? "-")}</Text>
+                                  </Space>
+                                  <pre>{String(query.query || "")}</pre>
+                                </div>
+                              ))}
+                            </Space>
+                          ) : (
+                            <pre>{activeRetrievedItem.question}</pre>
+                          )}
+                        </div>
                         <List
                           dataSource={activeRetrievedItem.retrieved || []}
                           locale={{ emptyText: <Empty description="本题没有召回结果" /> }}

@@ -899,6 +899,18 @@ body {
   line-height: 1.6;
 }
 
+.retrieval-query-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfc;
+  padding: 12px;
+}
+
+.retrieval-query-item {
+  display: grid;
+  gap: 8px;
+}
+
 .retrieval-result-item.ant-list-item {
   align-items: flex-start;
   border: 1px solid var(--border);
@@ -1097,6 +1109,23 @@ body {
 .chunk-preview {
   display: grid;
   gap: 4px;
+}
+
+.ingest-step-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding: 14px 18px 0;
+}
+
+.ingest-grid-single {
+  grid-template-columns: 1fr;
+  max-width: 720px;
+}
+
+.ingest-grid-single .ingest-card {
+  min-width: 0;
 }
 
 .ant-btn,

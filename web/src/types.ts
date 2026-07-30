@@ -9,6 +9,15 @@ export interface DocumentInfo {
   uploaded_at?: string;
 }
 
+export interface DocumentStats {
+  document_count: number;
+  total_chunks: number;
+  total_text_length: number;
+  max_text_length: number;
+  min_text_length: number;
+  format_distribution: Record<string, number>;
+}
+
 export interface DocumentChunk {
   chunk_id: string;
   text: string;
@@ -37,6 +46,8 @@ export interface SplitOptions {
   chunk_size: number;
   chunk_overlap: number;
   attach_title: boolean;
+  strategy: "fixed" | "structure" | "recursive";
+  separator_preset: "general" | "chinese" | "english";
 }
 
 export interface RetrievalOptions {
@@ -72,6 +83,8 @@ export interface EvaluationItem {
   expected_source_ids: string[];
   expected_chunk_ids: string[];
   expected_chunk_text?: string | null;
+  should_refuse?: boolean;
+  retrieval_queries?: Array<Record<string, unknown>>;
   retrieved: Array<Record<string, unknown>>;
   metrics: Record<string, unknown>;
 }
@@ -144,6 +157,7 @@ export interface DocumentStage {
     length: number;
     page?: number | null;
     chunk_index?: number | null;
+    heading_path?: string[];
   }>;
 }
 

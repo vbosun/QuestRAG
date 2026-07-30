@@ -8,10 +8,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from langchain_core.documents import Document
-from logger import logger
+from quest_rag.logger import logger
 
 from quest_rag.rag.document_embedding import add_documents
-from quest_rag.rag.loader import load_file
+from quest_rag.rag.loader import load_file_with_ocr_fallback
 from quest_rag.rag.document_splitter import split_docs
 from quest_rag.rag.storage import (
     add_doc_metadata,
@@ -20,6 +20,7 @@ from quest_rag.rag.storage import (
     get_doc_by_id,
 )
 from quest_rag.rag.pg_store import delete_document as delete_pg_document
+from quest_rag.rag.pg_store import get_document_stats
 from quest_rag.rag.pg_store import upsert_document
 from quest_rag.rag.vector_backend import backend
 from quest_rag.schemas.schemas import (
@@ -30,6 +31,7 @@ from quest_rag.schemas.schemas import (
     DocumentMetadataInput,
     DocumentStageRequest,
     DocumentStageResponse,
+    DocumentStatsResponse,
     DocInfo,
     DocMetadata,
     SplitOptions,
@@ -58,7 +60,7 @@ async def stage_document(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        docs = load_file(file_path=tmp_path, file_type=ext)
+        docs = load_file_with_ocr_fallback(file_path=tmp_path, file_type=ext)
     except Exception as e:
         logger.exception(str(e))
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -99,6 +101,8 @@ def commit_stage(req: DocumentStageRequest):
             docs=docs,
             chunk_size=req.split_options.chunk_size,
             chunk_overlap=req.split_options.chunk_overlap,
+            strategy=req.split_options.strategy,
+            separator_preset=req.split_options.separator_preset,
         )
         if req.split_options.attach_title:
             for chunk in chunks:
@@ -148,7 +152,7 @@ async def upload(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        docs = load_file(file_path=tmp_path, file_type=ext)
+        docs = load_file_with_ocr_fallback(file_path=tmp_path, file_type=ext)
         doc_id = f"{uuid.uuid4().hex}_{file.filename}"
         for doc_item in docs:
             doc_item.metadata = {
@@ -198,6 +202,42 @@ def doclist():
     return get_all_docs()
 
 
+@router.post("/stats", response_model=DocumentStatsResponse)
+def document_stats():
+    """知识库统计总览。"""
+    rows = get_document_stats()
+    total_chunks = 0
+    total_text = 0
+    max_text = 0
+    min_text = rows[0]["text_length"] if rows else 0
+    fmt_dist: dict[str, int] = {}
+
+    for row in rows:
+        text_len = row["text_length"]
+        total_text += text_len
+        if text_len > max_text:
+            max_text = text_len
+        if text_len < min_text:
+            min_text = text_len
+
+    all_docs = get_all_docs()
+    for doc in all_docs:
+        total_chunks += doc.chunk_count
+        ext = Path(doc.filename).suffix.lower().lstrip(".") if doc.filename else "unknown"
+        if not ext:
+            ext = "unknown"
+        fmt_dist[ext] = fmt_dist.get(ext, 0) + 1
+
+    return DocumentStatsResponse(
+        document_count=len(all_docs),
+        total_chunks=total_chunks,
+        total_text_length=total_text,
+        max_text_length=max_text if rows else 0,
+        min_text_length=min_text if rows else 0,
+        format_distribution=fmt_dist,
+    )
+
+
 @router.post("/chunks", response_model=list[DocumentChunk])
 def chunks(doc_info: DocInfo):
     """查看指定文档的分块列表。"""
@@ -241,6 +281,8 @@ def build_stage_response(
         docs=prepared_docs,
         chunk_size=split_options.chunk_size,
         chunk_overlap=split_options.chunk_overlap,
+        strategy=split_options.strategy,
+        separator_preset=split_options.separator_preset,
     )
     if split_options.attach_title:
         for chunk in chunks:
@@ -265,6 +307,7 @@ def build_stage_response(
                 "length": len(chunk.page_content),
                 "page": chunk.metadata.get("page"),
                 "chunk_index": chunk.metadata.get("chunk_index"),
+                "heading_path": chunk.metadata.get("heading_path", []),
             }
             for index, chunk in enumerate(chunks[:8], start=1)
         ],

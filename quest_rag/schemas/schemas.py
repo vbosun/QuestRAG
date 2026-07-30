@@ -83,6 +83,8 @@ class SplitOptions(BaseModel):
     chunk_size: int = Field(default=500, ge=50, le=3000)
     chunk_overlap: int = Field(default=100, ge=0, le=1000)
     attach_title: bool = True
+    strategy: Literal["fixed", "structure", "recursive"] = "fixed"
+    separator_preset: Literal["general", "chinese", "english"] = "general"
 
 
 class RetrievalOptions(BaseModel):
@@ -185,6 +187,15 @@ class DocumentCommitResponse(BaseModel):
     doc_id: str
     chunk_count: int
     message: str
+
+class DocumentStatsResponse(BaseModel):
+    document_count: int
+    total_chunks: int
+    total_text_length: int
+    max_text_length: int
+    min_text_length: int
+    format_distribution: dict[str, int]
+
 
 class DocInfo(BaseModel):
     id: str

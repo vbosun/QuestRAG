@@ -14,7 +14,7 @@ from quest_rag.core.config import ELASTICSEARCH_URL
 from quest_rag.rag.document_embedding import get_embedding
 from quest_rag.rag.document_splitter import split_docs
 from quest_rag.rag.job_retriever import search_jobs
-from quest_rag.rag.loader import load_file
+from quest_rag.rag.loader import load_file_with_ocr_fallback
 from quest_rag.rag.pg_store import (
     add_evaluation_items,
     create_evaluation_run,
@@ -50,13 +50,13 @@ SUPPORTED_TYPES = {"txt", "pdf", "md"}
 JOB_SOURCE_ID = "jobs::__es_index__"
 
 
-@router.get("", response_model=list[EvaluationRunSummary])
+@router.post("", response_model=list[EvaluationRunSummary])
 def list_runs():
     init_db()
     return list_evaluation_runs()
 
 
-@router.get("/runs/{run_id}", response_model=EvaluationRunDetail)
+@router.post("/runs/{run_id}", response_model=EvaluationRunDetail)
 def get_run(run_id: str):
     init_db()
     run = get_evaluation_run(run_id)
@@ -75,7 +75,7 @@ def delete_run(run_id: str):
     return CommonResponse(success=True, message="评测记录和历史索引已删除")
 
 
-@router.get("/documents/list", response_model=list[EvaluationDocumentSummary])
+@router.post("/documents/list", response_model=list[EvaluationDocumentSummary])
 def list_eval_documents():
     init_db()
     runs = list_evaluation_runs()
@@ -91,17 +91,7 @@ async def upload_eval_documents(files: list[UploadFile] = File(...)):
     return [with_baseline_chunk_count(doc) for doc in saved]
 
 
-@router.get("/documents/{doc_id}", response_model=EvaluationDocumentDetail)
-def get_eval_document(doc_id: str):
-    init_db()
-    doc = get_evaluation_document(doc_id)
-    if not doc:
-        raise HTTPException(status_code=404, detail="评测文档不存在")
-    chunks = build_baseline_chunks(doc)
-    return {**with_baseline_chunk_count(doc), "chunks": chunks}
-
-
-@router.get("/documents/{doc_id}/runs")
+@router.post("/documents/{doc_id}/runs")
 def list_eval_document_runs(doc_id: str):
     init_db()
     if not get_evaluation_document(doc_id):
@@ -128,7 +118,7 @@ def list_eval_document_runs(doc_id: str):
     return runs
 
 
-@router.get("/documents/{doc_id}/runs/{run_id}/chunks")
+@router.post("/documents/{doc_id}/runs/{run_id}/chunks")
 def list_eval_document_run_chunks(doc_id: str, run_id: str):
     init_db()
     run = get_evaluation_run(run_id)
@@ -140,6 +130,16 @@ def list_eval_document_run_chunks(doc_id: str, run_id: str):
     return backend.list_chunks(doc_id)
 
 
+@router.post("/documents/{doc_id}", response_model=EvaluationDocumentDetail)
+def get_eval_document(doc_id: str):
+    init_db()
+    doc = get_evaluation_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="评测文档不存在")
+    chunks = build_baseline_chunks(doc)
+    return {**with_baseline_chunk_count(doc), "chunks": chunks}
+
+
 @router.delete("/documents/{doc_id}", response_model=CommonResponse)
 def delete_eval_document(doc_id: str):
     init_db()
@@ -148,7 +148,7 @@ def delete_eval_document(doc_id: str):
     return CommonResponse(success=True, message="评测文档已删除")
 
 
-@router.get("/datasets/list")
+@router.post("/datasets/list")
 def list_datasets():
     init_db()
     return list_evaluation_datasets()
@@ -175,7 +175,7 @@ def create_dataset(req: EvaluationDatasetInput):
     return get_evaluation_dataset(dataset_id)
 
 
-@router.get("/datasets/{dataset_id}")
+@router.post("/datasets/{dataset_id}")
 def get_dataset(dataset_id: str):
     init_db()
     dataset = get_evaluation_dataset(dataset_id)
@@ -201,7 +201,7 @@ def delete_dataset(dataset_id: str):
     return CommonResponse(success=True, message="评测集已删除")
 
 
-@router.get("/datasets/{dataset_id}/export")
+@router.post("/datasets/{dataset_id}/export")
 def export_dataset(dataset_id: str):
     init_db()
     dataset = get_evaluation_dataset(dataset_id)
@@ -291,7 +291,7 @@ async def save_eval_document(file: UploadFile) -> dict:
         tmp.write(content)
         tmp_path = tmp.name
     try:
-        docs = load_file(tmp_path, ext)
+        docs = load_file_with_ocr_fallback(tmp_path, ext)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
     doc_id = f"evaldoc::{uuid.uuid4().hex[:12]}::{Path(filename).stem}"
@@ -352,7 +352,7 @@ def count_run_doc_chunks(run: dict, doc_id: str) -> int:
 
 def build_baseline_chunks(doc: dict) -> list[dict]:
     source_docs = doc_to_documents(doc, CleanOptions())
-    chunks = split_docs(source_docs, chunk_size=500, chunk_overlap=100)
+    chunks = split_docs(source_docs, chunk_size=500, chunk_overlap=100, strategy="fixed")
     return [
         {
             "chunk_id": f"{doc['id']}::baseline::{index}",
@@ -371,7 +371,7 @@ def index_eval_documents(eval_backend: ElasticsearchVectorBackend, doc_ids: list
         if not doc:
             continue
         source_docs = doc_to_documents(doc, clean_options)
-        chunks = split_docs(source_docs, chunk_size=split_options.chunk_size, chunk_overlap=split_options.chunk_overlap)
+        chunks = split_docs(source_docs, chunk_size=split_options.chunk_size, chunk_overlap=split_options.chunk_overlap, strategy=split_options.strategy, separator_preset=split_options.separator_preset)
         if split_options.attach_title:
             for chunk in chunks:
                 chunk.page_content = f"{doc['title']}\n{chunk.page_content}"
@@ -424,13 +424,28 @@ def evaluate_items(eval_id: str, eval_backend: ElasticsearchVectorBackend, rows:
         if not (row.get("question") or "").strip():
             continue
         expected_source_ids = row.get("expected_source_ids", [])
+        query_text = row["question"]
         if JOB_SOURCE_ID in expected_source_ids:
-            results = search_jobs(row["question"], options.top_k)
+            retrieval_queries = [
+                build_retrieval_query_snapshot(
+                    query=query_text,
+                    target="jobs",
+                    options=options,
+                )
+            ]
+            results = search_jobs(query_text, options.top_k)
             retrieved = [serialize_job_result(result, rank) for rank, result in enumerate(results, start=1)]
         else:
-            query_vector = get_embedding(row["question"])
+            retrieval_queries = [
+                build_retrieval_query_snapshot(
+                    query=query_text,
+                    target="evaluation_documents",
+                    options=options,
+                )
+            ]
+            query_vector = get_embedding(query_text)
             results = eval_backend.search_with_options(
-                row["question"],
+                query_text,
                 query_vector,
                 options.top_k,
                 mode=options.mode,
@@ -440,7 +455,14 @@ def evaluate_items(eval_id: str, eval_backend: ElasticsearchVectorBackend, rows:
             retrieved = [serialize_result(result, rank) for rank, result in enumerate(results, start=1)]
         if options.score_threshold:
             retrieved = [item for item in retrieved if item["score"] >= options.score_threshold]
-        metrics = calculate_metrics(retrieved, expected_source_ids, row.get("expected_evidence", ""), options.top_k)
+        metrics = calculate_metrics(
+            retrieved,
+            expected_source_ids,
+            row.get("expected_evidence", ""),
+            options.top_k,
+            should_refuse=bool(row.get("should_refuse")),
+            refusal_score_threshold=options.score_threshold or 0.35,
+        )
         items.append(
             {
                 "id": f"{eval_id}_item_{index:04d}",
@@ -451,6 +473,8 @@ def evaluate_items(eval_id: str, eval_backend: ElasticsearchVectorBackend, rows:
                 "expected_source_ids": expected_source_ids,
                 "expected_chunk_ids": [],
                 "expected_chunk_text": row.get("expected_evidence", ""),
+                "should_refuse": bool(row.get("should_refuse")),
+                "retrieval_queries": retrieval_queries,
                 "retrieved": retrieved,
                 "metrics": metrics,
             }
@@ -458,7 +482,44 @@ def evaluate_items(eval_id: str, eval_backend: ElasticsearchVectorBackend, rows:
     return items
 
 
-def calculate_metrics(retrieved: list[dict], expected_source_ids: list[str], expected_evidence: str, top_k: int) -> dict:
+def build_retrieval_query_snapshot(query: str, target: str, options) -> dict:
+    return {
+        "type": "original",
+        "query": query,
+        "target": target,
+        "top_k": options.top_k,
+        "mode": options.mode,
+        "vector_weight": options.vector_weight,
+        "keyword_weight": options.keyword_weight,
+        "score_threshold": options.score_threshold,
+    }
+
+
+def calculate_metrics(
+    retrieved: list[dict],
+    expected_source_ids: list[str],
+    expected_evidence: str,
+    top_k: int,
+    should_refuse: bool = False,
+    refusal_score_threshold: float = 0.35,
+) -> dict:
+    if should_refuse:
+        best_score = max([float(item.get("score", 0)) for item in retrieved], default=0)
+        refusal_hit = best_score < refusal_score_threshold
+        return {
+            "should_refuse": True,
+            "refusal_hit": refusal_hit,
+            "refusal_score_threshold": refusal_score_threshold,
+            "best_score": round(best_score, 6),
+            "source_hit": None,
+            "evidence_hit": None,
+            "source_rank": None,
+            "evidence_rank": None,
+            "evidence_score": 0,
+            "mrr": 1 if refusal_hit else 0,
+            "top_k": top_k,
+        }
+
     source_ids = set(expected_source_ids)
     source_rank = next((item["rank"] for item in retrieved if item.get("doc_id") in source_ids), None)
     evidence_rank = None
@@ -540,17 +601,27 @@ def build_summary(items: list[dict], chunk_count: int, document_count: int) -> d
     total = len(items)
     if not total:
         return {"question_count": 0, "document_count": document_count, "chunk_count": chunk_count}
-    source_hits = sum(1 for item in items if item["metrics"].get("source_hit"))
-    evidence_hits = sum(1 for item in items if item["metrics"].get("evidence_hit"))
-    avg_mrr = sum(float(item["metrics"].get("mrr", 0)) for item in items) / total
+    refusal_items = [item for item in items if item["metrics"].get("should_refuse")]
+    retrieval_items = [item for item in items if not item["metrics"].get("should_refuse")]
+    retrieval_total = len(retrieval_items)
+    refusal_total = len(refusal_items)
+    source_hits = sum(1 for item in retrieval_items if item["metrics"].get("source_hit"))
+    evidence_hits = sum(1 for item in retrieval_items if item["metrics"].get("evidence_hit"))
+    refusal_hits = sum(1 for item in refusal_items if item["metrics"].get("refusal_hit"))
+    avg_mrr = sum(float(item["metrics"].get("mrr", 0)) for item in retrieval_items) / retrieval_total if retrieval_total else 0
+    pass_count = evidence_hits + refusal_hits
     return {
         "question_count": total,
+        "retrieval_question_count": retrieval_total,
+        "refusal_question_count": refusal_total,
         "document_count": document_count,
         "chunk_count": chunk_count,
-        "source_hit_rate": round(source_hits / total, 4),
-        "evidence_hit_rate": round(evidence_hits / total, 4),
+        "source_hit_rate": round(source_hits / retrieval_total, 4) if retrieval_total else None,
+        "evidence_hit_rate": round(evidence_hits / retrieval_total, 4) if retrieval_total else None,
+        "refusal_hit_rate": round(refusal_hits / refusal_total, 4) if refusal_total else None,
+        "pass_rate": round(pass_count / total, 4),
         "mrr": round(avg_mrr, 4),
-        "miss_count": total - evidence_hits,
+        "miss_count": total - pass_count,
     }
 
 
