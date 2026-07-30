@@ -1265,7 +1265,7 @@ export function EvaluationView({
                                     <Tag color="blue">#{String(retrieved.rank ?? "-")}</Tag>
                                     <Tag>{sourceType}</Tag>
                                     <Text strong>{filename}</Text>
-                                    <Text type="secondary">分数 {String(retrieved.score ?? "-")}</Text>
+                                    <Text type="secondary">RRF {String(retrieved.score ?? "-")}</Text>
                                     <Text type="secondary">关键词 {String(retrieved.keyword_score ?? "-")}</Text>
                                     <Text type="secondary">向量 {String(retrieved.vector_score ?? "-")}</Text>
                                   </Space>

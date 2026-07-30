@@ -19,7 +19,7 @@ def load_file(file_path:str, file_type: str = "auto") -> list[Document]:
     if file_type == "txt":
         return [_load_text_file(file_path)]
     elif file_type == "pdf":
-        loader = PyPDFLoader(file_path)
+        return load_pdf_with_mineru(file_path)
     elif file_type == "md":
         loader = UnstructuredMarkdownLoader(file_path)
     else:
@@ -43,7 +43,7 @@ def has_useful_text(docs: list[Document]) -> bool:
 
 def load_pdf_with_mineru(file_path: str) -> list[Document]:
     if not MINERU_EXE.exists():
-        return load_file(file_path, "pdf")
+        return PyPDFLoader(file_path).load()
 
     output_dir = Path(tempfile.mkdtemp(prefix="questrag_mineru_"))
     try:
@@ -73,10 +73,10 @@ def load_pdf_with_mineru(file_path: str) -> list[Document]:
         )
         markdown_files = sorted(output_dir.glob("*/txt/*.md"))
         if not markdown_files:
-            return load_file(file_path, "pdf")
+            return PyPDFLoader(file_path).load()
         text = markdown_files[0].read_text(encoding="utf-8", errors="replace").strip()
         if not text:
-            return load_file(file_path, "pdf")
+            return PyPDFLoader(file_path).load()
         return [
             Document(
                 page_content=text,

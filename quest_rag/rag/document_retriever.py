@@ -23,8 +23,8 @@ def search(query: str, top_k=3) -> list[Document]:
             metadata={
                 **result["metadata"],
                 "score": result["score"],
-                "vector_score": result["vector_score"],
-                "keyword_score": result["keyword_score"],
+                "vector_score": result.get("vector_score", 0),
+                "keyword_score": result.get("keyword_score", 0),
             },
         )
         for result in backend.search(query, query_vector, top_k)

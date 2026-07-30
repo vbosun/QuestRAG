@@ -286,7 +286,7 @@ class ElasticsearchVectorBackend(VectorBackend):
             },
         )
         return [
-            self._hit_to_chunk(hit, vector_score=max(hit["_score"] - 1.0, 0), keyword_score=0)
+            self._hit_to_chunk(hit, vector_score=hit["_score"] - 1.0)
             for hit in response["hits"]["hits"]
         ]
 
@@ -298,19 +298,17 @@ class ElasticsearchVectorBackend(VectorBackend):
             size=top_k,
             query={"match": {"text": query}},
         )
-        max_score = response["hits"].get("max_score") or 1
         return [
-            self._hit_to_chunk(hit, vector_score=0, keyword_score=hit["_score"] / max_score)
+            self._hit_to_chunk(hit, keyword_score=hit["_score"])
             for hit in response["hits"]["hits"]
         ]
 
-    def _hit_to_chunk(self, hit: dict, vector_score: float, keyword_score: float) -> dict:
+    def _hit_to_chunk(self, hit: dict, vector_score: float = 0, keyword_score: float = 0) -> dict:
         source = hit["_source"]
         return {
             "id": hit["_id"],
             "text": source["text"],
             "metadata": source.get("metadata", {}),
-            "score": max(vector_score, keyword_score),
             "vector_score": vector_score,
             "keyword_score": keyword_score,
         }
@@ -325,46 +323,29 @@ def get_vector_backend() -> VectorBackend:
 
 
 def vector_search(query_vector: list[float], chunks: list[dict], top_k=3) -> list[dict]:
-    vector_results = []
-    for chunk in chunks:
-        new_chunk = chunk.copy()
-        new_chunk["score"] = cosine_similarity(query_vector, chunk["embedding"])
-        vector_results.append(new_chunk)
-
-    return sorted(vector_results, key=lambda x: x["score"], reverse=True)[:top_k]
+    scored = [(cosine_similarity(query_vector, c["embedding"]), c) for c in chunks]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [{**c, "vector_score": s, "keyword_score": 0} for s, c in scored[:top_k]]
 
 
 def keyword_search(query: str, chunks: list[dict], top_k=3) -> list[dict]:
     if not query:
         return []
 
-    results = []
     keywords = extract_keywords(query)
+    scored = []
     for chunk in chunks:
-        score = 0
         text: str = chunk["text"]
         if query in text:
-            score += 3
+            scored.append((3, {**chunk, "keyword_score": 3, "vector_score": 0}))
+            continue
 
-        matched_keywords = []
-        for kw in keywords:
-            count = text.count(kw)
-            if count > 0:
-                matched_keywords.append(kw)
-                score += 1
-                score += min(count - 1, 2) * 0.25
+        hits = sum(1 for kw in keywords if kw in text)
+        if hits > 0:
+            scored.append((hits, {**chunk, "keyword_score": hits, "vector_score": 0}))
 
-        if score > 0:
-            new_chunk = chunk.copy()
-            new_chunk["score"] = min(score / 3.0, 1.0)
-            new_chunk["matched_keywords"] = matched_keywords
-            results.append(new_chunk)
-
-    return sorted(
-        results,
-        key=lambda x: (x["score"] > 0, x["score"]),
-        reverse=True,
-    )[:top_k]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [c for _, c in scored[:top_k]]
 
 
 def merge_results(
@@ -384,12 +365,12 @@ def merge_results(
             doc_map[idx] = {
                 "id": idx,
                 "text": vr["text"],
-                "vector_score": vr.get("vector_score", vr["score"]),
-                "keyword_score": 0,
                 "metadata": vr["metadata"],
+                "vector_score": vr.get("vector_score", 0),
+                "keyword_score": vr.get("keyword_score", 0),
             }
         else:
-            doc_map[idx]["vector_score"] = vr.get("vector_score", vr["score"])
+            doc_map[idx]["vector_score"] = vr.get("vector_score", 0)
 
     for rank, kr in enumerate(keyword_results, start=1):
         idx: str = kr["id"]
@@ -398,12 +379,12 @@ def merge_results(
             doc_map[idx] = {
                 "id": idx,
                 "text": kr["text"],
-                "vector_score": 0,
-                "keyword_score": kr.get("keyword_score", kr["score"]),
                 "metadata": kr["metadata"],
+                "vector_score": kr.get("vector_score", 0),
+                "keyword_score": kr.get("keyword_score", 0),
             }
         else:
-            doc_map[idx]["keyword_score"] = kr.get("keyword_score", kr["score"])
+            doc_map[idx]["keyword_score"] = kr.get("keyword_score", 0)
 
     sorted_ids = sorted(rrf_scores, key=lambda i: rrf_scores[i], reverse=True)
 
