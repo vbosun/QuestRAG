@@ -4,9 +4,6 @@ from typing import Literal
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-_MD_TABLE_ROW_RE = re.compile(r"^\|(.+)\|$")
-_MD_TABLE_SEP_RE = re.compile(r"^\|[\s\-:|]+\|$")
-
 SEPARATOR_PRESETS: dict[str, list[str]] = {
     "general": ["\n\n", "\n", "。", ". ", "！", "! ", "？", "? ", "；", "; ", "，", ", ", " ", ""],
     "chinese": ["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""],
@@ -356,25 +353,6 @@ def _emit_chunk(
     chunk_overlap: int,
     chunks: list[Document],
 ):
-    """Emit text as chunk(s). Detects tables and splits each row into a
-    standalone key-value chunk for precise retrieval."""
-    rows, preamble, postamble = _extract_table_rows(text)
-    if rows:
-        if preamble:
-            _emit_chunk(preamble, heading_path, base_metadata, chunk_size, chunk_overlap, chunks)
-        prefix = f"[{' > '.join(heading_path)}] " if heading_path else ""
-        for row in rows:
-            pairs = []
-            for i in range(0, len(row) - 1, 2):
-                k, v = row[i], row[i + 1]
-                if k and v:
-                    pairs.append(f"{k}: {v}")
-            if pairs:
-                chunks.append(_make_chunk(prefix + "; ".join(pairs), heading_path, base_metadata, chunks))
-        if postamble:
-            _emit_chunk(postamble, heading_path, base_metadata, chunk_size, chunk_overlap, chunks)
-        return
-
     if len(text) <= chunk_size:
         chunks.append(_make_chunk(text, heading_path, base_metadata, chunks))
         return
@@ -395,55 +373,6 @@ def _make_chunk(text: str, heading_path: list[str], base_metadata: dict, chunks:
         page_content=text,
         metadata={**base_metadata, "heading_path": heading_path, "chunk_index": len(chunks)},
     )
-
-
-def _extract_table_rows(text: str) -> tuple[list[list[str]] | None, str, str]:
-    """Detect and parse markdown table in text.
-
-    Returns (rows, preamble, postamble) where rows is a list of cell lists,
-    or (None, "", "") if no table found.
-    """
-    lines = text.split("\n")
-    md_rows = []
-    header: list[str] | None = None
-    table_start = None
-    table_end = None
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped.startswith("|"):
-            continue
-        if _MD_TABLE_SEP_RE.match(stripped):
-            # The row before separator is the header
-            if md_rows and header is None:
-                header = md_rows[-1]
-                md_rows.pop()
-            continue
-        m = _MD_TABLE_ROW_RE.match(stripped)
-        if m:
-            cells = [c.strip() for c in m.group(1).split("|")]
-            if cells:
-                if table_start is None:
-                    table_start = i
-                table_end = i
-                md_rows.append(cells)
-
-    if md_rows and header:
-        # Expand each data row using header as keys
-        expanded = []
-        for row in md_rows:
-            expanded_row = []
-            for j, key in enumerate(header):
-                expanded_row.append(key)
-                expanded_row.append(row[j] if j < len(row) else "")
-            expanded.append(expanded_row)
-        md_rows = expanded
-
-    if md_rows:
-        preamble = "\n".join(lines[:table_start]).strip()
-        postamble = "\n".join(lines[table_end + 1:]).strip()
-        return md_rows, preamble, postamble
-
-    return None, "", ""
 
 
 # ---------------------------------------------------------------------------
