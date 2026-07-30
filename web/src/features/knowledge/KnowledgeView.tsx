@@ -422,6 +422,9 @@ export function KnowledgeView({
                       {chunk.metadata.page !== undefined && chunk.metadata.page !== null && (
                         <Text type="secondary">页码 {String(chunk.metadata.page)}</Text>
                       )}
+                      {Array.isArray(chunk.metadata.heading_path) && (chunk.metadata.heading_path as string[]).length > 0 && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>{(chunk.metadata.heading_path as string[]).join(" > ")}</Text>
+                      )}
                     </Space>
                   }
                   description={<Text className="chunk-preview">{chunk.text}</Text>}
@@ -446,6 +449,11 @@ export function KnowledgeView({
                     {String(activeChunk.metadata.chunk_index ?? "无")}
                   </Descriptions.Item>
                   <Descriptions.Item label="页码">{String(activeChunk.metadata.page ?? "无")}</Descriptions.Item>
+                  <Descriptions.Item label="标题路径">
+                    {Array.isArray(activeChunk.metadata.heading_path) && (activeChunk.metadata.heading_path as string[]).length > 0
+                      ? (activeChunk.metadata.heading_path as string[]).join(" > ")
+                      : "无"}
+                  </Descriptions.Item>
                   <Descriptions.Item label="长度">{activeChunk.length} 字</Descriptions.Item>
                 </Descriptions>
                 <pre>{activeChunk.text}</pre>

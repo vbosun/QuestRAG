@@ -14,12 +14,15 @@ _HEADING_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^第[一二三四五六七八九十百千\d]+(章|节|条|部分|篇|编)\s*(.*)$"), "zh_chapter"),
     (re.compile(r"^[一二三四五六七八九十]+[、，]\s*(.*)$"), "zh_numbered"),
     (re.compile(r"^（[一二三四五六七八九十]+）\s*(.*)$"), "zh_bracketed"),
+    (re.compile(r"^\([一二三四五六七八九十]+\)\s*(.*)$"), "zh_bracketed"),
     (re.compile(r"^[一二三四五六七八九十]+[）)]\s*(.*)$"), "zh_paren"),
-    (re.compile(r"^(\d+(?:\.\d+)*)\.?\s+(.+)$"), "num_dotted"),
-    (re.compile(r"^(\d+)\)\s+(.+)$"), "num_paren"),
+    (re.compile(r"^(\d+(?:\.\d+)*)\.\s*(.+)$"), "num_dotted"),
+    (re.compile(r"^(\d+)\)\s*(.+)$"), "num_paren"),
 ]
 
 _MAX_HEADING_LEN = 120
+_MAX_HEADING_DEPTH = 4
+_MIN_STANDALONE_CHUNK = 80  # 子块至少 80 字才允许独立，避免产生碎片
 _SENTENCE_ENDS = re.compile(r"[。！？.!?]$")
 
 
@@ -86,17 +89,12 @@ def _split_structure(docs: list[Document], chunk_size: int, chunk_overlap: int) 
         if not text:
             continue
         headings = _extract_headings(text)
-        sections = _split_by_headings(text, headings)
-        for section_text, heading_path in sections:
-            base_meta = {**doc.metadata, "heading_path": heading_path}
-            if len(section_text) <= chunk_size:
-                base_meta["chunk_index"] = 0
-                base_meta["start_index"] = 0
-                base_meta["end_index"] = len(section_text)
-                all_splits.append(Document(page_content=section_text.strip(), metadata=base_meta))
-            else:
-                sub_chunks = _fixed_chunk_text(section_text, base_meta, chunk_size, chunk_overlap or 0)
-                all_splits.extend(sub_chunks)
+        if not headings:
+            chunks = _fixed_chunk_text(text, doc.metadata, chunk_size, chunk_overlap or 0)
+            all_splits.extend(chunks)
+        else:
+            chunks = _split_by_tree(text, headings, chunk_size, chunk_overlap, doc.metadata)
+            all_splits.extend(chunks)
     return all_splits
 
 
@@ -108,13 +106,15 @@ def _extract_headings(text: str) -> list[dict]:
         line = raw_line.strip()
         if not line or len(line) > _MAX_HEADING_LEN:
             continue
-        if _SENTENCE_ENDS.search(line):
-            continue
 
         for pattern, style in _HEADING_PATTERNS:
             match = pattern.match(line)
             if not match:
                 continue
+            # 模式命中后，额外检查：如果不是标题型样式且以句末标点结尾，可能是正文
+            if style not in ("zh_numbered", "zh_bracketed", "zh_paren", "num_dotted", "num_paren", "markdown"):
+                if _SENTENCE_ENDS.search(line):
+                    continue
             if style == "zh_chapter":
                 title = match.group(2) or line
             elif style in ("zh_numbered", "zh_bracketed", "zh_paren"):
@@ -162,23 +162,26 @@ def _infer_level(style: str, match: re.Match) -> int:
 def _assign_levels(raw: list[dict]) -> list[dict]:
     """Assign absolute hierarchy levels.
 
-    Markdown and num_dotted carry intrinsic levels from their syntax.
-    Other styles are numbered by appearance order, creating a monotonic hierarchy.
+    Markdown headings carry intrinsic levels from # count.
+    Multi-dot numbered headings (1.1, 2.3.1) carry intrinsic levels.
+    All other styles are numbered by first-appearance order.
+    Single-number patterns (1. 2.) are treated as non-intrinsic since
+    their nesting depth varies by document context.
     """
     if not raw:
         return raw
 
-    # First pass: resolve intrinsic levels for markdown
     for item in raw:
+        hint = item["level_hint"]
         if item["style"] == "markdown":
-            item["level"] = item["level_hint"]
+            item["level"] = hint
+        elif item["style"] == "num_dotted" and hint > 1:
+            # "1.1" → level 2, "1.1.1" → level 3, etc.
+            item["level"] = hint + 1
         elif item["style"] == "num_dotted":
-            dots = item["level_hint"] - 1
-            # Single numbers like "1." default to level 4 (deeply nested),
-            # multi-dot patterns like "1.1" use dots+2 as the level
-            item["level"] = dots + 2 if dots > 0 else 4
+            # Single numbers like "1." — non-intrinsic, will be handled below
+            pass
 
-    # Second pass: assign levels to remaining styles by appearance order
     style_level: dict[str, int] = {}
     next_level = 1
     for item in raw:
@@ -193,43 +196,166 @@ def _assign_levels(raw: list[dict]) -> list[dict]:
     return raw
 
 
-def _split_by_headings(text: str, headings: list[dict]) -> list[tuple[str, list[str]]]:
-    """Split text into sections by heading boundaries, each with its heading path."""
-    if not headings:
-        return [(text, [])]
-
+def _split_by_tree(
+    text: str,
+    headings: list[dict],
+    chunk_size: int,
+    chunk_overlap: int,
+    base_metadata: dict,
+) -> list[Document]:
+    """Split text by heading tree. Only drills into sub-headings when the parent
+    section's total text exceeds chunk_size. Otherwise keeps the section intact."""
     lines = text.split("\n")
-    sections: list[tuple[str, list[str]]] = []
-    stack: list[dict] = []
+    total_lines = len(lines)
+    chunks: list[Document] = []
+    _split_subtree(
+        text_lines=lines,
+        sub_headings=headings,
+        start_line=0,
+        end_line=total_lines,
+        parent_path=[],
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        base_metadata=base_metadata,
+        chunks=chunks,
+    )
+    return chunks
 
-    section_start = 0
 
-    for heading in headings:
-        boundary = heading["line_idx"]
-        if boundary <= section_start:
-            _update_stack(stack, heading)
+def _split_subtree(
+    *,
+    text_lines: list[str],
+    sub_headings: list[dict],
+    start_line: int,
+    end_line: int,
+    parent_path: list[str],
+    chunk_size: int,
+    chunk_overlap: int,
+    base_metadata: dict,
+    chunks: list[Document],
+):
+    """Recursively process a section of text [start_line, end_line) with its headings."""
+    # Gather direct children: the highest-level (lowest level number) headings
+    if not sub_headings:
+        section_text = "\n".join(text_lines[start_line:end_line]).strip()
+        if section_text:
+            _emit_chunk(section_text, parent_path, base_metadata, chunk_size, chunk_overlap, chunks)
+        return
+
+    min_level = min(h["level"] for h in sub_headings)
+    # Extract headings that are at the minimum level within this subtree
+    direct_children: list[dict] = []
+    remaining: list[dict] = []
+    for h in sub_headings:
+        if h["level"] == min_level:
+            direct_children.append(h)
+        else:
+            remaining.append(h)
+
+    # Text before the first direct child heading
+    first_child_line = direct_children[0]["line_idx"]
+    if first_child_line > start_line:
+        preamble = "\n".join(text_lines[start_line:first_child_line]).strip()
+        if preamble:
+            _emit_chunk(preamble, parent_path, base_metadata, chunk_size, chunk_overlap, chunks)
+
+    # Process each direct child
+    for i, child in enumerate(direct_children):
+        child_start = child["line_idx"]
+        # Find where this child's content ends
+        if i + 1 < len(direct_children):
+            child_end = direct_children[i + 1]["line_idx"]
+        else:
+            child_end = end_line
+
+        child_path = (parent_path + [child["title"]])[-_MAX_HEADING_DEPTH:]
+        section_text = "\n".join(text_lines[child_start:child_end]).strip()
+        total_len = len(section_text)
+
+        if total_len <= chunk_size:
+            # Check if sub-headings would produce meaningful standalone chunks
+            child_sub = [
+                h for h in remaining
+                if h["line_idx"] >= child_start
+                and (i + 1 >= len(direct_children) or h["line_idx"] < direct_children[i + 1]["line_idx"])
+            ]
+            if child_sub and _can_split_meaningfully(text_lines, child_start, child_end, child_sub):
+                _split_subtree(
+                    text_lines=text_lines,
+                    sub_headings=child_sub,
+                    start_line=child_start,
+                    end_line=child_end,
+                    parent_path=child_path,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    base_metadata=base_metadata,
+                    chunks=chunks,
+                )
+                continue
+            _emit_chunk(section_text, child_path, base_metadata, chunk_size, chunk_overlap, chunks)
             continue
 
-        section_text = "\n".join(lines[section_start:boundary])
-        heading_path = [h["title"] for h in stack]
-        if section_text.strip():
-            sections.append((section_text, heading_path))
+        # Exceeds limit — drill into sub-headings
+        child_sub_headings = [
+            h for h in remaining
+            if h["line_idx"] >= child_start
+            and (i + 1 >= len(direct_children) or h["line_idx"] < direct_children[i + 1]["line_idx"])
+        ]
+        if child_sub_headings:
+            _split_subtree(
+                text_lines=text_lines,
+                sub_headings=child_sub_headings,
+                start_line=child_start,
+                end_line=child_end,
+                parent_path=child_path,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                base_metadata=base_metadata,
+                chunks=chunks,
+            )
+        else:
+            # No sub-headings to help, fall back to fixed-length
+            _emit_chunk(section_text, child_path, base_metadata, chunk_size, chunk_overlap, chunks)
 
-        _update_stack(stack, heading)
-        section_start = boundary
 
-    tail = "\n".join(lines[section_start:])
-    heading_path = [h["title"] for h in stack]
-    if tail.strip():
-        sections.append((tail, heading_path))
+def _can_split_meaningfully(
+    text_lines: list[str],
+    start_line: int,
+    end_line: int,
+    sub_headings: list[dict],
+) -> bool:
+    """Check if splitting by sub-headings produces chunks of at least _MIN_STANDALONE_CHUNK chars each."""
+    if not sub_headings:
+        return False
+    min_level = min(h["level"] for h in sub_headings)
+    direct = [h for h in sub_headings if h["level"] == min_level]
+    if not direct:
+        return False
+    for i, h in enumerate(direct):
+        seg_start = h["line_idx"]
+        seg_end = direct[i + 1]["line_idx"] if i + 1 < len(direct) else end_line
+        if len("\n".join(text_lines[seg_start:seg_end]).strip()) < _MIN_STANDALONE_CHUNK:
+            return False
+    return True
 
-    return sections
 
-
-def _update_stack(stack: list[dict], heading: dict):
-    while stack and stack[-1]["level"] >= heading["level"]:
-        stack.pop()
-    stack.append(heading)
+def _emit_chunk(
+    text: str,
+    heading_path: list[str],
+    base_metadata: dict,
+    chunk_size: int,
+    chunk_overlap: int,
+    chunks: list[Document],
+):
+    """Emit text as chunk(s), using fixed-length splitting if it exceeds chunk_size."""
+    if len(text) <= chunk_size:
+        chunks.append(Document(
+            page_content=text,
+            metadata={**base_metadata, "heading_path": heading_path, "chunk_index": len(chunks)},
+        ))
+    else:
+        for sub in _fixed_chunk_text(text, {**base_metadata, "heading_path": heading_path}, chunk_size, chunk_overlap or 0):
+            chunks.append(sub)
 
 
 # ---------------------------------------------------------------------------

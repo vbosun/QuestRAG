@@ -797,6 +797,9 @@ export function EvaluationView({
                       {chunk.metadata.page !== undefined && chunk.metadata.page !== null && (
                         <Text type="secondary">页码 {String(chunk.metadata.page)}</Text>
                       )}
+                      {Array.isArray(chunk.metadata.heading_path) && (chunk.metadata.heading_path as string[]).length > 0 && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>{(chunk.metadata.heading_path as string[]).join(" > ")}</Text>
+                      )}
                     </Space>
                   }
                   description={<Text className="chunk-preview">{chunk.text}</Text>}
