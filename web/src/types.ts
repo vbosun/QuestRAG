@@ -7,6 +7,8 @@ export interface DocumentInfo {
   filename: string;
   chunk_count: number;
   uploaded_at?: string;
+  strategy?: string;
+  separator_preset?: string;
 }
 
 export interface DocumentStats {

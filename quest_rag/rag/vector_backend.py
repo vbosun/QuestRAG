@@ -82,6 +82,8 @@ class MemoryVectorBackend(VectorBackend):
                     "filename": metadata.get("filename") or doc_id,
                     "chunk_count": 0,
                     "uploaded_at": metadata.get("ingested_at") or datetime.now().isoformat(),
+                    "strategy": metadata.get("strategy") or "fixed",
+                    "separator_preset": metadata.get("separator_preset") or "general",
                 },
             )
             item["chunk_count"] += 1
@@ -196,6 +198,8 @@ class ElasticsearchVectorBackend(VectorBackend):
                                         "metadata.source",
                                         "metadata.ingested_at",
                                         "metadata.creationdate",
+                                        "metadata.strategy",
+                                        "metadata.separator_preset",
                                     ]
                                 },
                             }
@@ -217,6 +221,8 @@ class ElasticsearchVectorBackend(VectorBackend):
                     "uploaded_at": metadata.get("ingested_at")
                     or metadata.get("creationdate")
                     or datetime.now().isoformat(),
+                    "strategy": metadata.get("strategy") or "fixed",
+                    "separator_preset": metadata.get("separator_preset") or "general",
                 }
             )
         return docs

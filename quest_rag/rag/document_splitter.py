@@ -38,10 +38,16 @@ def split_docs(
         return []
 
     if strategy == "structure":
-        return _split_structure(docs, chunk_size, chunk_overlap)
-    if strategy == "recursive":
-        return _split_recursive(docs, chunk_size, chunk_overlap, separator_preset)
-    return _split_fixed(docs, chunk_size, chunk_overlap)
+        chunks = _split_structure(docs, chunk_size, chunk_overlap)
+    elif strategy == "recursive":
+        chunks = _split_recursive(docs, chunk_size, chunk_overlap, separator_preset)
+    else:
+        chunks = _split_fixed(docs, chunk_size, chunk_overlap)
+
+    for c in chunks:
+        c.metadata["strategy"] = strategy
+        c.metadata["separator_preset"] = separator_preset
+    return chunks
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +363,14 @@ def _emit_chunk(
         chunks.append(_make_chunk(text, heading_path, base_metadata, chunks))
         return
 
+    # 超限拆分时，提取首行标题作为前缀，拼回每个子块，避免标题孤立
+    heading_prefix = ""
+    body = text
+    first_line = text.split("\n", 1)[0].strip()
+    if first_line and any(p.match(first_line) for p, _ in _HEADING_PATTERNS):
+        heading_prefix = first_line
+        body = text[len(first_line):].strip()
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap or 0,
@@ -364,8 +378,10 @@ def _emit_chunk(
         keep_separator=True,
         strip_whitespace=False,
     )
-    for sub_text in splitter.split_text(text):
-        chunks.append(_make_chunk(sub_text.strip(), heading_path, base_metadata, chunks))
+    for sub_text in splitter.split_text(body):
+        content = f"{heading_prefix}\n{sub_text.strip()}" if heading_prefix else sub_text.strip()
+        if content.strip():
+            chunks.append(_make_chunk(content, heading_path, base_metadata, chunks))
 
 
 def _make_chunk(text: str, heading_path: list[str], base_metadata: dict, chunks: list[Document]) -> Document:

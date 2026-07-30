@@ -314,7 +314,10 @@ export function KnowledgeView({
               {
                 title: "分段模式",
                 width: 140,
-                render: () => <Tag>通用</Tag>
+                render: (_value: unknown, doc: DocumentInfo) => {
+                  const labels: Record<string, string> = { fixed: "固定长度", structure: "结构感知", recursive: "递归拆分" };
+                  return <Tag>{labels[doc.strategy || "fixed"] || doc.strategy || "固定长度"}</Tag>;
+                }
               },
               {
                 title: "召回次数",
