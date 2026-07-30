@@ -1,13 +1,9 @@
 import re
-from html import unescape
 from typing import Literal
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-_HTML_TABLE_RE = re.compile(r"<table[^>]*>(.*?)</table>", re.DOTALL | re.IGNORECASE)
-_HTML_TR_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
-_HTML_TD_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL | re.IGNORECASE)
 _MD_TABLE_ROW_RE = re.compile(r"^\|(.+)\|$")
 _MD_TABLE_SEP_RE = re.compile(r"^\|[\s\-:|]+\|$")
 
@@ -402,23 +398,11 @@ def _make_chunk(text: str, heading_path: list[str], base_metadata: dict, chunks:
 
 
 def _extract_table_rows(text: str) -> tuple[list[list[str]] | None, str, str]:
-    """Detect and parse HTML or markdown table in text.
+    """Detect and parse markdown table in text.
 
     Returns (rows, preamble, postamble) where rows is a list of cell lists,
     or (None, "", "") if no table found.
     """
-    # HTML table
-    m = _HTML_TABLE_RE.search(text)
-    if m:
-        rows = []
-        for tr in _HTML_TR_RE.findall(m.group(1)):
-            cells = [unescape(c.strip()) for c in _HTML_TD_RE.findall(tr)]
-            if cells:
-                rows.append(cells)
-        if rows:
-            return rows, text[:m.start()].strip(), text[m.end():].strip()
-
-    # Markdown table
     lines = text.split("\n")
     md_rows = []
     header: list[str] | None = None

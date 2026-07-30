@@ -1,11 +1,17 @@
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+from html import unescape
 from pathlib import Path
 
 from langchain_community.document_loaders import PyPDFLoader, UnstructuredMarkdownLoader
 from langchain_core.documents import Document
+
+_HTML_TABLE_RE = re.compile(r"<table[^>]*>.*?</table>", re.DOTALL | re.IGNORECASE)
+_HTML_TR_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL)
+_HTML_TD_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL)
 
 MINERU_EXE = Path(r"D:\Software\Git\repository\zyzy\.venv-mineru-gpu\Scripts\mineru.exe")
 MIN_TEXT_LENGTH = 30
@@ -77,6 +83,7 @@ def load_pdf_with_mineru(file_path: str) -> list[Document]:
         text = markdown_files[0].read_text(encoding="utf-8", errors="replace").strip()
         if not text:
             return PyPDFLoader(file_path).load()
+        text = _convert_html_tables(text)
         return [
             Document(
                 page_content=text,
@@ -85,6 +92,20 @@ def load_pdf_with_mineru(file_path: str) -> list[Document]:
         ]
     finally:
         shutil.rmtree(output_dir, ignore_errors=True)
+
+
+def _convert_html_tables(text: str) -> str:
+    """将 MinerU 产出的 HTML 表格转为 Markdown 管道表格。"""
+
+    def _replace(match):
+        rows = []
+        for tr in _HTML_TR_RE.findall(match.group(0)):
+            cells = [unescape(c.strip()) for c in _HTML_TD_RE.findall(tr)]
+            if cells:
+                rows.append("| " + " | ".join(cells) + " |")
+        return "\n".join(rows) if rows else match.group(0)
+
+    return _HTML_TABLE_RE.sub(_replace, text)
 
 
 def _load_text_file(file_path: str) -> Document:
