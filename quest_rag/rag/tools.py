@@ -22,8 +22,7 @@ def retrieve_context(query: str) -> str:
     """ 根据查询目标检索文档,返回查询结果 """
     docs = search(query, 5)
 
-    # 对检索结果进行校验
-    results = validate_search_result(docs, 0.4)
+    results = validate_search_result(docs)
 
     serialized_parts = []
     for doc in results:

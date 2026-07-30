@@ -115,11 +115,10 @@ export function EvaluationView({
     separator_preset: "general"
   });
   const [retrievalOptions, setRetrievalOptions] = useState<RetrievalOptions>({
-    top_k: 5,
+    top_k: 10,
+    recall_k: 15,
     mode: "hybrid",
-    score_threshold: 0,
-    vector_weight: 0.6,
-    keyword_weight: 0.4
+    rrf_k: 60
   });
 
   function backToList() {
@@ -591,16 +590,12 @@ export function EvaluationView({
                     <InputNumber min={1} max={20} value={retrievalOptions.top_k} onChange={(value) => setRetrievalOptions({ ...retrievalOptions, top_k: Number(value || 5) })} />
                   </label>
                   <label>
-                    <Text strong>最低分数阈值</Text>
-                    <InputNumber min={0} max={2} step={0.05} value={retrievalOptions.score_threshold} onChange={(value) => setRetrievalOptions({ ...retrievalOptions, score_threshold: Number(value || 0) })} />
+                    <Text strong>每路召回数 (recall_k)</Text>
+                    <InputNumber min={1} max={50} value={retrievalOptions.recall_k} onChange={(value) => setRetrievalOptions({ ...retrievalOptions, recall_k: Number(value || 15) })} />
                   </label>
                   <label>
-                    <Text strong>向量权重</Text>
-                    <InputNumber min={0} max={1} step={0.1} value={retrievalOptions.vector_weight} onChange={(value) => setRetrievalOptions({ ...retrievalOptions, vector_weight: Number(value || 0) })} />
-                  </label>
-                  <label>
-                    <Text strong>关键词权重</Text>
-                    <InputNumber min={0} max={1} step={0.1} value={retrievalOptions.keyword_weight} onChange={(value) => setRetrievalOptions({ ...retrievalOptions, keyword_weight: Number(value || 0) })} />
+                    <Text strong>RRF 平滑参数 (k)</Text>
+                    <InputNumber min={1} max={120} value={retrievalOptions.rrf_k} onChange={(value) => setRetrievalOptions({ ...retrievalOptions, rrf_k: Number(value || 60) })} />
                   </label>
                 </div>
               )}
@@ -1179,7 +1174,7 @@ export function EvaluationView({
                   onCancel={() => setActiveRetrievedItem(null)}
                   open={!!activeRetrievedItem}
                   title={activeRetrievedItem ? `召回结果：${activeRetrievedItem.question_id || activeRetrievedItem.id}` : "召回结果"}
-                  width={1080}
+                  width={1400}
                 >
                   {activeRetrievedItem && (
                     <div className="retrieval-modal">
@@ -1216,8 +1211,6 @@ export function EvaluationView({
                                 <Tag color={activeRetrievedItem.metrics?.refusal_hit ? "success" : "error"}>
                                   {activeRetrievedItem.metrics?.refusal_hit ? "拒答通过" : "拒答未通过"}
                                 </Tag>
-                                <Text type="secondary">最高召回分: {String(activeRetrievedItem.metrics?.best_score ?? "-")}</Text>
-                                <Text type="secondary">拒答阈值: {String(activeRetrievedItem.metrics?.refusal_score_threshold ?? "-")}</Text>
                               </>
                             ) : (
                               <>

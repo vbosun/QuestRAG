@@ -52,10 +52,9 @@ export interface SplitOptions {
 
 export interface RetrievalOptions {
   top_k: number;
+  recall_k: number;
   mode: "hybrid" | "vector" | "keyword";
-  score_threshold: number;
-  vector_weight: number;
-  keyword_weight: number;
+  rrf_k: number;
 }
 
 export interface EvaluationRun {

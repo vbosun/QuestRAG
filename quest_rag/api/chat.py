@@ -3,7 +3,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from logger import logger
+from quest_rag.logger import logger
 
 from quest_rag.rag.generator import generate, generate_stream, history
 from quest_rag.schemas.schemas import ChatRequest, ChatResponse

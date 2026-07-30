@@ -712,10 +712,13 @@ body {
 .chunk-detail {
   display: grid;
   gap: 14px;
+  align-content: start;
+  height: 100%;
+  overflow: auto;
 }
 
 .chunk-detail pre {
-  max-height: 62vh;
+  max-height: none;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -855,6 +858,7 @@ body {
 .retrieval-modal {
   display: grid;
   grid-template-columns: minmax(280px, 0.42fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
   max-height: 72vh;
   min-height: 420px;
@@ -866,6 +870,7 @@ body {
   align-content: start;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
   overflow: auto;
 }
 

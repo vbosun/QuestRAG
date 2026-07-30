@@ -108,12 +108,16 @@ def init_db():
                 expected_source_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
                 expected_chunk_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
                 expected_chunk_text TEXT,
+                should_refuse BOOLEAN NOT NULL DEFAULT false,
+                retrieval_queries JSONB NOT NULL DEFAULT '[]'::jsonb,
                 retrieved JSONB NOT NULL DEFAULT '[]'::jsonb,
                 metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
             """
         )
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS should_refuse BOOLEAN NOT NULL DEFAULT false")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS retrieval_queries JSONB NOT NULL DEFAULT '[]'::jsonb")
 
 
 def upsert_document(
@@ -154,6 +158,24 @@ def upsert_document(
                 json.dumps(metadata, ensure_ascii=False),
             ),
         )
+
+
+def get_document_stats() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT d.id, d.filename,
+                   COALESCE(LENGTH(v.raw_text), 0) AS text_length
+            FROM documents d
+            JOIN LATERAL (
+                SELECT raw_text FROM document_versions
+                WHERE document_id = d.id
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) v ON true
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def delete_document(doc_id: str):
@@ -226,9 +248,9 @@ def add_evaluation_items(items: list[dict]):
                 INSERT INTO evaluation_items (
                     id, run_id, question_id, question, expected_answer,
                     expected_source_ids, expected_chunk_ids, expected_chunk_text,
-                    retrieved, metrics
+                    should_refuse, retrieval_queries, retrieved, metrics
                 )
-                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s::jsonb, %s::jsonb)
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb)
                 """,
                 (
                     item["id"],
@@ -239,6 +261,8 @@ def add_evaluation_items(items: list[dict]):
                     json_dumps(item.get("expected_source_ids", [])),
                     json_dumps(item.get("expected_chunk_ids", [])),
                     item.get("expected_chunk_text"),
+                    item.get("should_refuse", False),
+                    json_dumps(item.get("retrieval_queries", [])),
                     json_dumps(item.get("retrieved", [])),
                     json_dumps(item.get("metrics", {})),
                 ),
@@ -275,10 +299,10 @@ def get_evaluation_run(run_id: str) -> dict | None:
             return None
         items = conn.execute(
             """
-            SELECT id, run_id, question_id, question, expected_answer,
-                   expected_source_ids, expected_chunk_ids, expected_chunk_text,
-                   retrieved, metrics, created_at
-            FROM evaluation_items
+             SELECT id, run_id, question_id, question, expected_answer,
+                    expected_source_ids, expected_chunk_ids, expected_chunk_text,
+                    should_refuse, retrieval_queries, retrieved, metrics, created_at
+             FROM evaluation_items
             WHERE run_id = %s
             ORDER BY question_id NULLS LAST, created_at ASC
             """,

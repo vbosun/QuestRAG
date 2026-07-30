@@ -5,16 +5,9 @@ from quest_rag.rag.llm import llm
 from quest_rag.schemas.schemas import ValidationResult
 
 
-def validate_search_result(results: list[Document], score_threshold=0.75) -> list[Document]:
-    """
-    检索结果校验
-    """
+def validate_search_result(results: list[Document]) -> list[Document]:
     if not results:
         return []
-    ## 分数过滤
-    results = [result
-               for result in results
-               if result.metadata.get("score", 0) >= score_threshold]
 
     ## 校验空文本
     results = [result

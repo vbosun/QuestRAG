@@ -156,18 +156,18 @@ class ElasticsearchVectorBackend(VectorBackend):
         query_vector: list[float],
         top_k: int,
         mode: str = "hybrid",
-        vector_weight: float = 0.6,
-        keyword_weight: float = 0.4,
+        recall_k: int | None = None,
+        rrf_k: int = 60,
     ) -> list[dict]:
         mode = mode if mode in {"hybrid", "vector", "keyword"} else "hybrid"
-        vector_results = [] if mode == "keyword" else self._vector_search(query_vector, top_k)
-        keyword_results = [] if mode == "vector" else self._keyword_search(query, top_k)
+        recall = recall_k or top_k
+        vector_results = [] if mode == "keyword" else self._vector_search(query_vector, recall)
+        keyword_results = [] if mode == "vector" else self._keyword_search(query, recall)
         return merge_results(
             vector_results,
             keyword_results,
             top_k,
-            vector_weight=vector_weight,
-            keyword_weight=keyword_weight,
+            rrf_k=rrf_k,
         )
 
     def delete_index(self):
@@ -371,52 +371,49 @@ def merge_results(
     vector_results,
     keyword_results,
     top_k,
-    vector_weight: float = 0.6,
-    keyword_weight: float = 0.4,
+    rrf_k: int = 60,
 ) -> list[dict]:
-    final_results = {}
-    for vr in vector_results:
-        idx: str = vr["id"]
-        final_results[idx] = {
-            "id": idx,
-            "text": vr["text"],
-            "vector_score": vr.get("vector_score", vr["score"]),
-            "keyword_score": 0,
-            "score": 0,
-            "metadata": vr["metadata"],
-        }
+    """RRF（倒数排名融合）——只看排名不看分数，绕开分数量纲不可比问题。"""
+    rrf_scores: dict[str, float] = {}
+    doc_map: dict[str, dict] = {}
 
-    for kr in keyword_results:
+    for rank, vr in enumerate(vector_results, start=1):
+        idx: str = vr["id"]
+        rrf_scores[idx] = rrf_scores.get(idx, 0) + 1.0 / (rrf_k + rank)
+        if idx not in doc_map:
+            doc_map[idx] = {
+                "id": idx,
+                "text": vr["text"],
+                "vector_score": vr.get("vector_score", vr["score"]),
+                "keyword_score": 0,
+                "metadata": vr["metadata"],
+            }
+        else:
+            doc_map[idx]["vector_score"] = vr.get("vector_score", vr["score"])
+
+    for rank, kr in enumerate(keyword_results, start=1):
         idx: str = kr["id"]
-        if idx not in final_results:
-            final_results[idx] = {
+        rrf_scores[idx] = rrf_scores.get(idx, 0) + 1.0 / (rrf_k + rank)
+        if idx not in doc_map:
+            doc_map[idx] = {
                 "id": idx,
                 "text": kr["text"],
                 "vector_score": 0,
                 "keyword_score": kr.get("keyword_score", kr["score"]),
-                "score": 0,
                 "metadata": kr["metadata"],
             }
         else:
-            final_results[idx]["keyword_score"] = kr.get("keyword_score", kr["score"])
+            doc_map[idx]["keyword_score"] = kr.get("keyword_score", kr["score"])
+
+    sorted_ids = sorted(rrf_scores, key=lambda i: rrf_scores[i], reverse=True)
 
     results = []
-    total_weight = vector_weight + keyword_weight
-    if total_weight <= 0:
-        vector_weight = 0.6
-        keyword_weight = 0.4
-        total_weight = 1.0
-    for item in final_results.values():
-        item["score"] = (
-            item["vector_score"] * vector_weight + item["keyword_score"] * keyword_weight
-        ) / total_weight
-        results.append(item)
+    for idx in sorted_ids[:top_k]:
+        doc = doc_map[idx]
+        doc["score"] = round(rrf_scores[idx], 6)
+        results.append(doc)
 
-    return sorted(
-        results,
-        key=lambda x: (x["keyword_score"] > 0, x["score"]),
-        reverse=True,
-    )[:top_k]
+    return results
 
 
 def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:

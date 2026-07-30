@@ -449,19 +449,16 @@ def evaluate_items(eval_id: str, eval_backend: ElasticsearchVectorBackend, rows:
                 query_vector,
                 options.top_k,
                 mode=options.mode,
-                vector_weight=options.vector_weight,
-                keyword_weight=options.keyword_weight,
+                recall_k=options.recall_k,
+                rrf_k=options.rrf_k,
             )
             retrieved = [serialize_result(result, rank) for rank, result in enumerate(results, start=1)]
-        if options.score_threshold:
-            retrieved = [item for item in retrieved if item["score"] >= options.score_threshold]
         metrics = calculate_metrics(
             retrieved,
             expected_source_ids,
             row.get("expected_evidence", ""),
             options.top_k,
             should_refuse=bool(row.get("should_refuse")),
-            refusal_score_threshold=options.score_threshold or 0.35,
         )
         items.append(
             {
@@ -488,10 +485,9 @@ def build_retrieval_query_snapshot(query: str, target: str, options) -> dict:
         "query": query,
         "target": target,
         "top_k": options.top_k,
+        "recall_k": getattr(options, "recall_k", None) or options.top_k,
         "mode": options.mode,
-        "vector_weight": options.vector_weight,
-        "keyword_weight": options.keyword_weight,
-        "score_threshold": options.score_threshold,
+        "rrf_k": getattr(options, "rrf_k", None) or 60,
     }
 
 
@@ -501,16 +497,12 @@ def calculate_metrics(
     expected_evidence: str,
     top_k: int,
     should_refuse: bool = False,
-    refusal_score_threshold: float = 0.35,
 ) -> dict:
     if should_refuse:
-        best_score = max([float(item.get("score", 0)) for item in retrieved], default=0)
-        refusal_hit = best_score < refusal_score_threshold
+        refusal_hit = len(retrieved) == 0
         return {
             "should_refuse": True,
             "refusal_hit": refusal_hit,
-            "refusal_score_threshold": refusal_score_threshold,
-            "best_score": round(best_score, 6),
             "source_hit": None,
             "evidence_hit": None,
             "source_rank": None,

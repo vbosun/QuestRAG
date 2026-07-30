@@ -89,10 +89,9 @@ class SplitOptions(BaseModel):
 
 class RetrievalOptions(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
+    recall_k: int = Field(default=15, ge=1, le=50)
     mode: Literal["hybrid", "vector", "keyword"] = "hybrid"
-    score_threshold: float = Field(default=0.0, ge=0, le=2)
-    vector_weight: float = Field(default=0.6, ge=0, le=1)
-    keyword_weight: float = Field(default=0.4, ge=0, le=1)
+    rrf_k: int = Field(default=60, ge=1, le=120)
 
 
 class EvaluationRunRequest(BaseModel):
