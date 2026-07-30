@@ -1,7 +1,15 @@
 import re
+from html import unescape
 from typing import Literal
 
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+_HTML_TABLE_RE = re.compile(r"<table[^>]*>(.*?)</table>", re.DOTALL | re.IGNORECASE)
+_HTML_TR_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
+_HTML_TD_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL | re.IGNORECASE)
+_MD_TABLE_ROW_RE = re.compile(r"^\|(.+)\|$")
+_MD_TABLE_SEP_RE = re.compile(r"^\|[\s\-:|]+\|$")
 
 SEPARATOR_PRESETS: dict[str, list[str]] = {
     "general": ["\n\n", "\n", "。", ". ", "！", "! ", "？", "? ", "；", "; ", "，", ", ", " ", ""],
@@ -47,35 +55,37 @@ def split_docs(
 # fixed
 # ---------------------------------------------------------------------------
 
+_DEFAULT_SEPARATORS = ["\n\n", "\n", "。", ". ", "！", "! ", "？", "? ", "；", "; ", "，", ", ", " ", ""]
+
+
 def _split_fixed(docs: list[Document], chunk_size: int, chunk_overlap: int) -> list[Document]:
+    return _split_with_langchain(docs, chunk_size, chunk_overlap, _DEFAULT_SEPARATORS)
+
+
+def _split_with_langchain(
+    docs: list[Document],
+    chunk_size: int,
+    chunk_overlap: int,
+    separators: list[str],
+) -> list[Document]:
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=separators,
+        keep_separator=True,
+        strip_whitespace=False,
+    )
     all_splits: list[Document] = []
     for doc in docs:
         text = doc.page_content
         if not text:
             continue
-        chunks = _fixed_chunk_text(text, doc.metadata, chunk_size, chunk_overlap)
-        all_splits.extend(chunks)
+        for chunk_text in splitter.split_text(text):
+            all_splits.append(Document(
+                page_content=chunk_text.strip(),
+                metadata={**doc.metadata, "chunk_index": len(all_splits)},
+            ))
     return all_splits
-
-
-def _fixed_chunk_text(text: str, metadata: dict, chunk_size: int, chunk_overlap: int) -> list[Document]:
-    if chunk_size <= 0:
-        raise ValueError("chunk_size 必须大于 0")
-    if chunk_overlap >= chunk_size:
-        raise ValueError("chunk_overlap 必须小于 chunk_size")
-
-    chunks: list[Document] = []
-    start = 0
-    chunk_index = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunk_text = text[start:end].strip()
-        if chunk_text:
-            chunk_meta = {**metadata, "chunk_index": chunk_index, "start_index": start, "end_index": end}
-            chunks.append(Document(page_content=chunk_text, metadata=chunk_meta))
-        start = max(end - chunk_overlap, 0)
-        chunk_index += 1
-    return chunks
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +100,7 @@ def _split_structure(docs: list[Document], chunk_size: int, chunk_overlap: int) 
             continue
         headings = _extract_headings(text)
         if not headings:
-            chunks = _fixed_chunk_text(text, doc.metadata, chunk_size, chunk_overlap or 0)
+            chunks = _split_with_langchain([doc], chunk_size, chunk_overlap or 0, _DEFAULT_SEPARATORS)
             all_splits.extend(chunks)
         else:
             chunks = _split_by_tree(text, headings, chunk_size, chunk_overlap, doc.metadata)
@@ -153,9 +163,10 @@ def _infer_level(style: str, match: re.Match) -> int:
     if style in ("zh_bracketed", "zh_paren"):
         return 3
     if style == "num_dotted":
-        return match.group(1).count(".") + 1
+        dots = match.group(1).count(".")
+        return dots + 1 if dots > 0 else 7  # single-number patterns go deepest
     if style == "num_paren":
-        return 3
+        return 7
     return 2
 
 
@@ -175,12 +186,14 @@ def _assign_levels(raw: list[dict]) -> list[dict]:
         hint = item["level_hint"]
         if item["style"] == "markdown":
             item["level"] = hint
-        elif item["style"] == "num_dotted" and hint > 1:
+        elif item["style"] == "num_dotted" and hint > 1 and hint < 7:
             # "1.1" → level 2, "1.1.1" → level 3, etc.
             item["level"] = hint + 1
         elif item["style"] == "num_dotted":
-            # Single numbers like "1." — non-intrinsic, will be handled below
-            pass
+            # Single numbers like "1." — non-intrinsic, place below markdown
+            item["level"] = 7
+        elif item["style"] == "num_paren":
+            item["level"] = 7
 
     style_level: dict[str, int] = {}
     next_level = 1
@@ -347,15 +360,106 @@ def _emit_chunk(
     chunk_overlap: int,
     chunks: list[Document],
 ):
-    """Emit text as chunk(s), using fixed-length splitting if it exceeds chunk_size."""
+    """Emit text as chunk(s). Detects tables and splits each row into a
+    standalone key-value chunk for precise retrieval."""
+    rows, preamble, postamble = _extract_table_rows(text)
+    if rows:
+        if preamble:
+            _emit_chunk(preamble, heading_path, base_metadata, chunk_size, chunk_overlap, chunks)
+        prefix = f"[{' > '.join(heading_path)}] " if heading_path else ""
+        for row in rows:
+            pairs = []
+            for i in range(0, len(row) - 1, 2):
+                k, v = row[i], row[i + 1]
+                if k and v:
+                    pairs.append(f"{k}: {v}")
+            if pairs:
+                chunks.append(_make_chunk(prefix + "; ".join(pairs), heading_path, base_metadata, chunks))
+        if postamble:
+            _emit_chunk(postamble, heading_path, base_metadata, chunk_size, chunk_overlap, chunks)
+        return
+
     if len(text) <= chunk_size:
-        chunks.append(Document(
-            page_content=text,
-            metadata={**base_metadata, "heading_path": heading_path, "chunk_index": len(chunks)},
-        ))
-    else:
-        for sub in _fixed_chunk_text(text, {**base_metadata, "heading_path": heading_path}, chunk_size, chunk_overlap or 0):
-            chunks.append(sub)
+        chunks.append(_make_chunk(text, heading_path, base_metadata, chunks))
+        return
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap or 0,
+        separators=_DEFAULT_SEPARATORS,
+        keep_separator=True,
+        strip_whitespace=False,
+    )
+    for sub_text in splitter.split_text(text):
+        chunks.append(_make_chunk(sub_text.strip(), heading_path, base_metadata, chunks))
+
+
+def _make_chunk(text: str, heading_path: list[str], base_metadata: dict, chunks: list[Document]) -> Document:
+    return Document(
+        page_content=text,
+        metadata={**base_metadata, "heading_path": heading_path, "chunk_index": len(chunks)},
+    )
+
+
+def _extract_table_rows(text: str) -> tuple[list[list[str]] | None, str, str]:
+    """Detect and parse HTML or markdown table in text.
+
+    Returns (rows, preamble, postamble) where rows is a list of cell lists,
+    or (None, "", "") if no table found.
+    """
+    # HTML table
+    m = _HTML_TABLE_RE.search(text)
+    if m:
+        rows = []
+        for tr in _HTML_TR_RE.findall(m.group(1)):
+            cells = [unescape(c.strip()) for c in _HTML_TD_RE.findall(tr)]
+            if cells:
+                rows.append(cells)
+        if rows:
+            return rows, text[:m.start()].strip(), text[m.end():].strip()
+
+    # Markdown table
+    lines = text.split("\n")
+    md_rows = []
+    header: list[str] | None = None
+    table_start = None
+    table_end = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        if _MD_TABLE_SEP_RE.match(stripped):
+            # The row before separator is the header
+            if md_rows and header is None:
+                header = md_rows[-1]
+                md_rows.pop()
+            continue
+        m = _MD_TABLE_ROW_RE.match(stripped)
+        if m:
+            cells = [c.strip() for c in m.group(1).split("|")]
+            if cells:
+                if table_start is None:
+                    table_start = i
+                table_end = i
+                md_rows.append(cells)
+
+    if md_rows and header:
+        # Expand each data row using header as keys
+        expanded = []
+        for row in md_rows:
+            expanded_row = []
+            for j, key in enumerate(header):
+                expanded_row.append(key)
+                expanded_row.append(row[j] if j < len(row) else "")
+            expanded.append(expanded_row)
+        md_rows = expanded
+
+    if md_rows:
+        preamble = "\n".join(lines[:table_start]).strip()
+        postamble = "\n".join(lines[table_end + 1:]).strip()
+        return md_rows, preamble, postamble
+
+    return None, "", ""
 
 
 # ---------------------------------------------------------------------------
@@ -369,74 +473,4 @@ def _split_recursive(
     separator_preset: str,
 ) -> list[Document]:
     separators = SEPARATOR_PRESETS.get(separator_preset, SEPARATOR_PRESETS["general"])
-    all_splits: list[Document] = []
-    for doc in docs:
-        text = doc.page_content
-        if not text:
-            continue
-        chunks = _recursive_split_text(text, separators, 0, chunk_size, chunk_overlap, doc.metadata)
-        all_splits.extend(chunks)
-    return all_splits
-
-
-def _recursive_split_text(
-    text: str,
-    separators: list[str],
-    sep_idx: int,
-    chunk_size: int,
-    chunk_overlap: int,
-    metadata: dict,
-) -> list[Document]:
-    if sep_idx >= len(separators):
-        return _fixed_chunk_text(text, metadata, chunk_size, chunk_overlap)
-
-    sep = separators[sep_idx]
-    if not sep:
-        return _fixed_chunk_text(text, metadata, chunk_size, chunk_overlap)
-
-    splits = _split_by_separator(text, sep)
-    result: list[Document] = []
-
-    for piece in splits:
-        if len(piece) <= chunk_size:
-            if piece.strip():
-                result.append(Document(page_content=piece.strip(), metadata={**metadata, "chunk_index": len(result)}))
-        else:
-            result.extend(
-                _recursive_split_text(piece, separators, sep_idx + 1, chunk_size, 0, metadata)
-            )
-
-    if chunk_overlap > 0 and len(result) > 1:
-        result = _apply_overlap(result, chunk_overlap)
-
-    return result
-
-
-def _split_by_separator(text: str, sep: str) -> list[str]:
-    if sep == " ":
-        return text.split(" ")
-    parts = text.split(sep)
-    result: list[str] = []
-    for part in parts:
-        if sep and part:
-            result.append(part)
-        elif not sep:
-            result.append(part)
-    if sep and result:
-        for i in range(len(result) - 1):
-            result[i] = result[i] + sep
-    return result
-
-
-def _apply_overlap(chunks: list[Document], overlap: int) -> list[Document]:
-    if overlap <= 0:
-        return chunks
-    for i in range(len(chunks) - 1):
-        current_text = chunks[i].page_content
-        next_text = chunks[i + 1].page_content
-        if len(next_text) > overlap:
-            chunks[i] = Document(
-                page_content=current_text + next_text[:overlap],
-                metadata={**chunks[i].metadata},
-            )
-    return chunks
+    return _split_with_langchain(docs, chunk_size, chunk_overlap, separators)
