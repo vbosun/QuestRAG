@@ -20,7 +20,6 @@ from quest_rag.rag.storage import (
     get_doc_by_id,
 )
 from quest_rag.rag.pg_store import delete_document as delete_pg_document
-from quest_rag.rag.pg_store import get_document_stats
 from quest_rag.rag.pg_store import upsert_document
 from quest_rag.rag.vector_backend import backend
 from quest_rag.schemas.schemas import (
@@ -205,22 +204,13 @@ def doclist():
 @router.post("/stats", response_model=DocumentStatsResponse)
 def document_stats():
     """知识库统计总览。"""
-    rows = get_document_stats()
+    all_docs = get_all_docs()
     total_chunks = 0
     total_text = 0
     max_text = 0
-    min_text = rows[0]["text_length"] if rows else 0
+    min_text = float("inf")
     fmt_dist: dict[str, int] = {}
 
-    for row in rows:
-        text_len = row["text_length"]
-        total_text += text_len
-        if text_len > max_text:
-            max_text = text_len
-        if text_len < min_text:
-            min_text = text_len
-
-    all_docs = get_all_docs()
     for doc in all_docs:
         total_chunks += doc.chunk_count
         ext = Path(doc.filename).suffix.lower().lstrip(".") if doc.filename else "unknown"
@@ -228,12 +218,24 @@ def document_stats():
             ext = "unknown"
         fmt_dist[ext] = fmt_dist.get(ext, 0) + 1
 
+        chunks = backend.list_chunks(doc.doc_id)
+        for chunk in chunks:
+            text_len = chunk.get("length", 0)
+            total_text += text_len
+            if text_len > max_text:
+                max_text = text_len
+            if text_len < min_text:
+                min_text = text_len
+
+    if min_text == float("inf"):
+        min_text = 0
+
     return DocumentStatsResponse(
         document_count=len(all_docs),
         total_chunks=total_chunks,
         total_text_length=total_text,
-        max_text_length=max_text if rows else 0,
-        min_text_length=min_text if rows else 0,
+        max_text_length=max_text,
+        min_text_length=min_text,
         format_distribution=fmt_dist,
     )
 
