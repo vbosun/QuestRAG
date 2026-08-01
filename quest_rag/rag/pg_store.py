@@ -607,20 +607,16 @@ def keyword_search_jobs(query: str, top_k: int) -> list[dict]:
         pattern = f"%{query}%"
         rows = conn.execute(
             """
-            SELECT *, ts_rank(to_tsvector('simple', coalesce(content,'') || ' ' ||
-                coalesce(title,'') || ' ' || coalesce(company,'') || ' ' ||
-                coalesce(category,'') || ' ' || coalesce(address,'')),
-                plainto_tsquery('simple', %s)) AS rank
+            SELECT *
             FROM jobs
             WHERE title ILIKE %s
                OR company ILIKE %s
                OR category ILIKE %s
                OR address ILIKE %s
                OR content ILIKE %s
-            ORDER BY rank DESC
             LIMIT %s
             """,
-            (query, pattern, pattern, pattern, pattern, pattern, top_k),
+            (pattern, pattern, pattern, pattern, pattern, top_k),
         ).fetchall()
     return [dict(row) for row in rows]
 

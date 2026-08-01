@@ -19,10 +19,11 @@ def merge_job_results(vector_hits: list[dict], keyword_hits: list[dict], top_k: 
         merged[job["id"]] = job
 
     for item in keyword_hits:
+        kw_score = 3.0
         if item["id"] not in merged:
-            merged[item["id"]] = _row_to_job(item, vector_score=0, keyword_score=min(item.get("rank", 0) * 3, 5))
+            merged[item["id"]] = _row_to_job(item, vector_score=0, keyword_score=kw_score)
         else:
-            merged[item["id"]]["keyword_score"] = min(item.get("rank", 0) * 3, 5)
+            merged[item["id"]]["keyword_score"] = kw_score
 
     results = []
     for job in merged.values():
