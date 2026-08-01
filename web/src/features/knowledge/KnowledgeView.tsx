@@ -3,10 +3,20 @@ import { App, Breadcrumb, Button, Card, Checkbox, Col, Descriptions, Drawer, Emp
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { useEffect, useState } from "react";
 import { commitDocumentStage, getDocumentStats, listDocumentChunks, previewDocumentStage, stageDocument } from "../../api";
+import { useAuth } from "../../auth/AuthProvider";
 import type { CleanOptions, DocumentChunk, DocumentInfo, DocumentMetadataInput, DocumentStage, DocumentStats, SplitOptions } from "../../types";
-import { documentExt, formatDate, formatFileSize } from "../../utils";
+import { formatDate, formatFileSize } from "../../utils";
 
 const { Text, Title } = Typography;
+
+const RAG_SCOPE_LABELS: Record<string, string> = {
+  public_policy: "公开政策库",
+  jobs: "岗位库",
+  evaluation_docs: "评测文档",
+  internal_policy: "内部政策库",
+  department_docs: "部门文档",
+  private_docs: "个人文档",
+};
 
 export function KnowledgeView({
   documents,
@@ -22,6 +32,7 @@ export function KnowledgeView({
   onRefreshDocuments: () => Promise<void>;
 }) {
   const { message } = App.useApp();
+  const { ragScopes } = useAuth();
   const [stage, setStage] = useState<DocumentStage | null>(null);
   const [mode, setMode] = useState<"list" | "chunks" | "upload">("list");
   const [selectedDocId, setSelectedDocId] = useState<string | undefined>(documents[0]?.doc_id);
@@ -38,6 +49,7 @@ export function KnowledgeView({
   const [documentSort, setDocumentSort] = useState("uploaded_desc");
   const [chunks, setChunks] = useState<DocumentChunk[]>([]);
   const [loadingChunks, setLoadingChunks] = useState(false);
+  const scopeOptions = ragScopes.map((code) => ({ value: code, label: RAG_SCOPE_LABELS[code] || code }));
   const [chunksReloadKey, setChunksReloadKey] = useState(0);
   const [activeChunk, setActiveChunk] = useState<DocumentChunk | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
@@ -124,8 +136,11 @@ export function KnowledgeView({
     message.loading({ content: "正在解析文档...", key: "stage-document", duration: 0 });
     try {
       const result = await stageDocument(file);
+      const defaultScope = ragScopes.includes(result.metadata.scope_code)
+        ? result.metadata.scope_code
+        : ragScopes[0] || "public_policy";
       setStage(result);
-      setMetadata(result.metadata);
+      setMetadata({ ...result.metadata, scope_code: defaultScope });
       setCleanOptions(result.clean_options);
       setSplitOptions(result.split_options);
       setStep(1);
@@ -319,11 +334,13 @@ export function KnowledgeView({
               {
                 title: "名称",
                 dataIndex: "filename",
+                render: (_value: unknown, doc: DocumentInfo) => <Text strong>{doc.filename || doc.doc_id}</Text>
+              },
+              {
+                title: "权限分类",
+                width: 140,
                 render: (_value: unknown, doc: DocumentInfo) => (
-                  <Space>
-                    <span className="document-file-icon">{documentExt(doc.filename || doc.doc_id)}</span>
-                    <Text strong>{doc.filename || doc.doc_id}</Text>
-                  </Space>
+                  <Tag color="cyan">{RAG_SCOPE_LABELS[doc.scope_code || "public_policy"] || doc.scope_code || "公开政策库"}</Tag>
                 )
               },
               {
@@ -559,6 +576,16 @@ export function KnowledgeView({
                       />
                     </label>
                     <label>
+                      <Text type="secondary">检索范围</Text>
+                      <Select
+                        disabled={scopeOptions.length === 0}
+                        options={scopeOptions}
+                        placeholder="选择可检索范围"
+                        value={metadata.scope_code}
+                        onChange={(value) => setMetadata({ ...metadata, scope_code: value })}
+                      />
+                    </label>
+                    <label>
                       <Text type="secondary">发布机构</Text>
                       <Input
                         value={metadata.organization || ""}
@@ -779,6 +806,7 @@ export function KnowledgeView({
                     <Descriptions.Item label="文档类型">{
                       { policy: "政策文件", guide: "办事指南", faq: "常见问答", notice: "通知公告", other: "其他" }[metadata.category] || metadata.category
                     }</Descriptions.Item>
+                    <Descriptions.Item label="检索范围">{RAG_SCOPE_LABELS[metadata.scope_code] || metadata.scope_code}</Descriptions.Item>
                     {metadata.organization && <Descriptions.Item label="发布机构">{metadata.organization}</Descriptions.Item>}
                     {metadata.region && <Descriptions.Item label="适用地区">{metadata.region}</Descriptions.Item>}
                     {metadata.publish_date && <Descriptions.Item label="发布时间">{metadata.publish_date}</Descriptions.Item>}

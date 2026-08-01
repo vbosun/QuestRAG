@@ -2,8 +2,8 @@ import { Spin } from "antd";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
 
-export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+export function ProtectedRoute({ children, permission }: { children: React.ReactNode; permission?: string }) {
+  const { user, loading, permissions } = useAuth();
 
   if (loading) {
     return (
@@ -15,6 +15,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (permission && !permissions.includes(permission)) {
+    return <Navigate to="/403" replace />;
   }
 
   return <>{children}</>;

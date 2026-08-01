@@ -86,3 +86,14 @@ def assert_tool_permission(current_user: CurrentUser, tool_name: str):
             deny_reason="missing_permission",
         )
         raise ToolPermissionError(tool_name, "缺少权限")
+
+    from quest_rag.auth.permission_store import insert_llm_tool_call_log
+
+    insert_llm_tool_call_log(
+        user_id=current_user.id,
+        session_id=current_user.sid,
+        tool_name=tool_name,
+        permission_code=permission,
+        allowed=True,
+        effective_scopes=current_user.rag_scopes,
+    )

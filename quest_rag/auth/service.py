@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from quest_rag.auth import redis_store, security, store
 from quest_rag.auth.schemas import LoginResponse, RefreshResponse, UserInfo
 
@@ -7,6 +9,20 @@ class AuthError(Exception):
         self.code = code
         self.message = message
         self.http_status = http_status
+
+
+def _is_account_locked(account: dict) -> bool:
+    locked_until = account.get("locked_until")
+    if not locked_until:
+        return False
+    if isinstance(locked_until, str):
+        try:
+            locked_until = datetime.fromisoformat(locked_until.replace("Z", "+00:00"))
+        except ValueError:
+            return True
+    if locked_until.tzinfo is None:
+        locked_until = locked_until.replace(tzinfo=timezone.utc)
+    return locked_until > datetime.now(timezone.utc)
 
 
 def login(id_number: str, password: str, login_ip: str | None = None, user_agent: str | None = None) -> LoginResponse:
@@ -31,6 +47,8 @@ def login(id_number: str, password: str, login_ip: str | None = None, user_agent
     if account["status"] == 0:
         raise AuthError("ACCOUNT_DISABLED", "账号已禁用，请联系管理员", 403)
     if account["status"] == -1:
+        raise AuthError("ACCOUNT_LOCKED", "账号已被锁定，请联系管理员", 403)
+    if _is_account_locked(account):
         raise AuthError("ACCOUNT_LOCKED", "账号已被锁定，请联系管理员", 403)
 
     if not security.verify_password(password, account["password_hash"]):
@@ -202,6 +220,8 @@ def get_current_user_from_token(authorization: str | None) -> "CurrentUser":
     account = store.get_account_by_id(session["user_id"])
     if account is None or account["status"] != 1:
         raise AuthError("ACCOUNT_DISABLED", "账号不可用", 403)
+    if _is_account_locked(account):
+        raise AuthError("ACCOUNT_LOCKED", "账号已被锁定，请联系管理员", 403)
 
     normalized = security.normalize_id_number(account.get("id_number_ciphertext") or "")
     id_number_masked = security.mask_id_number(normalized) if normalized else None

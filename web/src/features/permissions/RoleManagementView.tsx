@@ -86,7 +86,10 @@ export function RoleManagementView() {
       await updateRoleRagScopes(editingRole.id, checkedScopes);
       if (editForm.isFieldsTouched()) {
         const values = await editForm.validateFields();
-        await updateRole(editingRole.id, values);
+        await updateRole(editingRole.id, {
+          ...values,
+          status: values.status ? 1 : 0,
+        });
       }
       message.success("保存成功");
       setDrawerOpen(false);
@@ -121,11 +124,18 @@ export function RoleManagementView() {
     }
   }
 
-  const groupedPerms = (catalog?.permissions || []).reduce<Record<string, PermissionItem[]>>((acc, p) => {
+  const groupedPerms = catalog.permissions.reduce<Record<string, PermissionItem[]>>((acc, p) => {
     const g = p.group_code || "other";
     (acc[g] ||= []).push(p);
     return acc;
   }, {});
+
+  const riskMeta: Record<string, { label: string; color: string }> = {
+    LOW: { label: "低", color: "green" },
+    MEDIUM: { label: "中", color: "orange" },
+    HIGH: { label: "高", color: "red" },
+    CRITICAL: { label: "关键", color: "magenta" },
+  };
 
   const columns = [
     { title: "角色名称", dataIndex: "name", key: "name", width: 140 },
@@ -220,7 +230,9 @@ export function RoleManagementView() {
                       }}
                     >
                       {p.name}
-                      <Text type="secondary" style={{ fontSize: 10, marginLeft: 4 }}>[{p.risk_level}]</Text>
+                      <Tag color={riskMeta[p.risk_level]?.color || "default"} style={{ marginLeft: 6 }}>
+                        {riskMeta[p.risk_level]?.label || p.risk_level}
+                      </Tag>
                     </Tag>
                   ))}
                 </div>
@@ -229,7 +241,7 @@ export function RoleManagementView() {
 
             <Typography.Title level={5} style={{ marginTop: 24 }}>RAG 检索范围</Typography.Title>
             <Space wrap>
-              {(catalog?.rag_scopes || []).map((s) => (
+              {catalog.rag_scopes.map((s) => (
                 <Checkbox
                   key={s.code}
                   checked={checkedScopes.includes(s.code)}

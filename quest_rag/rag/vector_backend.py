@@ -105,6 +105,8 @@ class MemoryVectorBackend(VectorBackend):
         recall = recall_k or top_k
 
         store = vector_store
+        if permission_filter and permission_filter.is_empty:
+            return []
         if permission_filter and permission_filter.scope_codes:
             store = [
                 c for c in vector_store
@@ -129,6 +131,7 @@ class MemoryVectorBackend(VectorBackend):
                     "filename": metadata.get("filename") or doc_id,
                     "chunk_count": 0,
                     "uploaded_at": metadata.get("ingested_at") or datetime.now().isoformat(),
+                    "scope_code": metadata.get("scope_code") or "public_policy",
                     "strategy": metadata.get("strategy") or "fixed",
                     "separator_preset": metadata.get("separator_preset") or "general",
                 },
@@ -211,6 +214,8 @@ class ElasticsearchVectorBackend(VectorBackend):
     ) -> list[dict]:
         mode = mode if mode in {"hybrid", "vector", "keyword"} else "hybrid"
         recall = recall_k or top_k
+        if permission_filter and permission_filter.is_empty:
+            return []
         es_filter = _build_es_filter(permission_filter)
         vector_results = [] if mode == "keyword" else self._vector_search(query_vector, recall, es_filter)
         keyword_results = [] if mode == "vector" else self._keyword_search(query, recall, es_filter)
@@ -247,6 +252,7 @@ class ElasticsearchVectorBackend(VectorBackend):
                                         "metadata.source",
                                         "metadata.ingested_at",
                                         "metadata.creationdate",
+                                        "metadata.scope_code",
                                         "metadata.strategy",
                                         "metadata.separator_preset",
                                     ]
@@ -270,6 +276,7 @@ class ElasticsearchVectorBackend(VectorBackend):
                     "uploaded_at": metadata.get("ingested_at")
                     or metadata.get("creationdate")
                     or datetime.now().isoformat(),
+                    "scope_code": metadata.get("scope_code") or "public_policy",
                     "strategy": metadata.get("strategy") or "fixed",
                     "separator_preset": metadata.get("separator_preset") or "general",
                 }
@@ -317,6 +324,11 @@ class ElasticsearchVectorBackend(VectorBackend):
                             "filename": {"type": "keyword"},
                             "source": {"type": "keyword"},
                             "source_type": {"type": "keyword"},
+                            "scope_code": {"type": "keyword"},
+                            "visibility": {"type": "keyword"},
+                            "security_level": {"type": "keyword"},
+                            "owner_user_id": {"type": "keyword"},
+                            "department_id": {"type": "keyword"},
                             "chunk_index": {"type": "integer"},
                             "start_index": {"type": "integer"},
                             "end_index": {"type": "integer"},
@@ -424,11 +436,13 @@ class MilvusVectorBackend(VectorBackend):
             return []
         ids = []
         rows = []
+        insert_fields = self._field_names()
         for doc, embedding in zip(docs, embeddings, strict=True):
             chunk_id = f"chunk_{uuid4().hex}"
             metadata = doc.metadata.copy()
             metadata["chunk_id"] = chunk_id
-            rows.append(_doc_to_milvus_row(chunk_id, doc.page_content, embedding, metadata))
+            row = _doc_to_milvus_row(chunk_id, doc.page_content, embedding, metadata)
+            rows.append({k: v for k, v in row.items() if k in insert_fields})
             ids.append(chunk_id)
         self._mc.insert(collection_name=self._collection_name, data=rows)
         return ids
@@ -454,10 +468,23 @@ class MilvusVectorBackend(VectorBackend):
     ) -> list[dict]:
         mode = mode if mode in {"hybrid", "vector", "keyword"} else "hybrid"
         recall = recall_k or top_k
-        milvus_filter = _build_milvus_filter_expr(permission_filter)
+        if permission_filter and permission_filter.is_empty:
+            return []
+        milvus_filter = _build_milvus_filter_expr(permission_filter, self._field_names())
         vector_results = [] if mode == "keyword" else self._vector_search(query_vector, recall, milvus_filter)
         keyword_results = [] if mode == "vector" else self._keyword_search(query, recall, milvus_filter)
-        return merge_results(vector_results, keyword_results, top_k, rrf_k=rrf_k)
+        results = merge_results(vector_results, keyword_results, top_k, rrf_k=rrf_k)
+        return _apply_permission_filter(results, permission_filter)
+
+    def _field_names(self) -> set[str]:
+        try:
+            desc = self._mc.describe_collection(self._collection_name)
+            return {field["name"] for field in desc.get("fields", [])}
+        except Exception:
+            return {
+                "id", "text", "embedding", "chunk_id", "doc_id", "chunk_index",
+                "filename", "source_type", "metadata_json",
+            }
 
     def _vector_search(self, query_vector: list[float], top_k: int, milvus_filter: str | None = None) -> list[dict]:
         kwargs = {}
@@ -582,6 +609,7 @@ class MilvusVectorBackend(VectorBackend):
                     "filename": meta.get("filename") or r.get("filename") or doc_id,
                     "chunk_count": 0,
                     "uploaded_at": meta.get("ingested_at") or datetime.now().isoformat(),
+                    "scope_code": meta.get("scope_code") or "public_policy",
                     "strategy": meta.get("strategy") or "fixed",
                     "separator_preset": meta.get("separator_preset") or "general",
                 }
@@ -755,19 +783,41 @@ def _build_es_filter(permission_filter: "RetrievalPermissionFilter | None") -> l
     return filters or None
 
 
-def _build_milvus_filter_expr(permission_filter: "RetrievalPermissionFilter | None") -> str | None:
+def _build_milvus_filter_expr(
+    permission_filter: "RetrievalPermissionFilter | None",
+    available_fields: set[str] | None = None,
+) -> str | None:
     if permission_filter is None:
         return None
     parts = []
-    if permission_filter.scope_codes:
+    if permission_filter.scope_codes and (available_fields is None or "scope_code" in available_fields):
         quoted = ", ".join(f'"{s}"' for s in permission_filter.scope_codes)
         parts.append(f"scope_code in [{quoted}]")
-    if permission_filter.doc_ids:
+    if permission_filter.doc_ids and (available_fields is None or "doc_id" in available_fields):
         quoted = ", ".join(f'"{d}"' for d in permission_filter.doc_ids)
         parts.append(f"doc_id in [{quoted}]")
     if not parts:
         return None
     return " and ".join(f"({p})" for p in parts)
+
+
+def _apply_permission_filter(
+    results: list[dict],
+    permission_filter: "RetrievalPermissionFilter | None",
+) -> list[dict]:
+    if permission_filter is None:
+        return results
+    allowed_scopes = set(permission_filter.scope_codes)
+    allowed_doc_ids = set(permission_filter.doc_ids or [])
+    filtered = []
+    for result in results:
+        metadata = result.get("metadata") or {}
+        if allowed_scopes and metadata.get("scope_code", "public_policy") not in allowed_scopes:
+            continue
+        if allowed_doc_ids and metadata.get("doc_id") not in allowed_doc_ids:
+            continue
+        filtered.append(result)
+    return filtered
 
 
 def _doc_to_milvus_row(chunk_id: str, text: str, embedding: list[float], metadata: dict) -> dict:

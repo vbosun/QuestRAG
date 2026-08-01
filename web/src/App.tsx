@@ -60,17 +60,17 @@ export function QuestRagApp() {
               }
             >
               <Route index element={<Navigate to="/app/chat" replace />} />
-              <Route path="chat" element={<ChatPage />} />
-              <Route path="knowledge" element={<KnowledgePage />} />
-              <Route path="evaluation" element={<Navigate to="/app/evaluation/runs" replace />} />
-              <Route path="evaluation/runs" element={<EvalPage initialMode="list" />} />
-              <Route path="evaluation/documents" element={<EvalPage initialMode="documents" />} />
-              <Route path="evaluation/datasets" element={<EvalPage initialMode="datasets" />} />
-              <Route path="retrieval-config" element={<RetrievalConfigView />} />
-              <Route path="profile" element={<ProfileView />} />
-              <Route path="profile/password" element={<ChangePasswordView />} />
-              <Route path="permissions/users" element={<UserManagementView />} />
-              <Route path="permissions/roles" element={<RoleManagementView />} />
+              <Route path="chat" element={<ProtectedRoute permission="chat.view"><ChatPage /></ProtectedRoute>} />
+              <Route path="knowledge" element={<ProtectedRoute permission="knowledge.view"><KnowledgePage /></ProtectedRoute>} />
+              <Route path="evaluation" element={<ProtectedRoute permission="evaluation.view"><Navigate to="/app/evaluation/runs" replace /></ProtectedRoute>} />
+              <Route path="evaluation/runs" element={<ProtectedRoute permission="evaluation.view"><EvalPage initialMode="list" /></ProtectedRoute>} />
+              <Route path="evaluation/documents" element={<ProtectedRoute permission="evaluation.view"><EvalPage initialMode="documents" /></ProtectedRoute>} />
+              <Route path="evaluation/datasets" element={<ProtectedRoute permission="evaluation.view"><EvalPage initialMode="datasets" /></ProtectedRoute>} />
+              <Route path="retrieval-config" element={<ProtectedRoute permission="system.retrieval_config.view"><RetrievalConfigView /></ProtectedRoute>} />
+              <Route path="profile" element={<ProtectedRoute permission="profile.view"><ProfileView /></ProtectedRoute>} />
+              <Route path="profile/password" element={<ProtectedRoute permission="profile.view"><ChangePasswordView /></ProtectedRoute>} />
+              <Route path="permissions/users" element={<ProtectedRoute permission="permission.user.view"><UserManagementView /></ProtectedRoute>} />
+              <Route path="permissions/roles" element={<ProtectedRoute permission="permission.role.view"><RoleManagementView /></ProtectedRoute>} />
             </Route>
             <Route path="/403" element={<ForbiddenPage />} />
             <Route path="*" element={<Navigate to="/app/chat" replace />} />

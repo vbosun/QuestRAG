@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from langchain_core.documents import Document
 from quest_rag.logger import logger
 
-from quest_rag.auth.dependencies import get_current_user
+from quest_rag.auth.dependencies import require_all_permissions, require_permission
 from quest_rag.auth.schemas import CurrentUser
 
 from quest_rag.rag.document_embedding import add_documents
@@ -46,7 +46,7 @@ SUPPORTED_TYPES = {"txt", "pdf", "md"}
 
 
 @router.post("/stage", response_model=DocumentStageResponse)
-async def stage_document(file: UploadFile = File(...), current_user: CurrentUser = Depends(get_current_user)):
+async def stage_document(file: UploadFile = File(...), current_user: CurrentUser = Depends(require_permission("knowledge.document.upload"))):
     """上传文档并生成入库预览，不立即写入知识库。"""
     filename = file.filename
     if not filename:
@@ -83,15 +83,17 @@ async def stage_document(file: UploadFile = File(...), current_user: CurrentUser
 
 
 @router.post("/stage/preview", response_model=DocumentStageResponse)
-def preview_stage(req: DocumentStageRequest, current_user: CurrentUser = Depends(get_current_user)):
+def preview_stage(req: DocumentStageRequest, current_user: CurrentUser = Depends(require_permission("knowledge.document.upload"))):
     """根据当前元数据、清洗和分块参数重新生成预览。"""
+    ensure_scope_allowed(req.metadata.scope_code, current_user)
     ensure_stage(req.stage_id)
     return build_stage_response(req.stage_id, req.metadata, req.clean_options, req.split_options)
 
 
 @router.post("/stage/commit", response_model=DocumentCommitResponse)
-def commit_stage(req: DocumentStageRequest, current_user: CurrentUser = Depends(get_current_user)):
+def commit_stage(req: DocumentStageRequest, current_user: CurrentUser = Depends(require_permission("knowledge.document.commit"))):
     """确认入库：清洗、分块、向量化并写入知识库。"""
+    ensure_scope_allowed(req.metadata.scope_code, current_user)
     stage = ensure_stage(req.stage_id)
     try:
         doc_id = build_doc_id(req.metadata.title or stage["filename"])
@@ -116,6 +118,7 @@ def commit_stage(req: DocumentStageRequest, current_user: CurrentUser = Depends(
             filename=req.metadata.title or stage["filename"],
             chunk_count=len(ids),
             token_count=_count_chunk_tokens(chunks),
+            scope_code=req.metadata.scope_code,
             uploaded_at=datetime.now(),
         )
         add_doc_metadata(doc)
@@ -138,8 +141,9 @@ def commit_stage(req: DocumentStageRequest, current_user: CurrentUser = Depends(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 @router.post("/upload", response_model=UploadResponse)
-async def upload(file: UploadFile = File(...), current_user: CurrentUser = Depends(get_current_user)):
+async def upload(file: UploadFile = File(...), current_user: CurrentUser = Depends(require_all_permissions("knowledge.document.upload", "knowledge.document.commit"))):
     """上传文本文档"""
+    ensure_scope_allowed("public_policy", current_user)
     filename = file.filename
     if not filename:
         return UploadResponse(
@@ -178,6 +182,7 @@ async def upload(file: UploadFile = File(...), current_user: CurrentUser = Depen
             filename=filename,
             chunk_count=len(ids),
             token_count=tk,
+            scope_code="public_policy",
             uploaded_at=datetime.now()
         )
         add_doc_metadata(doc)
@@ -206,17 +211,17 @@ async def upload(file: UploadFile = File(...), current_user: CurrentUser = Depen
 
 
 @router.post("/doclist", response_model=list[DocMetadata])
-def doclist(current_user: CurrentUser = Depends(get_current_user)):
+def doclist(current_user: CurrentUser = Depends(require_permission("knowledge.document.read"))):
     """查看文档列表"""
-    return get_all_docs()
+    return filter_docs_by_scope(get_all_docs(), current_user)
 
 
 @router.post("/stats", response_model=DocumentStatsResponse)
-def document_stats(current_user: CurrentUser = Depends(get_current_user)):
+def document_stats(current_user: CurrentUser = Depends(require_permission("knowledge.document.read"))):
     """知识库统计总览。"""
     from quest_rag.rag.pg_store import get_conn
 
-    all_docs = get_all_docs()
+    all_docs = filter_docs_by_scope(get_all_docs(), current_user)
     total_chunks = sum(doc.chunk_count for doc in all_docs)
 
     with get_conn() as conn:
@@ -259,20 +264,22 @@ def document_stats(current_user: CurrentUser = Depends(get_current_user)):
 
 
 @router.post("/chunks", response_model=list[DocumentChunk])
-def chunks(doc_info: DocInfo, current_user: CurrentUser = Depends(get_current_user)):
+def chunks(doc_info: DocInfo, current_user: CurrentUser = Depends(require_permission("knowledge.document.read"))):
     """查看指定文档的分块列表。"""
     if not (doc_info and doc_info.id):
         raise HTTPException(status_code=400, detail="无效的文档ID")
+    ensure_doc_allowed(doc_info.id, current_user)
     return backend.list_chunks(doc_info.id)
 
 @router.post("/deletedoc", response_model=CommonResponse)
-def deletedoc(doc_info: DocInfo, current_user: CurrentUser = Depends(get_current_user)):
+def deletedoc(doc_info: DocInfo, current_user: CurrentUser = Depends(require_permission("knowledge.document.delete"))):
     """删除指定文档"""
     if not (doc_info and doc_info.id):
         raise HTTPException(status_code=500, detail="无效的文档ID")
 
     doc_meta = get_doc_by_id(doc_info.id)
     if doc_meta:
+        ensure_doc_allowed(doc_info.id, current_user)
         delete_doc_metadata(doc_info.id)
         delete_pg_document(doc_info.id)
     return CommonResponse(
@@ -285,6 +292,25 @@ def ensure_stage(stage_id: str) -> dict:
     if not stage:
         raise HTTPException(status_code=404, detail="暂存文档不存在或已过期，请重新上传。")
     return stage
+
+
+def ensure_scope_allowed(scope_code: str, current_user: CurrentUser):
+    if scope_code not in current_user.rag_scopes:
+        raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "无权使用该检索范围"})
+
+
+def filter_docs_by_scope(docs: list[DocMetadata], current_user: CurrentUser) -> list[DocMetadata]:
+    allowed_scopes = set(current_user.rag_scopes)
+    if not allowed_scopes:
+        return []
+    return [doc for doc in docs if doc.scope_code in allowed_scopes]
+
+
+def ensure_doc_allowed(doc_id: str, current_user: CurrentUser):
+    doc = get_doc_by_id(doc_id)
+    if doc is None:
+        return
+    ensure_scope_allowed(doc.scope_code, current_user)
 
 
 def build_stage_response(
@@ -357,7 +383,7 @@ def prepare_docs_for_ingest(
                     "filename": metadata.title or filename,
                     "original_filename": filename,
                     "source_type": "knowledge_document",
-                    "scope_code": "public_policy",
+                    "scope_code": metadata.scope_code,
                     "visibility": "PUBLIC",
                     "security_level": "PUBLIC",
                     "document_category": metadata.category,

@@ -34,38 +34,44 @@ def _make_agent(current_user: CurrentUser | None = None):
 
 def generate(question: str, thread_id: str = "1", current_user: CurrentUser | None = None) -> str:
     reset_citations()
-    current_user_ctx.set(current_user)
-    agent = _make_agent(current_user)
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": question}]},
-        {"configurable": {"thread_id": thread_id}},
-    )
-    return result["messages"][-1].content
+    token = current_user_ctx.set(current_user)
+    try:
+        agent = _make_agent(current_user)
+        result = agent.invoke(
+            {"messages": [{"role": "user", "content": question}]},
+            {"configurable": {"thread_id": thread_id}},
+        )
+        return result["messages"][-1].content
+    finally:
+        current_user_ctx.reset(token)
 
 
 def generate_stream(question: str, thread_id: str = "1", current_user: CurrentUser | None = None):
     reset_citations()
-    current_user_ctx.set(current_user)
-    agent = _make_agent(current_user)
-    querying = False
-    for chunk in agent.stream(
-        {"messages": [{"role": "user", "content": question}]},
-        {"configurable": {"thread_id": thread_id}},
-        stream_mode="messages",
-    ):
-        if is_tool_activity(chunk) and not querying:
-            querying = True
-            yield {"event": "status", "data": {"message": "正在查询资料中..."}}
+    token = current_user_ctx.set(current_user)
+    try:
+        agent = _make_agent(current_user)
+        querying = False
+        for chunk in agent.stream(
+            {"messages": [{"role": "user", "content": question}]},
+            {"configurable": {"thread_id": thread_id}},
+            stream_mode="messages",
+        ):
+            if is_tool_activity(chunk) and not querying:
+                querying = True
+                yield {"event": "status", "data": {"message": "正在查询资料中..."}}
 
-        text = extract_stream_text(chunk)
-        if text:
-            if querying:
-                querying = False
-                yield {"event": "status", "data": {"message": "正在整理回答..."}}
-            yield {"event": "delta", "data": {"text": text}}
+            text = extract_stream_text(chunk)
+            if text:
+                if querying:
+                    querying = False
+                    yield {"event": "status", "data": {"message": "正在整理回答..."}}
+                yield {"event": "delta", "data": {"text": text}}
 
-    yield {"event": "sources", "data": {"sources": get_citations()}}
-    yield {"event": "done", "data": {"finish_reason": "stop"}}
+        yield {"event": "sources", "data": {"sources": get_citations()}}
+        yield {"event": "done", "data": {"finish_reason": "stop"}}
+    finally:
+        current_user_ctx.reset(token)
 
 
 def is_tool_activity(chunk) -> bool:

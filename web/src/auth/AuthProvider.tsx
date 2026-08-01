@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { sm2 } from "sm-crypto";
-import { clearTokens, getAccessToken, setTokens } from "../request";
+import { clearTokens, getAccessToken, requestJson, setTokens } from "../request";
 
 export interface UserInfo {
   id: number;
@@ -38,7 +38,7 @@ export function useAuth() {
 
 let cachedPublicKey: string | null = null;
 
-async function getPublicKey(): Promise<string> {
+export async function ensurePublicKey(): Promise<string> {
   if (cachedPublicKey) return cachedPublicKey;
   const response = await fetch("/auth/public-key");
   if (!response.ok) throw new Error("获取公钥失败");
@@ -69,18 +69,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       try {
-        const response = await fetch("/auth/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!response.ok) {
-          clearTokens();
-          setUser(null);
-        } else {
-          const data = await response.json();
-          if (!cancelled) {
-            setUser(data);
-            sessionStorage.setItem("user_info", JSON.stringify(data));
-          }
+        const data = await requestJson<UserInfo>("/auth/me", { method: "GET" });
+        if (!cancelled) {
+          setUser(data);
+          sessionStorage.setItem("user_info", JSON.stringify(data));
         }
       } catch {
         clearTokens();
@@ -97,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const encryptAndLogin = useCallback(async (idNumber: string, password: string) => {
     if (!cachedPublicKey) {
-      await getPublicKey();
+      await ensurePublicKey();
     }
 
     const encryptedIdNumber = encryptWithSM2(idNumber);

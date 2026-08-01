@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from quest_rag.auth.dependencies import get_current_user, require_role
+from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
 from quest_rag.core.config import get_retrieval_config, set_config_cache
 from quest_rag.rag.pg_store import (
@@ -15,13 +15,13 @@ router = APIRouter(prefix="/system", tags=["SYSTEM"])
 
 
 @router.post("/config/list")
-def list_configs(current_user: CurrentUser = Depends(get_current_user)):
+def list_configs(current_user: CurrentUser = Depends(require_permission("system.retrieval_config.view"))):
     init_db()
     return list_system_configs()
 
 
 @router.put("/config")
-def update_config(payload: dict, current_user: CurrentUser = Depends(require_role("ADMIN"))):
+def update_config(payload: dict, current_user: CurrentUser = Depends(require_permission("system.retrieval_config.update"))):
     init_db()
     key = payload.get("key")
     value = payload.get("value")
@@ -34,7 +34,7 @@ def update_config(payload: dict, current_user: CurrentUser = Depends(require_rol
 
 
 @router.post("/config/retrieval/sync", response_model=CommonResponse)
-def sync_retrieval_config(payload: dict, current_user: CurrentUser = Depends(require_role("ADMIN"))):
+def sync_retrieval_config(payload: dict, current_user: CurrentUser = Depends(require_permission("system.retrieval_config.update"))):
     init_db()
     run_id = payload.get("run_id")
     if not run_id:
@@ -57,6 +57,6 @@ def sync_retrieval_config(payload: dict, current_user: CurrentUser = Depends(req
 
 
 @router.get("/config/retrieval")
-def get_retrieval(current_user: CurrentUser = Depends(get_current_user)):
+def get_retrieval(current_user: CurrentUser = Depends(require_permission("system.retrieval_config.view"))):
     init_db()
     return get_retrieval_config()

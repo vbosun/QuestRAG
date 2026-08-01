@@ -15,6 +15,9 @@ def search(
     if top_k is None:
         top_k = cfg["top_k"]
 
+    if permission_filter is not None and permission_filter.is_empty:
+        return []
+
     query_vector = get_embedding(query)
 
     return [

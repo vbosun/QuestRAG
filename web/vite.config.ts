@@ -1,15 +1,21 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const backendPrefixes = [
+  "auth",
+  "chat",
+  "documents",
+  "evaluations",
+  "permissions",
+  "public-services",
+  "system",
+];
+
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/auth": "http://127.0.0.1:8010",
-      "/chat": "http://127.0.0.1:8010",
-      "/documents": "http://127.0.0.1:8010",
-      "/evaluations": "http://127.0.0.1:8010",
-      "/system": "http://127.0.0.1:8010"
+      [`^/(${backendPrefixes.join("|")})(/|$)`]: "http://127.0.0.1:8010",
     }
   }
 });

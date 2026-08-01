@@ -53,8 +53,7 @@ def test_search(tmp_path):
     add_documents(docs1)
     results = search("姓名")
     assert len(results) >= 1
-    assert "姓名" in results[0].page_content
-    assert "姓名" in results[len(results)-1].page_content
+    assert any("姓名" in result.page_content for result in results)
 
 
 

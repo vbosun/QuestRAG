@@ -1,7 +1,7 @@
 import { Button, Card, Form, Input, App } from "antd";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth, encryptWithSM2 } from "./AuthProvider";
+import { useAuth, encryptWithSM2, ensurePublicKey } from "./AuthProvider";
 
 export function ChangePasswordView() {
   const [loading, setLoading] = useState(false);
@@ -25,6 +25,7 @@ export function ChangePasswordView() {
 
     setLoading(true);
     try {
+      await ensurePublicKey();
       const token = sessionStorage.getItem("access_token");
       const response = await fetch("/auth/change-password", {
         method: "POST",

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from quest_rag.logger import logger
 
-from quest_rag.auth.dependencies import get_current_user
+from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
 from quest_rag.rag.generator import generate, generate_stream, history
 from quest_rag.schemas.schemas import ChatRequest, ChatResponse
@@ -13,7 +13,7 @@ from quest_rag.schemas.schemas import ChatRequest, ChatResponse
 router = APIRouter(prefix="/chat", tags=["CHAT"])
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest, current_user: CurrentUser = Depends(get_current_user)):
+def chat(req: ChatRequest, current_user: CurrentUser = Depends(require_permission("chat.view"))):
     """接收问题，返回回答"""
     session_id = req.session_id or str(uuid.uuid4())
 
@@ -38,7 +38,7 @@ def chat(req: ChatRequest, current_user: CurrentUser = Depends(get_current_user)
 
 
 @router.post("/stream")
-def chat_stream(req: ChatRequest, current_user: CurrentUser = Depends(get_current_user)):
+def chat_stream(req: ChatRequest, current_user: CurrentUser = Depends(require_permission("chat.view"))):
     """接收问题，使用 SSE 流式返回回答"""
     session_id = req.session_id or str(uuid.uuid4())
 
@@ -77,11 +77,10 @@ def encode_sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 @router.post("/history", response_model=list[str])
-def chat_history(req: ChatRequest, current_user: CurrentUser = Depends(get_current_user)):
+def chat_history(req: ChatRequest, current_user: CurrentUser = Depends(require_permission("chat.view"))):
     """获取对话历历史"""
     session_id = req.session_id or str(uuid.uuid4())
     return history(session_id)
-
 
 
 

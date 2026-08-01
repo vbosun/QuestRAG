@@ -85,10 +85,20 @@ def get_document_list(name: str | None) -> list[DocMetadata] | None:
     如果不提供名称，则返回所有文档的元数据列表；
     如果提供名称，则返回文档名称中包含该字符串的文档信息（模糊匹配）。
     """
+    user = current_user_ctx.get()
+    if user is not None:
+        assert_tool_permission(user, "get_document_list")
+
     if not name:
-        return get_all_docs()
+        docs = get_all_docs()
     else:
-        return get_doc_by_name(name)
+        docs = get_doc_by_name(name)
+    if user is None:
+        return docs
+    allowed_scopes = set(user.rag_scopes)
+    if not allowed_scopes:
+        return []
+    return [doc for doc in docs if doc.scope_code in allowed_scopes]
 
 
 @tool(args_schema=JobSearchToolInput)
@@ -98,6 +108,10 @@ def retrieve_jobs(query: str, top_k: int | None = None) -> str:
 
     适合回答岗位推荐、职位查询、薪资/地点/学历/经验匹配等问题。
     """
+    user = current_user_ctx.get()
+    if user is not None:
+        assert_tool_permission(user, "retrieve_jobs")
+
     if top_k is None:
         top_k = get_retrieval_config()["top_k"]
     jobs = search_jobs(query, top_k)

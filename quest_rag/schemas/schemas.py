@@ -125,6 +125,7 @@ class UploadResponse(BaseModel):
 class DocumentMetadataInput(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     category: str = Field(default="policy", max_length=40)
+    scope_code: str = Field(default="public_policy", max_length=64)
     organization: str | None = Field(default=None, max_length=120)
     publish_date: str | None = Field(default=None, max_length=40)
     region: str | None = Field(default=None, max_length=80)
@@ -273,6 +274,7 @@ class DocMetadata(BaseModel):
     filename: str
     chunk_count: int
     token_count: int = 0
+    scope_code: str = "public_policy"
     uploaded_at: datetime
 
 class ValidationResult(BaseModel):

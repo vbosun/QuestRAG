@@ -77,7 +77,7 @@ def compute_id_number_digest(id_number: str) -> str:
 
 def mask_id_number(id_number: str) -> str:
     """Mask middle digits: 6201**********0000"""
-    return id_number[:4] + "*" * 14 + id_number[-2:]
+    return id_number[:4] + "*" * 10 + id_number[-4:]
 
 
 def hash_password(password: str) -> str:

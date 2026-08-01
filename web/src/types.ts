@@ -7,6 +7,7 @@ export interface DocumentInfo {
   filename: string;
   chunk_count: number;
   token_count?: number;
+  scope_code?: string;
   uploaded_at?: string;
   strategy?: string;
   separator_preset?: string;
@@ -32,6 +33,7 @@ export interface DocumentChunk {
 export interface DocumentMetadataInput {
   title: string;
   category: string;
+  scope_code: string;
   organization?: string | null;
   publish_date?: string | null;
   region?: string | null;

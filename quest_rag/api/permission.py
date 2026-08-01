@@ -3,7 +3,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from quest_rag.auth.dependencies import get_current_user, require_permission, require_any_permission
+from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
 from quest_rag.auth.security import hash_password, validate_password_policy
 from quest_rag.auth import permission_store as ps
@@ -197,13 +197,13 @@ def create_user_endpoint(req: UserCreate, request: Request,
     digest = compute_id_number_digest(normalized)
     personal_info_id = create_personal_info(digest, req.full_name, normalized)
     password_hash = hash_password(req.password)
+    role_codes = req.role_codes or ["USER"]
     account_id = create_auth_account(personal_info_id, digest, password_hash, role="USER")
 
-    if req.role_codes:
-        ps.set_user_roles(account_id, req.role_codes)
+    ps.set_user_roles(account_id, role_codes)
 
     _log(current_user.id, "USER_CREATE", request, target_type="user", target_id=str(account_id),
-         detail={"full_name": req.full_name, "role_codes": req.role_codes})
+         detail={"full_name": req.full_name, "role_codes": role_codes})
     return {"id": account_id, "full_name": req.full_name}
 
 

@@ -12,9 +12,10 @@ from quest_rag.rag.tools import format_job_result
 
 
 def test_chat_stream_sse_events(monkeypatch):
-    def fake_generate_stream(question: str, thread_id: str):
+    def fake_generate_stream(question: str, thread_id: str, current_user=None):
         assert question == "测试"
         assert thread_id == "session-1"
+        assert current_user is not None
         yield {"event": "delta", "data": {"text": "你好"}}
         yield {"event": "done", "data": {"finish_reason": "stop"}}
 
@@ -24,7 +25,16 @@ def test_chat_stream_sse_events(monkeypatch):
     from quest_rag.auth.schemas import CurrentUser
 
     async def fake_get_current_user():
-        return CurrentUser(id=1, sid="test-sid", role="ADMIN", status=1, full_name="测试", id_number_masked="1101**********001", token_version=1)
+        return CurrentUser(
+            id=1,
+            sid="test-sid",
+            role="ADMIN",
+            status=1,
+            full_name="测试",
+            id_number_masked="1101**********0001",
+            token_version=1,
+            permissions=["chat.view"],
+        )
 
     app.dependency_overrides[get_current_user] = fake_get_current_user
 
