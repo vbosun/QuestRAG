@@ -112,10 +112,14 @@ def commit_stage(req: DocumentStageRequest):
             doc_id=doc_id,
             filename=req.metadata.title or stage["filename"],
             chunk_count=len(ids),
+            token_count=_count_chunk_tokens(chunks),
             uploaded_at=datetime.now(),
         )
         add_doc_metadata(doc)
-        save_document_source(doc_id, req.metadata, req.clean_options, stage)
+        save_document_source(
+            doc_id, req.metadata, req.clean_options, stage,
+            token_count=doc.token_count,
+        )
         if req.replace_doc_id:
             delete_doc_metadata(req.replace_doc_id)
             delete_pg_document(req.replace_doc_id)
@@ -165,10 +169,12 @@ async def upload(file: UploadFile = File(...)):
         ids = add_documents(chunks)
         print(f"ids: {ids}")
 
+        tk = _count_chunk_tokens(chunks)
         doc = DocMetadata(
             doc_id=doc_id,
             filename=filename,
             chunk_count=len(ids),
+            token_count=tk,
             uploaded_at=datetime.now()
         )
         add_doc_metadata(doc)
@@ -177,6 +183,7 @@ async def upload(file: UploadFile = File(...)):
             DocumentMetadataInput(title=Path(filename).stem),
             CleanOptions(),
             {"filename": filename, "docs": docs},
+            token_count=tk,
         )
 
         # 7. 返回结果
@@ -387,6 +394,7 @@ def save_document_source(
     metadata: DocumentMetadataInput,
     clean_options: CleanOptions,
     stage: dict,
+    token_count: int = 0,
 ):
     raw_pages = [
         {
@@ -398,7 +406,6 @@ def save_document_source(
     raw_text = "\n\n".join(page["text"] for page in raw_pages)
     filename = stage.get("filename") or metadata.title
     ext = Path(filename).suffix.lower().lstrip(".") if "." in filename else "unknown"
-    from quest_rag.rag.token_counter import count_tokens
     upsert_document(
         doc_id=doc_id,
         filename=filename,
@@ -411,8 +418,13 @@ def save_document_source(
         },
         content_hash=hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
         text_length=len(raw_text),
-        token_count=count_tokens(raw_text),
+        token_count=token_count,
         fmt=ext or "unknown",
     )
 
 
+def _count_chunk_tokens(chunks: list[Document]) -> int:
+    from quest_rag.rag.token_counter import count_tokens
+
+    text = "\n\n".join(c.page_content for c in chunks)
+    return count_tokens(text)
