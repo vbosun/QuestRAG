@@ -75,15 +75,3 @@ class SubsidyMatchToolInput(BaseModel):
 class SubsidyCalculateToolInput(BaseModel):
     policy_id: str
     user_inputs: dict = Field(default_factory=dict)
-
-
-class SubsidyMatchRequest(BaseModel):
-    user_description: str
-    extracted_facts: dict = Field(default_factory=dict)
-    top_k: int = Field(default=5, ge=1, le=10)
-
-
-class SubsidyCalculateRequest(BaseModel):
-    policy_id: str
-    user_inputs: dict = Field(default_factory=dict)
-

@@ -17,8 +17,6 @@ import type {
   DocumentStage,
   SplitOptions,
   StreamEvent,
-  SubsidyCalculationResult,
-  SubsidyMatchResult,
 } from "./types";
 import type { PermissionCatalog, RoleDetail, RoleInfo, UserListResponse } from "./features/permissions/types";
 
@@ -363,19 +361,4 @@ export function listSocialSecurityPayments(params?: {
   if (params?.limit) sp.set("limit", String(params.limit));
   const qs = sp.toString();
   return getJson<SocialSecurityPaymentRecord[]>(`/public-services/social-security/payments${qs ? `?${qs}` : ""}`);
-}
-
-export function matchSubsidies(payload: {
-  user_description: string;
-  extracted_facts?: Record<string, unknown>;
-  top_k?: number;
-}): Promise<SubsidyMatchResult[]> {
-  return postJson<SubsidyMatchResult[]>("/public-services/subsidies/match", payload);
-}
-
-export function calculateSubsidy(payload: {
-  policy_id: string;
-  user_inputs?: Record<string, unknown>;
-}): Promise<SubsidyCalculationResult> {
-  return postJson<SubsidyCalculationResult>("/public-services/subsidies/calculate", payload);
 }

@@ -24,7 +24,6 @@ import { EvaluationView } from "./features/evaluation/EvaluationView";
 import { KnowledgeView } from "./features/knowledge/KnowledgeView";
 import { RoleManagementView } from "./features/permissions/RoleManagementView";
 import { SocialSecurityView } from "./features/publicServices/SocialSecurityView";
-import { SubsidyCalculatorView } from "./features/publicServices/SubsidyCalculatorView";
 import { UserManagementView } from "./features/permissions/UserManagementView";
 import { RetrievalConfigView } from "./features/retrieval/RetrievalConfigView";
 import { clearTokens } from "./request";
@@ -73,7 +72,6 @@ export function QuestRagApp() {
               <Route path="profile" element={<ProtectedRoute permission="profile.view"><ProfileView /></ProtectedRoute>} />
               <Route path="profile/password" element={<ProtectedRoute permission="profile.view"><ChangePasswordView /></ProtectedRoute>} />
               <Route path="public-services/social-security" element={<ProtectedRoute permission="public_services.social_security.view"><SocialSecurityView /></ProtectedRoute>} />
-              <Route path="public-services/subsidy-calculator" element={<ProtectedRoute permission="public_services.subsidy_calculator.view"><SubsidyCalculatorView /></ProtectedRoute>} />
               <Route path="permissions/users" element={<ProtectedRoute permission="permission.user.view"><UserManagementView /></ProtectedRoute>} />
               <Route path="permissions/roles" element={<ProtectedRoute permission="permission.role.view"><RoleManagementView /></ProtectedRoute>} />
             </Route>
@@ -110,7 +108,6 @@ function buildMenuItems(navigate: ReturnType<typeof useNavigate>) {
       permission: "public_services.view",
       children: [
         { key: "/app/public-services/social-security", label: "社保查询", permission: "public_services.social_security.view" },
-        { key: "/app/public-services/subsidy-calculator", label: "补贴测算", permission: "public_services.subsidy_calculator.view" },
       ],
     },
     {
@@ -163,7 +160,6 @@ function WorkspaceLayout() {
     }
     if (location.pathname.startsWith("/app/retrieval-config")) return "/app/retrieval-config";
     if (location.pathname.startsWith("/app/public-services/social-security")) return "/app/public-services/social-security";
-    if (location.pathname.startsWith("/app/public-services/subsidy-calculator")) return "/app/public-services/subsidy-calculator";
     if (location.pathname.startsWith("/app/permissions/users")) return "/app/permissions/users";
     if (location.pathname.startsWith("/app/permissions/roles")) return "/app/permissions/roles";
     if (location.pathname.startsWith("/app/profile")) return "/app/profile";

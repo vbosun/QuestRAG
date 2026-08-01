@@ -1,6 +1,5 @@
-import { App, Button, Card, Col, Descriptions, Row, Statistic, Table, Tag, Typography } from "antd";
+import { App, Card, Col, Descriptions, Row, Statistic, Table, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import { getSocialSecuritySummary, listSocialSecurityPayments } from "../../api";
 import type { SocialSecurityPaymentRecord, SocialSecuritySummary } from "../../types";
@@ -9,7 +8,6 @@ const { Text, Title } = Typography;
 
 export function SocialSecurityView() {
   const { message } = App.useApp();
-  const navigate = useNavigate();
   const [summary, setSummary] = useState<SocialSecuritySummary | null>(null);
   const [payments, setPayments] = useState<SocialSecurityPaymentRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,9 +40,6 @@ export function SocialSecurityView() {
           <Title level={2}>社保查询</Title>
           <Text type="secondary">仅展示当前登录用户本人的模拟社保数据</Text>
         </div>
-        <Button type="primary" onClick={() => navigate("/app/public-services/subsidy-calculator")}>
-          用社保数据测算补贴
-        </Button>
       </div>
       <div className="public-service-body">
         <Row gutter={[12, 12]}>
@@ -103,4 +98,3 @@ function statusLabel(value?: string) {
 function insuranceLabel(value: string) {
   return { PENSION: "养老", MEDICAL: "医疗", UNEMPLOYMENT: "失业", WORK_INJURY: "工伤", MATERNITY: "生育" }[value] || value;
 }
-

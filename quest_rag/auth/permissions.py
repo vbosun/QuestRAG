@@ -43,10 +43,6 @@ PERMISSIONS: dict[str, dict] = {
         "name": "社保查询", "type": "ROUTE", "group_code": "workspace",
         "risk_level": "LOW",
     },
-    "public_services.subsidy_calculator.view": {
-        "name": "补贴测算", "type": "ROUTE", "group_code": "workspace",
-        "risk_level": "LOW",
-    },
 
     # ── 知识库操作 ──
     "knowledge.document.read": {
@@ -233,7 +229,6 @@ DEFAULT_ROLES: dict[str, dict] = {
             "permission.user.assign_role", "permission.user.lock", "permission.user.unlock",
             "permission.user.reset_password", "permission.user.kick",
             "public_services.view", "public_services.social_security.view",
-            "public_services.subsidy_calculator.view",
             "llm.tool.knowledge_search", "llm.tool.job_search",
             "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
             "llm.tool.evaluation_read", "llm.tool.system_config_read",
@@ -252,7 +247,6 @@ DEFAULT_ROLES: dict[str, dict] = {
             "evaluation.document.manage", "evaluation.dataset.manage",
             "system.retrieval_config.view",
             "public_services.view", "public_services.social_security.view",
-            "public_services.subsidy_calculator.view",
             "llm.tool.knowledge_search", "llm.tool.job_search", "llm.tool.evaluation_read",
             "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
         ],
@@ -276,7 +270,6 @@ DEFAULT_ROLES: dict[str, dict] = {
         "permissions": [
             "chat.view", "profile.view",
             "public_services.view", "public_services.social_security.view",
-            "public_services.subsidy_calculator.view",
             "llm.tool.knowledge_search", "llm.tool.job_search",
             "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
         ],

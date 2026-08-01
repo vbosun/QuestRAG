@@ -701,39 +701,6 @@ body {
   padding: 16px 18px;
 }
 
-.subsidy-layout {
-  grid-template-columns: minmax(280px, 360px) minmax(280px, 420px) minmax(0, 1fr);
-  align-items: start;
-}
-
-.subsidy-action {
-  margin-top: 12px;
-}
-
-.subsidy-match {
-  border-radius: 8px;
-  cursor: pointer;
-  padding-inline: 10px !important;
-}
-
-.subsidy-match.active {
-  background: var(--primary-soft);
-  box-shadow: inset 3px 0 0 var(--primary);
-}
-
-.subsidy-detail {
-  min-width: 0;
-}
-
-.subsidy-section {
-  margin-top: 14px;
-}
-
-.subsidy-section ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-}
-
 .knowledge-view {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1375,8 +1342,7 @@ body {
   }
 
   .ingest-grid,
-  .preview-columns,
-  .subsidy-layout {
+  .preview-columns {
     grid-template-columns: 1fr;
   }
 }
