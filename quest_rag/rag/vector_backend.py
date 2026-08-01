@@ -366,6 +366,8 @@ class MilvusVectorBackend(VectorBackend):
         self._user = user
         self._password = password
         self._client = None
+        self._text_index_ensured = False
+        self._analyzer_enabled = False
 
     @property
     def _mc(self):
@@ -455,10 +457,63 @@ class MilvusVectorBackend(VectorBackend):
             for hit in results[0]
         ]
 
+    def _ensure_text_index(self) -> bool:
+        """确保 text 字段启用 analyzer + enable_match + INVERTED 索引。
+
+        现有 collection 如果 text 字段创建时未设 enable_match=True
+        则无法使用 text_match，此方法返回 False，调用方应降级到 LIKE。
+        """
+        if self._text_index_ensured:
+            return self._analyzer_enabled
+        try:
+            desc = self._mc.describe_collection(self._collection_name)
+            text_field = next((f for f in desc["fields"] if f["name"] == "text"), None)
+            if text_field is None:
+                self._analyzer_enabled = False
+                return False
+            # text_match 需要 enable_match（以及 enable_analyzer）
+            params = text_field.get("params", {})
+            self._analyzer_enabled = params.get("enable_match") in (True, "true")
+
+            if self._analyzer_enabled:
+                indexes = self._mc.list_indexes(self._collection_name)
+                if not any(
+                    idx.get("field_name") == "text" and idx.get("index_type") == "INVERTED"
+                    for idx in indexes
+                ):
+                    idx_params = self._mc.prepare_index_params()
+                    idx_params.add_index(field_name="text", index_type="INVERTED")
+                    self._mc.create_index(self._collection_name, idx_params)
+        except Exception:
+            self._analyzer_enabled = False
+        finally:
+            self._text_index_ensured = True
+        return self._analyzer_enabled
+
     def _keyword_search(self, query: str, top_k: int) -> list[dict]:
         if not query:
             return []
         escaped = query.replace('"', '\\"')
+
+        if self._ensure_text_index():
+            results = self._mc.query(
+                collection_name=self._collection_name,
+                filter=f'text_match(text, "{escaped}")',
+                output_fields=self._QUERY_CORE,
+                limit=top_k,
+            )
+            return [
+                {
+                    "id": r["id"],
+                    "text": r.get("text", ""),
+                    "metadata": self._parse_metadata(r),
+                    "vector_score": 0,
+                    "keyword_score": 1.0,
+                }
+                for r in results
+            ]
+
+        # 降级路径：LIKE 子串匹配（旧 collection 未启用 text_match）
         results = self._mc.query(
             collection_name=self._collection_name,
             filter=f'text like "%{escaped}%"',
@@ -522,21 +577,21 @@ class MilvusVectorBackend(VectorBackend):
     # ── 评测临时集合 ────────────────────────────────────────────
 
     def create_eval_collection(self, name: str, dims: int):
-        from pymilvus import DataType, FieldSchema
+        from pymilvus import DataType
 
         if self._mc.has_collection(name):
             self._mc.drop_collection(name)
 
         schema = self._mc.create_schema(auto_id=False, enable_dynamic_field=False)
-        schema.add_field(FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=128))
-        schema.add_field(FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535))
-        schema.add_field(FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dims))
-        schema.add_field(FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, max_length=256))
-        schema.add_field(FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=256))
-        schema.add_field(FieldSchema(name="chunk_index", dtype=DataType.INT64))
-        schema.add_field(FieldSchema(name="filename", dtype=DataType.VARCHAR, max_length=512))
-        schema.add_field(FieldSchema(name="source_type", dtype=DataType.VARCHAR, max_length=128))
-        schema.add_field(FieldSchema(name="metadata_json", dtype=DataType.VARCHAR, max_length=65535))
+        schema.add_field(field_name="id", datatype=DataType.VARCHAR, is_primary=True, max_length=128)
+        schema.add_field(field_name="text", datatype=DataType.VARCHAR, max_length=65535, enable_analyzer=True, enable_match=True, analyzer_params={"tokenizer": "jieba"})
+        schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=dims)
+        schema.add_field(field_name="chunk_id", datatype=DataType.VARCHAR, max_length=256)
+        schema.add_field(field_name="doc_id", datatype=DataType.VARCHAR, max_length=256)
+        schema.add_field(field_name="chunk_index", datatype=DataType.INT64)
+        schema.add_field(field_name="filename", datatype=DataType.VARCHAR, max_length=512)
+        schema.add_field(field_name="source_type", datatype=DataType.VARCHAR, max_length=128)
+        schema.add_field(field_name="metadata_json", datatype=DataType.VARCHAR, max_length=65535)
 
         index_params = self._mc.prepare_index_params()
         index_params.add_index(
@@ -545,6 +600,7 @@ class MilvusVectorBackend(VectorBackend):
             metric_type="COSINE",
             params={"nlist": 128},
         )
+        index_params.add_index(field_name="text", index_type="INVERTED")
 
         self._mc.create_collection(
             collection_name=name, schema=schema, index_params=index_params
@@ -560,6 +616,100 @@ class MilvusVectorBackend(VectorBackend):
             output_fields=["id"],
         )
         return len(results)
+
+    def migrate_to_fulltext(self, target_name: str | None = None, batch_size: int = 500) -> dict:
+        """将当前 collection 迁移到启用全文检索的新 collection。
+
+        新 collection 的 text 字段带 enable_analyzer + enable_match + jieba 分词器，
+        迁移完成后需手动切换到新 collection。
+        """
+        from pymilvus import DataType
+
+        source = self._collection_name
+        target = target_name or f"{source}_v2"
+
+        if not self._mc.has_collection(source):
+            raise RuntimeError(f"源 collection '{source}' 不存在")
+        if self._mc.has_collection(target):
+            raise RuntimeError(f"目标 collection '{target}' 已存在，请先删除")
+
+        # 1. 读取旧 schema
+        desc = self._mc.describe_collection(source)
+        old_fields = desc["fields"]
+        auto_id = desc.get("auto_id", False)
+        emb_dim = 1024
+        for f in old_fields:
+            if f["name"] == "embedding":
+                emb_dim = f.get("params", {}).get("dim", 1024)
+                break
+
+        # 2. 构建新 schema（text 字段启用 analyzer）
+        schema = self._mc.create_schema(auto_id=auto_id, enable_dynamic_field=False)
+        for f in old_fields:
+            kwargs: dict = {}
+            params = f.get("params", {})
+            if f["type"] == DataType.VARCHAR:
+                kwargs["max_length"] = params.get("max_length", 65535)
+                if f["name"] == "text":
+                    kwargs["enable_analyzer"] = True
+                    kwargs["enable_match"] = True
+                    kwargs["analyzer_params"] = {"tokenizer": "jieba"}
+            elif f["type"] == DataType.FLOAT_VECTOR:
+                kwargs["dim"] = emb_dim
+            schema.add_field(
+                field_name=f["name"],
+                datatype=f["type"],
+                is_primary=f.get("is_primary", False),
+                auto_id=f.get("auto_id", False),
+                **kwargs,
+            )
+
+        # 3. 建索引
+        idx_params = self._mc.prepare_index_params()
+        idx_params.add_index(
+            field_name="embedding",
+            index_type="IVF_FLAT",
+            metric_type="COSINE",
+            params={"nlist": 128},
+        )
+        idx_params.add_index(field_name="text", index_type="INVERTED")
+
+        # 4. 创建新 collection
+        self._mc.create_collection(collection_name=target, schema=schema, index_params=idx_params)
+
+        # 5. 获取字段名列表，分批迁移数据
+        field_names = [f["name"] for f in old_fields]
+
+        offset = 0
+        migrated = 0
+        while True:
+            batch = self._mc.query(
+                collection_name=source,
+                filter="id != ''",
+                output_fields=field_names,
+                limit=batch_size,
+                offset=offset,
+            )
+            if not batch:
+                break
+            self._mc.insert(collection_name=target, data=batch)
+            migrated += len(batch)
+            offset += len(batch)
+            print(f"  migrated {migrated} chunks...")
+
+        self._mc.flush(target)
+
+        # 6. 验证
+        src_count = self._mc.get_collection_stats(source)["row_count"]
+        tgt_count = self._mc.get_collection_stats(target)["row_count"]
+
+        return {
+            "source": source,
+            "source_rows": src_count,
+            "target": target,
+            "target_rows": tgt_count,
+            "migrated": migrated,
+        }
 
 
 def _doc_to_milvus_row(chunk_id: str, text: str, embedding: list[float], metadata: dict) -> dict:
