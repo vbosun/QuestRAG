@@ -56,18 +56,20 @@ def list_runs():
     return list_evaluation_runs()
 
 
-@router.post("/runs/{run_id}", response_model=EvaluationRunDetail)
-def get_run(run_id: str):
+@router.post("/runs/get", response_model=EvaluationRunDetail)
+def get_run(payload: dict):
     init_db()
+    run_id = payload["run_id"]
     run = get_evaluation_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="评测记录不存在")
     return run
 
 
-@router.delete("/runs/{run_id}", response_model=CommonResponse)
-def delete_run(run_id: str):
+@router.delete("/runs/delete", response_model=CommonResponse)
+def delete_run(payload: dict):
     init_db()
+    run_id = payload["run_id"]
     run = delete_evaluation_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="评测记录不存在")
@@ -91,9 +93,10 @@ async def upload_eval_documents(files: list[UploadFile] = File(...)):
     return [with_baseline_chunk_count(doc) for doc in saved]
 
 
-@router.post("/documents/{doc_id}/runs")
-def list_eval_document_runs(doc_id: str):
+@router.post("/documents/runs")
+def list_eval_document_runs(payload: dict):
     init_db()
+    doc_id = payload["doc_id"]
     if not get_evaluation_document(doc_id):
         raise HTTPException(status_code=404, detail="评测文档不存在")
     runs = []
@@ -118,9 +121,11 @@ def list_eval_document_runs(doc_id: str):
     return runs
 
 
-@router.post("/documents/{doc_id}/runs/{run_id}/chunks")
-def list_eval_document_run_chunks(doc_id: str, run_id: str):
+@router.post("/documents/runs/chunks")
+def list_eval_document_run_chunks(payload: dict):
     init_db()
+    doc_id = payload["doc_id"]
+    run_id = payload["run_id"]
     run = get_evaluation_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="评测记录不存在")
@@ -130,9 +135,10 @@ def list_eval_document_run_chunks(doc_id: str, run_id: str):
     return backend.list_chunks(doc_id)
 
 
-@router.post("/documents/{doc_id}", response_model=EvaluationDocumentDetail)
-def get_eval_document(doc_id: str):
+@router.post("/documents/get", response_model=EvaluationDocumentDetail)
+def get_eval_document(payload: dict):
     init_db()
+    doc_id = payload["doc_id"]
     doc = get_evaluation_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="评测文档不存在")
@@ -140,9 +146,10 @@ def get_eval_document(doc_id: str):
     return {**with_baseline_chunk_count(doc), "chunks": chunks}
 
 
-@router.delete("/documents/{doc_id}", response_model=CommonResponse)
-def delete_eval_document(doc_id: str):
+@router.delete("/documents/delete", response_model=CommonResponse)
+def delete_eval_document(payload: dict):
     init_db()
+    doc_id = payload["doc_id"]
     if not delete_evaluation_document(doc_id):
         raise HTTPException(status_code=404, detail="评测文档不存在")
     return CommonResponse(success=True, message="评测文档已删除")
@@ -175,35 +182,41 @@ def create_dataset(req: EvaluationDatasetInput):
     return get_evaluation_dataset(dataset_id)
 
 
-@router.post("/datasets/{dataset_id}")
-def get_dataset(dataset_id: str):
+@router.post("/datasets/get")
+def get_dataset(payload: dict):
     init_db()
+    dataset_id = payload["dataset_id"]
     dataset = get_evaluation_dataset(dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="评测集不存在")
     return dataset
 
 
-@router.put("/datasets/{dataset_id}")
-def update_dataset(dataset_id: str, req: EvaluationDatasetInput):
+@router.put("/datasets/update")
+def update_dataset(payload: dict):
     init_db()
+    dataset_id = payload["dataset_id"]
+    name = payload["name"]
+    items = payload.get("items", [])
     if not get_evaluation_dataset(dataset_id):
         raise HTTPException(status_code=404, detail="评测集不存在")
-    upsert_evaluation_dataset({"id": dataset_id, "name": req.name, "items": [item.model_dump() for item in req.items]})
+    upsert_evaluation_dataset({"id": dataset_id, "name": name, "items": items})
     return get_evaluation_dataset(dataset_id)
 
 
-@router.delete("/datasets/{dataset_id}", response_model=CommonResponse)
-def delete_dataset(dataset_id: str):
+@router.delete("/datasets/delete", response_model=CommonResponse)
+def delete_dataset(payload: dict):
     init_db()
+    dataset_id = payload["dataset_id"]
     if not delete_evaluation_dataset(dataset_id):
         raise HTTPException(status_code=404, detail="评测集不存在")
     return CommonResponse(success=True, message="评测集已删除")
 
 
-@router.post("/datasets/{dataset_id}/export")
-def export_dataset(dataset_id: str):
+@router.post("/datasets/export")
+def export_dataset(payload: dict):
     init_db()
+    dataset_id = payload["dataset_id"]
     dataset = get_evaluation_dataset(dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="评测集不存在")

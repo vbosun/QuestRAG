@@ -7,7 +7,8 @@ export default defineConfig({
     proxy: {
       "/chat": "http://127.0.0.1:8010",
       "/documents": "http://127.0.0.1:8010",
-      "/evaluations": "http://127.0.0.1:8010"
+      "/evaluations": "http://127.0.0.1:8010",
+      "/system": "http://127.0.0.1:8010"
     }
   }
 });

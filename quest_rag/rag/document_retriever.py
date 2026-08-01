@@ -1,20 +1,15 @@
 from langchain_core.documents import Document
 
+from quest_rag.core.config import get_retrieval_config
 from quest_rag.rag.document_embedding import get_embedding
-from quest_rag.rag.vector_backend import (
-    backend,
-    cosine_similarity,
-    extract_keywords,
-    keyword_search,
-    merge_results,
-    vector_search,
-)
+from quest_rag.rag.vector_backend import backend
 
 
-def search(query: str, top_k=3) -> list[Document]:
-    """向量相似度检索"""
+def search(query: str, top_k: int | None = None) -> list[Document]:
+    cfg = get_retrieval_config()
+    if top_k is None:
+        top_k = cfg["top_k"]
 
-    # 用户查询转为嵌入向量
     query_vector = get_embedding(query)
 
     return [
@@ -27,5 +22,12 @@ def search(query: str, top_k=3) -> list[Document]:
                 "keyword_score": result.get("keyword_score", 0),
             },
         )
-        for result in backend.search(query, query_vector, top_k)
+        for result in backend.search_with_options(
+            query,
+            query_vector,
+            top_k,
+            mode=cfg["mode"],
+            recall_k=cfg["recall_k"],
+            rrf_k=cfg["rrf_k"],
+        )
     ]

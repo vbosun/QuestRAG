@@ -426,6 +426,21 @@ export function EvaluationView({
                 render: (_value, run) => <Text>{formatRate(run.summary?.source_hit_rate)}</Text>
               },
               {
+                title: "证据命中率",
+                width: 120,
+                render: (_value, run) => <Text>{formatRate(run.summary?.evidence_hit_rate)}</Text>
+              },
+              {
+                title: "拒答通过率",
+                width: 120,
+                render: (_value, run) => <Text>{formatRate(run.summary?.refusal_hit_rate)}</Text>
+              },
+              {
+                title: "总通过率",
+                width: 100,
+                render: (_value, run) => <Text>{formatRate(run.summary?.pass_rate)}</Text>
+              },
+              {
                 title: "MRR",
                 width: 90,
                 render: (_value, run) => <Text>{String(run.summary?.mrr ?? "-")}</Text>

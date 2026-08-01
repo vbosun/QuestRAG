@@ -4,6 +4,7 @@ import uuid
 
 from langchain.tools import tool
 
+from quest_rag.core.config import get_retrieval_config
 from quest_rag.rag.citations import register_citation
 from quest_rag.rag.document_retriever import search
 from quest_rag.rag.job_retriever import search_jobs
@@ -20,7 +21,8 @@ from quest_rag.schemas.schemas import (
 @tool
 def retrieve_context(query: str) -> str:
     """ 根据查询目标检索文档,返回查询结果 """
-    docs = search(query, 5)
+    cfg = get_retrieval_config()
+    docs = search(query, cfg["top_k"])
 
     results = validate_search_result(docs)
 
@@ -80,12 +82,14 @@ def get_document_list(name: str | None) -> list[DocMetadata] | None:
 
 
 @tool(args_schema=JobSearchToolInput)
-def retrieve_jobs(query: str, top_k: int = 10) -> str:
+def retrieve_jobs(query: str, top_k: int | None = None) -> str:
     """
     检索公开岗位数据，最多返回 10 条。
 
     适合回答岗位推荐、职位查询、薪资/地点/学历/经验匹配等问题。
     """
+    if top_k is None:
+        top_k = get_retrieval_config()["top_k"]
     jobs = search_jobs(query, top_k)
     if not jobs:
         return "未检索到匹配岗位。"
@@ -108,10 +112,26 @@ def create_chart_artifact(
     source_note: str | None = None,
 ) -> str:
     """
-    生成前端可渲染的图表资产。
+    生成前端可渲染的图表资产。仅当回答中确实有可量化数据时调用。
 
-    仅当回答中确实有可量化数据时调用。不要传完整 ECharts option，
-    只传图表类型、标题、数据和字段映射。
+    按数据类型选择合适的 chart_type：
+    - pie：占比/构成分析（如部门预算占比、学历分布）
+    - line：时间趋势/连续变化（如月度销售额、温度变化）
+    - bar：数值对比/排名（如各省 GDP 对比、考试成绩排名）
+    - scatter：两个数值变量的相关性/分布（如身高与体重关系）
+    - radar：多维度综合评价（如各产品的性能/价格/外观评分）
+    - funnel：逐层递减的转化/层级数据（如招聘漏斗、销售转化）
+    - heatmap：两个维度的交叉强度（如不同城市×月份的销量热度）
+    - bubble：三维数据关系（如国家 GDP×人口×人均收入，size=人口）
+
+    数据按 chart_type 填写：
+    - pie/funnel：每项填 name + value
+    - line/bar/radar：每项填 name + value，有多条线/多组柱时用 series 字段区分
+    - scatter：每项填 x + y（两个数值坐标），多个系列用 series 区分
+    - bubble：每项填 x + y + size，多个系列用 series 区分
+    - heatmap：每项填 name（X轴维度）+ series（Y轴维度）+ value（强度值）
+
+    注意：x_field/y_field/series_field 一般保持默认即可，无需修改。
     """
     artifact = ChartArtifact(
         id=f"chart_{uuid.uuid4().hex[:12]}",

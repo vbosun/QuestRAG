@@ -22,16 +22,37 @@ class ChatResponse(BaseModel):
 
 
 class ChartDatum(BaseModel):
-    name: str
-    value: float
-    series: str | None = None
+    name: str = Field(
+        default="",
+        description="数据项名称，显示在分类轴标签、图例或扇区名称中",
+    )
+    value: float | None = Field(
+        default=None,
+        description="数据项的主数值，用于饼图/柱状图/折线图/漏斗图/雷达图",
+    )
+    x: float | None = Field(
+        default=None,
+        description="散点图/气泡图的 X 轴数值坐标，仅 chart_type=scatter/bubble 时使用",
+    )
+    y: float | None = Field(
+        default=None,
+        description="散点图/气泡图的 Y 轴数值坐标，仅 chart_type=scatter/bubble 时使用",
+    )
+    size: float | None = Field(
+        default=None,
+        description="气泡图的气泡大小，仅 chart_type=bubble 时使用",
+    )
+    series: str | None = Field(
+        default=None,
+        description="数据分组/系列名，用于区分柱状图的分组柱、折线图的多条线、散点图的多个系列",
+    )
 
 
 class ChartArtifact(BaseModel):
     type: Literal["chart"] = "chart"
     version: str = "1.0"
     id: str
-    chart_type: Literal["pie", "line", "bar"]
+    chart_type: Literal["pie", "line", "bar", "scatter", "radar", "funnel", "heatmap", "bubble"]
     title: str
     description: str | None = None
     data: list[ChartDatum]
@@ -41,14 +62,53 @@ class ChartArtifact(BaseModel):
 
 
 class ChartToolInput(BaseModel):
-    chart_type: Literal["pie", "line", "bar"]
-    title: str = Field(min_length=1, max_length=80)
-    data: list[ChartDatum] = Field(min_length=1, max_length=50)
-    description: str | None = Field(default=None, max_length=300)
-    x_field: str = "name"
-    y_field: str = "value"
-    series_field: str | None = None
-    source_note: str | None = Field(default=None, max_length=300)
+    chart_type: Literal["pie", "line", "bar", "scatter", "radar", "funnel", "heatmap", "bubble"] = Field(
+        description=(
+            "图表类型：pie=饼图（占比/构成），line=折线图（趋势/变化），"
+            "bar=柱状图（对比/排名），scatter=散点图（相关性/分布），"
+            "radar=雷达图（多维对比），funnel=漏斗图（转化/层级），"
+            "heatmap=热力图（交叉强度），bubble=气泡图（三维散点）"
+        ),
+    )
+    title: str = Field(
+        min_length=1,
+        max_length=80,
+        description="图表标题，不超过 80 字",
+    )
+    data: list[ChartDatum] = Field(
+        min_length=1,
+        max_length=50,
+        description=(
+            "图表数据，每条为一个 ChartDatum。按图表类型填写对应字段：\n"
+            "- pie/funnel：每项填 name + value\n"
+            "- line/bar/radar：每项填 name + value，多个系列用 series 区分\n"
+            "- heatmap：每项填 name(横轴) + series(纵轴) + value(强度)\n"
+            "- scatter：每项填 x + y，多个系列用 series 区分\n"
+            "- bubble：每项填 x + y + size，多个系列用 series 区分"
+        ),
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=300,
+        description="图表补充说明，不超过 300 字",
+    )
+    x_field: str = Field(
+        default="name",
+        description="X 轴/分类轴在 data 中对应的字段名，默认 'name'",
+    )
+    y_field: str = Field(
+        default="value",
+        description="Y 轴/数值轴在 data 中对应的字段名，默认 'value'",
+    )
+    series_field: str | None = Field(
+        default=None,
+        description="分组/系列在 data 中对应的字段名，有多个系列时指定，默认 'series'",
+    )
+    source_note: str | None = Field(
+        default=None,
+        max_length=300,
+        description="数据来源说明，不超过 300 字",
+    )
 
 
 class JobSearchToolInput(BaseModel):

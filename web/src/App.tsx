@@ -1,4 +1,4 @@
-import { BookOutlined, ExperimentOutlined, MessageOutlined } from "@ant-design/icons";
+import { BookOutlined, ExperimentOutlined, MessageOutlined, SettingOutlined } from "@ant-design/icons";
 import { App, ConfigProvider, Layout, Menu, Typography } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { deleteDocument, deleteEvaluation, listDocuments, listEvaluations, streamChat, uploadDocument } from "./api";
@@ -6,6 +6,7 @@ import { parseMessageParts } from "./artifacts";
 import { ChatView } from "./features/chat/ChatView";
 import { EvaluationView } from "./features/evaluation/EvaluationView";
 import { KnowledgeView } from "./features/knowledge/KnowledgeView";
+import { RetrievalConfigView } from "./features/retrieval/RetrievalConfigView";
 import type { ChatMessage, DocumentInfo, EvaluationRun, Session } from "./types";
 import { artifactToPart, createBlankSession, loadSessions, saveSessions } from "./utils";
 
@@ -314,7 +315,8 @@ function Workspace() {
                 { key: "evaluation-documents", label: "评测文档" },
                 { key: "evaluation-datasets", label: "评测集" }
               ]
-            }
+            },
+            { key: "retrieval-config", icon: <SettingOutlined />, label: "检索配置" }
           ]}
           onClick={({ key }) => setActiveMenu(key)}
         />
@@ -346,6 +348,8 @@ function Workspace() {
             onDeleteDocument={handleDeleteDocument}
             onRefreshDocuments={refreshDocuments}
           />
+        ) : activeMenu === "retrieval-config" ? (
+          <RetrievalConfigView />
         ) : (
           <EvaluationView
             documents={documents}

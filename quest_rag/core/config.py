@@ -13,7 +13,38 @@ VECTOR_BACKEND = os.environ.get("VECTOR_BACKEND", "memory").lower()
 ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
 ELASTICSEARCH_INDEX = os.environ.get("ELASTICSEARCH_INDEX", "questrag_chunks")
 ELASTICSEARCH_JOBS_INDEX = os.environ.get("ELASTICSEARCH_JOBS_INDEX", "questrag_jobs")
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://postgres:difyai123456@192.168.1.43:5432/quest_rag",
-)
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+DEFAULT_RETRIEVAL_CONFIG = {
+    "top_k": 5,
+    "recall_k": 15,
+    "mode": "hybrid",
+    "rrf_k": 60,
+}
+
+_config_cache: dict = {}
+
+
+def load_system_config():
+    """Startup hook: load all system config from DB into memory."""
+    global _config_cache
+    try:
+        from quest_rag.rag.pg_store import list_system_configs
+
+        _config_cache = {item["key"]: item for item in list_system_configs()}
+    except Exception:
+        _config_cache = {}
+
+
+def get_retrieval_config() -> dict:
+    """Return retrieval config dict with defaults for missing keys."""
+    entry = _config_cache.get("retrieval")
+    value = entry["value"] if entry else None
+    if isinstance(value, dict):
+        return {**DEFAULT_RETRIEVAL_CONFIG, **value}
+    return dict(DEFAULT_RETRIEVAL_CONFIG)
+
+
+def set_config_cache(key: str, value):
+    """Update in-memory cache for a single config key."""
+    _config_cache[key] = {"key": key, "value": value}

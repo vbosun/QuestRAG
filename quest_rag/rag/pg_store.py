@@ -118,6 +118,24 @@ def init_db():
         )
         conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS should_refuse BOOLEAN NOT NULL DEFAULT false")
         conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS retrieval_queries JSONB NOT NULL DEFAULT '[]'::jsonb")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS system_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO system_config (key, value, description)
+            VALUES ('retrieval', %s, '正式环境检索参数，JSON 格式：top_k/recall_k/mode/rrf_k')
+            ON CONFLICT (key) DO NOTHING
+            """,
+            (json_dumps({"top_k": 5, "recall_k": 15, "mode": "hybrid", "rrf_k": 60}),),
+        )
 
 
 def upsert_document(
@@ -428,6 +446,54 @@ def delete_evaluation_dataset(dataset_id: str) -> bool:
     with get_conn() as conn:
         result = conn.execute("DELETE FROM evaluation_datasets WHERE id = %s", (dataset_id,))
     return result.rowcount > 0
+
+
+def get_system_config(key: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT key, value, description, updated_at FROM system_config WHERE key = %s",
+            (key,),
+        ).fetchone()
+    if not row:
+        return None
+    result = dict(row)
+    try:
+        result["value"] = json.loads(result["value"])
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return result
+
+
+def set_system_config(key: str, value: Any, description: str = "") -> dict:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO system_config (key, value, description, updated_at)
+            VALUES (%s, %s, %s, now())
+            ON CONFLICT (key) DO UPDATE SET
+                value = EXCLUDED.value,
+                description = EXCLUDED.description,
+                updated_at = now()
+            """,
+            (key, json_dumps(value), description),
+        )
+    return get_system_config(key)
+
+
+def list_system_configs() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT key, value, description, updated_at FROM system_config ORDER BY key"
+        ).fetchall()
+    results = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["value"] = json.loads(item["value"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+        results.append(item)
+    return results
 
 
 def json_dumps(value: Any) -> str:

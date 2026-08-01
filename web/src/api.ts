@@ -44,7 +44,11 @@ export async function listEvaluations(): Promise<EvaluationRun[]> {
 }
 
 export async function getEvaluation(id: string): Promise<EvaluationRun> {
-  const response = await fetch(`/evaluations/runs/${encodeURIComponent(id)}`, { method: "POST" });
+  const response = await fetch("/evaluations/runs/get", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ run_id: id }),
+  });
   const data = await readJson(response);
   if (!response.ok) {
     throw new Error(formatErrorDetail(data.detail) || "读取评测详情失败");
@@ -53,7 +57,11 @@ export async function getEvaluation(id: string): Promise<EvaluationRun> {
 }
 
 export async function deleteEvaluation(id: string) {
-  const response = await fetch(`/evaluations/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const response = await fetch("/evaluations/runs/delete", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ run_id: id }),
+  });
   const data = await readJson(response);
   if (!response.ok || data.success === false) {
     throw new Error(formatErrorDetail(data.detail) || data.message || "删除评测失败");
@@ -78,31 +86,44 @@ export async function uploadEvaluationDocuments(files: File[]): Promise<Evaluati
 }
 
 export async function getEvaluationDocument(id: string): Promise<EvaluationDocument> {
-  const response = await fetch(`/evaluations/documents/${encodeURIComponent(id)}`, { method: "POST" });
+  const response = await fetch("/evaluations/documents/get", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ doc_id: id }),
+  });
   const data = await readJson(response);
   if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测文档失败");
   return data as EvaluationDocument;
 }
 
 export async function listEvaluationDocumentRuns(id: string): Promise<EvaluationDocumentRun[]> {
-  const response = await fetch(`/evaluations/documents/${encodeURIComponent(id)}/runs`, { method: "POST" });
+  const response = await fetch("/evaluations/documents/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ doc_id: id }),
+  });
   const data = await readJson(response);
   if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测文档记录失败");
   return Array.isArray(data) ? data : [];
 }
 
 export async function listEvaluationDocumentRunChunks(id: string, runId: string): Promise<DocumentChunk[]> {
-  const response = await fetch(
-    `/evaluations/documents/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/chunks`,
-    { method: "POST" }
-  );
+  const response = await fetch("/evaluations/documents/runs/chunks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ doc_id: id, run_id: runId }),
+  });
   const data = await readJson(response);
   if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测分块失败");
   return Array.isArray(data) ? data : [];
 }
 
 export async function deleteEvaluationDocument(id: string) {
-  const response = await fetch(`/evaluations/documents/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const response = await fetch("/evaluations/documents/delete", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ doc_id: id }),
+  });
   const data = await readJson(response);
   if (!response.ok || data.success === false) throw new Error(formatErrorDetail(data.detail) || data.message || "删除评测文档失败");
   return data;
@@ -136,17 +157,21 @@ export async function createEvaluationDataset(payload: { name: string; items: Ev
 }
 
 export async function getEvaluationDataset(id: string): Promise<EvaluationDataset> {
-  const response = await fetch(`/evaluations/datasets/${encodeURIComponent(id)}`, { method: "POST" });
+  const response = await fetch("/evaluations/datasets/get", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset_id: id }),
+  });
   const data = await readJson(response);
   if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "读取评测集失败");
   return data as EvaluationDataset;
 }
 
 export async function updateEvaluationDataset(id: string, payload: { name: string; items: EvaluationDatasetItem[] }): Promise<EvaluationDataset> {
-  const response = await fetch(`/evaluations/datasets/${encodeURIComponent(id)}`, {
+  const response = await fetch("/evaluations/datasets/update", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ dataset_id: id, ...payload }),
   });
   const data = await readJson(response);
   if (!response.ok) throw new Error(formatErrorDetail(data.detail) || "保存评测集失败");
@@ -154,14 +179,22 @@ export async function updateEvaluationDataset(id: string, payload: { name: strin
 }
 
 export async function deleteEvaluationDataset(id: string) {
-  const response = await fetch(`/evaluations/datasets/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const response = await fetch("/evaluations/datasets/delete", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset_id: id }),
+  });
   const data = await readJson(response);
   if (!response.ok || data.success === false) throw new Error(formatErrorDetail(data.detail) || data.message || "删除评测集失败");
   return data;
 }
 
 export async function exportEvaluationDataset(id: string): Promise<Blob> {
-  const response = await fetch(`/evaluations/datasets/${encodeURIComponent(id)}/export`, { method: "POST" });
+  const response = await fetch("/evaluations/datasets/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset_id: id }),
+  });
   if (!response.ok) {
     const data = await readJson(response);
     throw new Error(formatErrorDetail(data.detail) || "导出评测集失败");
@@ -341,6 +374,41 @@ function parseSseFrame(frame: string): StreamEvent | null {
   } catch {
     return null;
   }
+}
+
+export async function getRetrievalConfig(): Promise<RetrievalOptions> {
+  const response = await fetch("/system/config/retrieval");
+  const data = await readJson(response);
+  if (!response.ok) {
+    throw new Error(formatErrorDetail(data.detail) || "读取检索配置失败");
+  }
+  return data as RetrievalOptions;
+}
+
+export async function updateRetrievalConfig(params: RetrievalOptions) {
+  const response = await fetch("/system/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: "retrieval", value: params }),
+  });
+  const data = await readJson(response);
+  if (!response.ok) {
+    throw new Error(formatErrorDetail(data.detail) || "保存检索配置失败");
+  }
+  return data;
+}
+
+export async function syncRetrievalConfig(runId: string) {
+  const response = await fetch("/system/config/retrieval/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ run_id: runId }),
+  });
+  const data = await readJson(response);
+  if (!response.ok) {
+    throw new Error(formatErrorDetail(data.detail) || "同步检索配置失败");
+  }
+  return data;
 }
 
 async function readJson(response: Response) {

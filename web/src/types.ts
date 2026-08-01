@@ -1,6 +1,6 @@
 export type Role = "user" | "assistant";
 
-export type ChartType = "pie" | "line" | "bar";
+export type ChartType = "pie" | "line" | "bar" | "scatter" | "radar" | "funnel" | "heatmap" | "bubble";
 
 export interface DocumentInfo {
   doc_id: string;
@@ -171,7 +171,10 @@ export interface DocumentCommitResult {
 
 export interface ChartDatum {
   name: string;
-  value: number;
+  value?: number | null;
+  x?: number | null;
+  y?: number | null;
+  size?: number | null;
   series?: string | null;
 }
 
