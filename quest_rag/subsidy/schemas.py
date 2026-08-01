@@ -4,10 +4,10 @@ from pydantic import BaseModel, Field
 
 
 class RequiredInput(BaseModel):
-    field: str
-    label: str
-    source: str = "user_input"
-    required: bool = True
+    field: str = Field(description="缺失字段的机器字段名，后续补充信息时应使用该字段名")
+    label: str = Field(description="缺失字段的中文名称，可用于向用户追问")
+    source: str = Field(default="user_input", description="建议的数据来源，例如 user_input/social_security/personal_info")
+    required: bool = Field(default=True, description="是否为完成资格判断或测算所必需")
 
 
 class ConditionResult(BaseModel):
@@ -67,11 +67,39 @@ class SubsidyCalculationResult(BaseModel):
 
 
 class SubsidyMatchToolInput(BaseModel):
-    user_description: str = Field(description="用户描述的个人情况或咨询问题")
-    extracted_facts: dict = Field(default_factory=dict, description="模型从对话中抽取的已知条件")
-    top_k: int = Field(default=5, ge=1, le=10)
+    user_description: str = Field(
+        min_length=1,
+        description=(
+            "用户关于补贴资格、补贴金额或个人情况的自然语言描述。"
+            "应尽量保留原话，例如“我是2025年毕业的，自己交社保，能领补贴吗”。"
+        ),
+    )
+    extracted_facts: dict = Field(
+        default_factory=dict,
+        description=(
+            "从当前对话中已明确抽取并较可信的结构化事实。"
+            "可填写字段包括 is_college_graduate、graduation_year、employment_status、"
+            "person_tags、first_business、business_status、business_months。"
+            "不要臆测用户未说明的信息。"
+        ),
+    )
+    top_k: int = Field(default=5, ge=1, le=10, description="返回候选补贴数量，默认5，最大10")
 
 
 class SubsidyCalculateToolInput(BaseModel):
-    policy_id: str
-    user_inputs: dict = Field(default_factory=dict)
+    policy_id: str = Field(
+        min_length=1,
+        description=(
+            "要测算的补贴政策ID，必须来自 subsidy_match 返回的 policy_id，"
+            "例如 subsidy_college_graduate_flexible_social_insurance。不要自行编造。"
+        ),
+    )
+    user_inputs: dict = Field(
+        default_factory=dict,
+        description=(
+            "用户已确认或补充的测算字段。字段名应来自 subsidy_match/subsidy_calculate 返回的 missing_inputs.field，"
+            "或使用已支持字段：is_college_graduate、graduation_year、employment_status、person_tags、"
+            "first_business、business_status、business_months。"
+            "布尔值请使用 true/false，年份和月数请使用数字。"
+        ),
+    )

@@ -34,8 +34,10 @@ class SocialSecuritySearchToolInput(BaseModel):
         default="summary",
         description="查询类型：summary=参保概要，payments=缴费记录，accounts=账户余额",
     )
-    insurance_type: InsuranceType | None = None
-    start_month: str | None = Field(default=None, description="YYYY-MM")
-    end_month: str | None = Field(default=None, description="YYYY-MM")
-    limit: int = Field(default=12, ge=1, le=36)
-
+    insurance_type: InsuranceType | None = Field(
+        default=None,
+        description="可选险种过滤：PENSION=养老，MEDICAL=医疗，UNEMPLOYMENT=失业，WORK_INJURY=工伤，MATERNITY=生育",
+    )
+    start_month: str | None = Field(default=None, description="可选起始缴费月份，格式 YYYY-MM")
+    end_month: str | None = Field(default=None, description="可选结束缴费月份，格式 YYYY-MM")
+    limit: int = Field(default=12, ge=1, le=36, description="最多返回的缴费记录条数，1到36之间")
