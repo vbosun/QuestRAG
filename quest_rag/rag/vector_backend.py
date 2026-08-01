@@ -3,6 +3,7 @@ import math
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from langchain_core.documents import Document
@@ -17,6 +18,9 @@ from quest_rag.core.config import (
     MILVUS_USER,
     VECTOR_BACKEND,
 )
+
+if TYPE_CHECKING:
+    from quest_rag.rag.retrieval_permissions import RetrievalPermissionFilter
 
 
 vector_store: list[dict] = []
@@ -44,6 +48,7 @@ class VectorBackend(ABC):
         mode: str = "hybrid",
         recall_k: int | None = None,
         rrf_k: int = 60,
+        permission_filter: "RetrievalPermissionFilter | None" = None,
     ) -> list[dict]:
         pass
 
@@ -94,11 +99,20 @@ class MemoryVectorBackend(VectorBackend):
         mode: str = "hybrid",
         recall_k: int | None = None,
         rrf_k: int = 60,
+        permission_filter: "RetrievalPermissionFilter | None" = None,
     ) -> list[dict]:
         mode = mode if mode in {"hybrid", "vector", "keyword"} else "hybrid"
         recall = recall_k or top_k
-        vector_results = [] if mode == "keyword" else vector_search(query_vector, vector_store, recall)
-        keyword_results = [] if mode == "vector" else keyword_search(query, vector_store, recall)
+
+        store = vector_store
+        if permission_filter and permission_filter.scope_codes:
+            store = [
+                c for c in vector_store
+                if c.get("metadata", {}).get("scope_code") in permission_filter.scope_codes
+            ]
+
+        vector_results = [] if mode == "keyword" else vector_search(query_vector, store, recall)
+        keyword_results = [] if mode == "vector" else keyword_search(query, store, recall)
         return merge_results(vector_results, keyword_results, top_k, rrf_k=rrf_k)
 
     def list_documents(self) -> list[dict]:
@@ -193,11 +207,13 @@ class ElasticsearchVectorBackend(VectorBackend):
         mode: str = "hybrid",
         recall_k: int | None = None,
         rrf_k: int = 60,
+        permission_filter: "RetrievalPermissionFilter | None" = None,
     ) -> list[dict]:
         mode = mode if mode in {"hybrid", "vector", "keyword"} else "hybrid"
         recall = recall_k or top_k
-        vector_results = [] if mode == "keyword" else self._vector_search(query_vector, recall)
-        keyword_results = [] if mode == "vector" else self._keyword_search(query, recall)
+        es_filter = _build_es_filter(permission_filter)
+        vector_results = [] if mode == "keyword" else self._vector_search(query_vector, recall, es_filter)
+        keyword_results = [] if mode == "vector" else self._keyword_search(query, recall, es_filter)
         return merge_results(
             vector_results,
             keyword_results,
@@ -310,13 +326,14 @@ class ElasticsearchVectorBackend(VectorBackend):
             },
         )
 
-    def _vector_search(self, query_vector: list[float], top_k: int) -> list[dict]:
+    def _vector_search(self, query_vector: list[float], top_k: int, es_filter: list[dict] | None = None) -> list[dict]:
+        filter_clause = es_filter if es_filter else [{"match_all": {}}]
         response = self.client.search(
             index=self.index_name,
             size=top_k,
             query={
                 "script_score": {
-                    "query": {"match_all": {}},
+                    "query": {"bool": {"filter": filter_clause}},
                     "script": {
                         "source": "cosineSimilarity(params.query_vector, 'embedding') + 1.0",
                         "params": {"query_vector": query_vector},
@@ -329,13 +346,16 @@ class ElasticsearchVectorBackend(VectorBackend):
             for hit in response["hits"]["hits"]
         ]
 
-    def _keyword_search(self, query: str, top_k: int) -> list[dict]:
+    def _keyword_search(self, query: str, top_k: int, es_filter: list[dict] | None = None) -> list[dict]:
         if not query:
             return []
+        query_body: dict = {"match": {"text": query}}
+        if es_filter:
+            query_body = {"bool": {"must": query_body, "filter": es_filter}}
         response = self.client.search(
             index=self.index_name,
             size=top_k,
-            query={"match": {"text": query}},
+            query=query_body,
         )
         return [
             self._hit_to_chunk(hit, keyword_score=hit["_score"])
@@ -430,14 +450,19 @@ class MilvusVectorBackend(VectorBackend):
         mode: str = "hybrid",
         recall_k: int | None = None,
         rrf_k: int = 60,
+        permission_filter: "RetrievalPermissionFilter | None" = None,
     ) -> list[dict]:
         mode = mode if mode in {"hybrid", "vector", "keyword"} else "hybrid"
         recall = recall_k or top_k
-        vector_results = [] if mode == "keyword" else self._vector_search(query_vector, recall)
-        keyword_results = [] if mode == "vector" else self._keyword_search(query, recall)
+        milvus_filter = _build_milvus_filter_expr(permission_filter)
+        vector_results = [] if mode == "keyword" else self._vector_search(query_vector, recall, milvus_filter)
+        keyword_results = [] if mode == "vector" else self._keyword_search(query, recall, milvus_filter)
         return merge_results(vector_results, keyword_results, top_k, rrf_k=rrf_k)
 
-    def _vector_search(self, query_vector: list[float], top_k: int) -> list[dict]:
+    def _vector_search(self, query_vector: list[float], top_k: int, milvus_filter: str | None = None) -> list[dict]:
+        kwargs = {}
+        if milvus_filter:
+            kwargs["filter"] = milvus_filter
         results = self._mc.search(
             collection_name=self._collection_name,
             data=[query_vector],
@@ -445,6 +470,7 @@ class MilvusVectorBackend(VectorBackend):
             search_params={"metric_type": "COSINE"},
             limit=top_k,
             output_fields=self._QUERY_CORE,
+            **kwargs,
         )
         return [
             {
@@ -490,15 +516,18 @@ class MilvusVectorBackend(VectorBackend):
             self._text_index_ensured = True
         return self._analyzer_enabled
 
-    def _keyword_search(self, query: str, top_k: int) -> list[dict]:
+    def _keyword_search(self, query: str, top_k: int, milvus_filter: str | None = None) -> list[dict]:
         if not query:
             return []
         escaped = query.replace('"', '\\"')
 
         if self._ensure_text_index():
+            filter_expr = f'text_match(text, "{escaped}")'
+            if milvus_filter:
+                filter_expr = f"({milvus_filter}) and {filter_expr}"
             results = self._mc.query(
                 collection_name=self._collection_name,
-                filter=f'text_match(text, "{escaped}")',
+                filter=filter_expr,
                 output_fields=self._QUERY_CORE,
                 limit=top_k,
             )
@@ -514,9 +543,12 @@ class MilvusVectorBackend(VectorBackend):
             ]
 
         # 降级路径：LIKE 子串匹配（旧 collection 未启用 text_match）
+        like_expr = f'text like "%{escaped}%"'
+        if milvus_filter:
+            like_expr = f"({milvus_filter}) and {like_expr}"
         results = self._mc.query(
             collection_name=self._collection_name,
-            filter=f'text like "%{escaped}%"',
+            filter=like_expr,
             output_fields=self._QUERY_CORE,
             limit=top_k,
         )
@@ -712,6 +744,32 @@ class MilvusVectorBackend(VectorBackend):
         }
 
 
+def _build_es_filter(permission_filter: "RetrievalPermissionFilter | None") -> list[dict] | None:
+    if permission_filter is None:
+        return None
+    filters = []
+    if permission_filter.scope_codes:
+        filters.append({"terms": {"metadata.scope_code": permission_filter.scope_codes}})
+    if permission_filter.doc_ids:
+        filters.append({"terms": {"metadata.doc_id": permission_filter.doc_ids}})
+    return filters or None
+
+
+def _build_milvus_filter_expr(permission_filter: "RetrievalPermissionFilter | None") -> str | None:
+    if permission_filter is None:
+        return None
+    parts = []
+    if permission_filter.scope_codes:
+        quoted = ", ".join(f'"{s}"' for s in permission_filter.scope_codes)
+        parts.append(f"scope_code in [{quoted}]")
+    if permission_filter.doc_ids:
+        quoted = ", ".join(f'"{d}"' for d in permission_filter.doc_ids)
+        parts.append(f"doc_id in [{quoted}]")
+    if not parts:
+        return None
+    return " and ".join(f"({p})" for p in parts)
+
+
 def _doc_to_milvus_row(chunk_id: str, text: str, embedding: list[float], metadata: dict) -> dict:
     """将 Document + embedding 映射为 Milvus collection 的实际字段。"""
     return {
@@ -742,6 +800,11 @@ def _doc_to_milvus_row(chunk_id: str, text: str, embedding: list[float], metadat
         "document_category": str(metadata.get("document_category", "")),
         "mineru_output": str(metadata.get("mineru_output", "")),
         "page_label": str(metadata.get("page_label", "")),
+        "scope_code": str(metadata.get("scope_code", "public_policy")),
+        "visibility": str(metadata.get("visibility", "PUBLIC")),
+        "security_level": str(metadata.get("security_level", "PUBLIC")),
+        "owner_user_id": str(metadata.get("owner_user_id", "")),
+        "department_id": str(metadata.get("department_id", "")),
         "metadata_json": json.dumps(metadata, ensure_ascii=False),
     }
 

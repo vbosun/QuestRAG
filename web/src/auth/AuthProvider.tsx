@@ -7,11 +7,17 @@ export interface UserInfo {
   full_name: string;
   id_number_masked: string;
   role: string;
+  roles: string[];
+  permissions: string[];
+  rag_scopes: string[];
 }
 
 interface AuthState {
   user: UserInfo | null;
   loading: boolean;
+  permissions: string[];
+  ragScopes: string[];
+  roles: string[];
   encryptAndLogin: (idNumber: string, password: string) => Promise<void>;
   encryptAndLogout: () => Promise<void>;
 }
@@ -19,6 +25,9 @@ interface AuthState {
 const AuthContext = createContext<AuthState>({
   user: null,
   loading: true,
+  permissions: [],
+  ragScopes: [],
+  roles: [],
   encryptAndLogin: async () => {},
   encryptAndLogout: async () => {},
 });
@@ -126,7 +135,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, encryptAndLogin, encryptAndLogout }),
+    () => ({
+      user,
+      loading,
+      permissions: user?.permissions || [],
+      ragScopes: user?.rag_scopes || [],
+      roles: user?.roles || [],
+      encryptAndLogin,
+      encryptAndLogout,
+    }),
     [user, loading, encryptAndLogin, encryptAndLogout],
   );
 

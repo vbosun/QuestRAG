@@ -21,6 +21,9 @@ class UserInfo(BaseModel):
     full_name: str
     id_number_masked: str
     role: str
+    roles: list[str] = []
+    permissions: list[str] = []
+    rag_scopes: list[str] = []
 
 
 class RefreshRequest(BaseModel):
@@ -43,6 +46,9 @@ class CurrentUser(BaseModel):
     id: int
     sid: str
     role: str
+    roles: list[str] = []
+    permissions: list[str] = []
+    rag_scopes: list[str] = []
     status: int
     full_name: str | None = None
     id_number_masked: str | None = None

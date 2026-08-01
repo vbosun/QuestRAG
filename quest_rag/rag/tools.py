@@ -9,7 +9,9 @@ from quest_rag.rag.citations import register_citation
 from quest_rag.rag.document_retriever import search
 from quest_rag.rag.job_retriever import search_jobs
 from quest_rag.rag.result_validator import validate_search_result
+from quest_rag.rag.retrieval_permissions import build_retrieval_permission_filter
 from quest_rag.rag.storage import get_all_docs, get_doc_by_name
+from quest_rag.rag.tool_registry import assert_tool_permission, current_user_ctx
 from quest_rag.schemas.schemas import (
     ChartArtifact,
     ChartToolInput,
@@ -21,8 +23,16 @@ from quest_rag.schemas.schemas import (
 @tool
 def retrieve_context(query: str) -> str:
     """ 根据查询目标检索文档,返回查询结果 """
+    user = current_user_ctx.get()
+    if user is not None:
+        assert_tool_permission(user, "retrieve_context")
     cfg = get_retrieval_config()
-    docs = search(query, cfg["top_k"])
+
+    permission_filter = None
+    if user is not None:
+        permission_filter = build_retrieval_permission_filter(user)
+
+    docs = search(query, cfg["top_k"], permission_filter=permission_filter)
 
     results = validate_search_result(docs)
 

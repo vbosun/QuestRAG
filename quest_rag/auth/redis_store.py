@@ -30,6 +30,9 @@ def create_session(
     token_version: int,
     login_ip: str | None = None,
     user_agent: str | None = None,
+    roles: list[str] | None = None,
+    permissions: list[str] | None = None,
+    rag_scopes: list[str] | None = None,
 ) -> str:
     r = get_redis()
     sid = uuid.uuid4().hex
@@ -40,6 +43,9 @@ def create_session(
         "sid": sid,
         "user_id": user_id,
         "role": role,
+        "roles": roles or [],
+        "permissions": permissions or [],
+        "rag_scopes": rag_scopes or [],
         "status": status,
         "token_version": token_version,
         "login_ip": login_ip or "",
@@ -100,3 +106,8 @@ def delete_login_fail(id_number_digest: str):
 
 def is_login_locked(id_number_digest: str) -> bool:
     return get_login_fail_count(id_number_digest) >= AUTH_LOGIN_FAIL_LIMIT
+
+
+def delete_sessions_by_user_ids(user_ids: list[int]):
+    for uid in user_ids:
+        delete_all_user_sessions(uid)

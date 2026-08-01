@@ -20,7 +20,8 @@ def chat(req: ChatRequest, current_user: CurrentUser = Depends(get_current_user)
     try:
         result = generate(
             question=req.message,
-            thread_id=session_id
+            thread_id=session_id,
+            current_user=current_user,
         )
     except Exception as e:
         logger.exception(str(e))
@@ -47,6 +48,7 @@ def chat_stream(req: ChatRequest, current_user: CurrentUser = Depends(get_curren
             for item in generate_stream(
                 question=req.message,
                 thread_id=session_id,
+                current_user=current_user,
             ):
                 yield encode_sse(item["event"], item["data"])
         except Exception as e:

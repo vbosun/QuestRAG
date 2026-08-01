@@ -16,6 +16,7 @@ import type {
   SplitOptions,
   StreamEvent,
 } from "./types";
+import type { PermissionCatalog, RoleDetail, RoleInfo, UserListResponse } from "./features/permissions/types";
 
 function postJson<T = unknown>(path: string, body?: unknown): Promise<T> {
   return requestJson<T>(path, {
@@ -254,4 +255,87 @@ export async function updateRetrievalConfig(params: RetrievalOptions) {
 
 export async function syncRetrievalConfig(runId: string) {
   return postJson("/system/config/retrieval/sync", { run_id: runId });
+}
+
+// ── 权限管理 ──────────────────────────────────────────────────────────
+
+export function listPermissionCatalog(): Promise<PermissionCatalog> {
+  return getJson<PermissionCatalog>("/permissions/catalog");
+}
+
+export function listRoles(): Promise<RoleInfo[]> {
+  return getJson<RoleInfo[]>("/permissions/roles");
+}
+
+export function getRole(id: number): Promise<RoleDetail> {
+  return getJson<RoleDetail>(`/permissions/roles/${id}`);
+}
+
+export function createRole(payload: { code: string; name: string; description?: string }): Promise<RoleInfo> {
+  return postJson<RoleInfo>("/permissions/roles", payload);
+}
+
+export function updateRole(id: number, payload: { name?: string; description?: string; status?: number }): Promise<RoleInfo> {
+  return putJson<RoleInfo>(`/permissions/roles/${id}`, payload);
+}
+
+export function deleteRole(id: number): Promise<unknown> {
+  return delJson(`/permissions/roles/${id}`);
+}
+
+export function updateRolePermissions(id: number, codes: string[]): Promise<unknown> {
+  return putJson(`/permissions/roles/${id}/permissions`, { codes });
+}
+
+export function updateRoleRagScopes(id: number, codes: string[]): Promise<unknown> {
+  return putJson(`/permissions/roles/${id}/rag-scopes`, { codes });
+}
+
+export function listUsers(params?: {
+  search?: string;
+  role_code?: string;
+  status?: number;
+  page?: number;
+  page_size?: number;
+}): Promise<UserListResponse> {
+  const sp = new URLSearchParams();
+  if (params?.search) sp.set("search", params.search);
+  if (params?.role_code) sp.set("role_code", params.role_code);
+  if (params?.status !== undefined) sp.set("status", String(params.status));
+  if (params?.page) sp.set("page", String(params.page));
+  if (params?.page_size) sp.set("page_size", String(params.page_size));
+  const qs = sp.toString();
+  return getJson<UserListResponse>(`/permissions/users${qs ? `?${qs}` : ""}`);
+}
+
+export function createUser(payload: { full_name: string; id_number: string; password: string; role_codes?: string[] }): Promise<{ id: number }> {
+  return postJson("/permissions/users", payload);
+}
+
+export function updateUserRoles(userId: number, role_codes: string[]): Promise<unknown> {
+  return putJson(`/permissions/users/${userId}/roles`, { role_codes });
+}
+
+export function resetUserPassword(userId: number, new_password: string): Promise<unknown> {
+  return postJson(`/permissions/users/${userId}/reset-password`, { new_password });
+}
+
+export function lockUser(userId: number): Promise<unknown> {
+  return postJson(`/permissions/users/${userId}/lock`);
+}
+
+export function unlockUser(userId: number): Promise<unknown> {
+  return postJson(`/permissions/users/${userId}/unlock`);
+}
+
+export function enableUser(userId: number): Promise<unknown> {
+  return postJson(`/permissions/users/${userId}/enable`);
+}
+
+export function disableUser(userId: number): Promise<unknown> {
+  return postJson(`/permissions/users/${userId}/disable`);
+}
+
+export function kickUser(userId: number): Promise<unknown> {
+  return postJson(`/permissions/users/${userId}/kick`);
 }

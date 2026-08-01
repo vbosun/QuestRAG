@@ -20,3 +20,39 @@ def require_role(*roles: str):
         return current_user
 
     return dependency
+
+
+def require_permission(permission_code: str):
+    def dependency(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if permission_code not in current_user.permissions:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "FORBIDDEN", "message": "权限不足"},
+            )
+        return current_user
+
+    return dependency
+
+
+def require_any_permission(*codes: str):
+    def dependency(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if not any(c in current_user.permissions for c in codes):
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "FORBIDDEN", "message": "权限不足"},
+            )
+        return current_user
+
+    return dependency
+
+
+def require_all_permissions(*codes: str):
+    def dependency(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if not all(c in current_user.permissions for c in codes):
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "FORBIDDEN", "message": "权限不足"},
+            )
+        return current_user
+
+    return dependency

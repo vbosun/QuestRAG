@@ -41,9 +41,16 @@ def login(id_number: str, password: str, login_ip: str | None = None, user_agent
 
     redis_store.delete_login_fail(digest)
 
+    from quest_rag.auth.permission_store import get_aggregated_user
+
+    aggregated = get_aggregated_user(account["id"])
+
     sid = redis_store.create_session(
         user_id=account["id"],
         role=account["role"],
+        roles=aggregated["roles"],
+        permissions=aggregated["permissions"],
+        rag_scopes=aggregated["rag_scopes"],
         status=account["status"],
         token_version=account["token_version"],
         login_ip=login_ip,
@@ -78,6 +85,9 @@ def login(id_number: str, password: str, login_ip: str | None = None, user_agent
             full_name=account["full_name"],
             id_number_masked=security.mask_id_number(normalized),
             role=account["role"],
+            roles=aggregated["roles"],
+            permissions=aggregated["permissions"],
+            rag_scopes=aggregated["rag_scopes"],
         ),
     )
 
@@ -199,7 +209,10 @@ def get_current_user_from_token(authorization: str | None) -> "CurrentUser":
     return CurrentUser(
         id=session["user_id"],
         sid=sid,
-        role=session["role"],
+        role=session.get("role", ""),
+        roles=session.get("roles", []),
+        permissions=session.get("permissions", []),
+        rag_scopes=session.get("rag_scopes", []),
         status=session["status"],
         full_name=account["full_name"],
         id_number_masked=id_number_masked,

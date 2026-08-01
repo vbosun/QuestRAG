@@ -2,10 +2,15 @@ from langchain_core.documents import Document
 
 from quest_rag.core.config import get_retrieval_config
 from quest_rag.rag.document_embedding import get_embedding
+from quest_rag.rag.retrieval_permissions import RetrievalPermissionFilter
 from quest_rag.rag.vector_backend import backend
 
 
-def search(query: str, top_k: int | None = None) -> list[Document]:
+def search(
+    query: str,
+    top_k: int | None = None,
+    permission_filter: RetrievalPermissionFilter | None = None,
+) -> list[Document]:
     cfg = get_retrieval_config()
     if top_k is None:
         top_k = cfg["top_k"]
@@ -29,5 +34,6 @@ def search(query: str, top_k: int | None = None) -> list[Document]:
             mode=cfg["mode"],
             recall_k=cfg["recall_k"],
             rrf_k=cfg["rrf_k"],
+            permission_filter=permission_filter,
         )
     ]

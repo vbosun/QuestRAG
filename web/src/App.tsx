@@ -3,10 +3,11 @@ import {
   ExperimentOutlined,
   LogoutOutlined,
   MessageOutlined,
+  SafetyCertificateOutlined,
   SettingOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { App, Avatar, Button, ConfigProvider, Dropdown, Layout, Menu, Typography } from "antd";
+import { App, Avatar, Button, ConfigProvider, Dropdown, Layout, Menu, Result, Typography } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { deleteDocument, deleteEvaluation, listDocuments, listEvaluations, streamChat, uploadDocument } from "./api";
@@ -14,11 +15,14 @@ import { parseMessageParts } from "./artifacts";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { ChangePasswordView } from "./auth/ChangePasswordView";
 import { LoginPage } from "./auth/LoginPage";
+import { filterMenuByPermissions } from "./auth/permissionUtils";
 import { ProfileView } from "./auth/ProfileView";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { ChatView } from "./features/chat/ChatView";
 import { EvaluationView } from "./features/evaluation/EvaluationView";
 import { KnowledgeView } from "./features/knowledge/KnowledgeView";
+import { RoleManagementView } from "./features/permissions/RoleManagementView";
+import { UserManagementView } from "./features/permissions/UserManagementView";
 import { RetrievalConfigView } from "./features/retrieval/RetrievalConfigView";
 import { clearTokens } from "./request";
 import type { ChatMessage, DocumentInfo, EvaluationRun, Session } from "./types";
@@ -65,7 +69,10 @@ export function QuestRagApp() {
               <Route path="retrieval-config" element={<RetrievalConfigView />} />
               <Route path="profile" element={<ProfileView />} />
               <Route path="profile/password" element={<ChangePasswordView />} />
+              <Route path="permissions/users" element={<UserManagementView />} />
+              <Route path="permissions/roles" element={<RoleManagementView />} />
             </Route>
+            <Route path="/403" element={<ForbiddenPage />} />
             <Route path="*" element={<Navigate to="/app/chat" replace />} />
           </Routes>
         </AuthProvider>
@@ -76,12 +83,13 @@ export function QuestRagApp() {
 
 function buildMenuItems(navigate: ReturnType<typeof useNavigate>) {
   return [
-    { key: "/app/chat", icon: <MessageOutlined />, label: "助手聊天" },
-    { key: "/app/knowledge", icon: <BookOutlined />, label: "知识库管理" },
+    { key: "/app/chat", icon: <MessageOutlined />, label: "助手聊天", permission: "chat.view" },
+    { key: "/app/knowledge", icon: <BookOutlined />, label: "知识库管理", permission: "knowledge.view" },
     {
       key: "evaluation",
       icon: <ExperimentOutlined />,
       label: "评测工作",
+      permission: "evaluation.view",
       onTitleClick: () => navigate("/app/evaluation/runs", { state: { resetAt: Date.now() } }),
       children: [
         { key: "/app/evaluation/runs", label: "评测记录" },
@@ -89,15 +97,46 @@ function buildMenuItems(navigate: ReturnType<typeof useNavigate>) {
         { key: "/app/evaluation/datasets", label: "评测集" },
       ],
     },
-    { key: "/app/retrieval-config", icon: <SettingOutlined />, label: "检索配置" },
+    { key: "/app/retrieval-config", icon: <SettingOutlined />, label: "检索配置", permission: "system.retrieval_config.view" },
+    {
+      key: "permissions",
+      icon: <SafetyCertificateOutlined />,
+      label: "权限管理",
+      permission: "permission.manage",
+      children: [
+        { key: "/app/permissions/users", label: "用户管理", permission: "permission.user.view" },
+        { key: "/app/permissions/roles", label: "角色管理", permission: "permission.role.view" },
+      ],
+    },
   ];
+}
+
+function ForbiddenPage() {
+  return (
+    <Result
+      status="403"
+      title="403"
+      subTitle="抱歉，您没有权限访问此页面。"
+      extra={
+        <a href="/app/chat">
+          <Button type="primary">返回首页</Button>
+        </a>
+      }
+    />
+  );
 }
 
 function WorkspaceLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, encryptAndLogout } = useAuth();
+  const { user, permissions, encryptAndLogout } = useAuth();
   const { message } = App.useApp();
+
+  const allMenuItems = useMemo(() => buildMenuItems(navigate), [navigate]);
+  const visibleMenuItems = useMemo(
+    () => filterMenuByPermissions(allMenuItems, permissions),
+    [allMenuItems, permissions],
+  );
 
   const selectedKey = (() => {
     if (location.pathname.startsWith("/app/chat")) return "/app/chat";
@@ -108,6 +147,8 @@ function WorkspaceLayout() {
       return "/app/evaluation/runs";
     }
     if (location.pathname.startsWith("/app/retrieval-config")) return "/app/retrieval-config";
+    if (location.pathname.startsWith("/app/permissions/users")) return "/app/permissions/users";
+    if (location.pathname.startsWith("/app/permissions/roles")) return "/app/permissions/roles";
     if (location.pathname.startsWith("/app/profile")) return "/app/profile";
     return "/app/chat";
   })();
@@ -139,10 +180,10 @@ function WorkspaceLayout() {
           </div>
         </div>
         <Menu
-          defaultOpenKeys={["evaluation"]}
+          defaultOpenKeys={["evaluation", "permissions"]}
           mode="inline"
           selectedKeys={[selectedKey]}
-          items={buildMenuItems(navigate)}
+          items={visibleMenuItems}
           onClick={({ key }) => {
             if (key.startsWith("/app/evaluation")) {
               navigate(key, { state: { resetAt: Date.now() } });

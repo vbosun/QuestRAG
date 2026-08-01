@@ -78,6 +78,9 @@ def me_endpoint(current_user: CurrentUser = Depends(get_current_user)):
         full_name=account["full_name"],
         id_number_masked=mask_id_number(normalized) if normalized else "",
         role=account["role"],
+        roles=current_user.roles,
+        permissions=current_user.permissions,
+        rag_scopes=current_user.rag_scopes,
     )
 
 
