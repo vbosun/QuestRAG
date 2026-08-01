@@ -238,6 +238,7 @@ export interface ChatMessage {
   citations?: CitationSource[];
   status?: string;
   error?: boolean;
+  errorMessage?: string;
 }
 
 export interface Session {

@@ -34,8 +34,6 @@ import type {
 } from "./types";
 import { GROUP_LABELS } from "./types";
 
-const { Text } = Typography;
-
 export function RoleManagementView() {
   const { message } = App.useApp();
   const [roles, setRoles] = useState<RoleInfo[]>([]);
@@ -214,33 +212,38 @@ export function RoleManagementView() {
             </Form>
 
             <Typography.Title level={5} style={{ marginTop: 16 }}>系统功能权限 & 大模型工具权限</Typography.Title>
-            {Object.entries(groupedPerms).map(([group, perms]) => (
-              <div key={group} style={{ marginBottom: 12 }}>
-                <Text strong>{GROUP_LABELS[group] || group}</Text>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                  {perms.map((p) => (
-                    <Tag
-                      key={p.code}
-                      color={checkedPerms.includes(p.code) ? "blue" : undefined}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => {
-                        setCheckedPerms((prev) =>
-                          prev.includes(p.code) ? prev.filter((c) => c !== p.code) : [...prev, p.code],
-                        );
-                      }}
-                    >
-                      {p.name}
-                      <Tag color={riskMeta[p.risk_level]?.color || "default"} style={{ marginLeft: 6 }}>
-                        {riskMeta[p.risk_level]?.label || p.risk_level}
-                      </Tag>
-                    </Tag>
-                  ))}
-                </div>
-              </div>
-            ))}
+            <div className="permission-picker">
+              {Object.entries(groupedPerms).map(([group, perms]) => (
+                <section className="permission-group" key={group}>
+                  <div className="permission-group-title">{GROUP_LABELS[group] || group}</div>
+                  <div className="permission-option-grid">
+                    {perms.map((p) => {
+                      const checked = checkedPerms.includes(p.code);
+                      return (
+                        <button
+                          type="button"
+                          key={p.code}
+                          className={`permission-option ${checked ? "checked" : ""}`}
+                          onClick={() => {
+                            setCheckedPerms((prev) =>
+                              checked ? prev.filter((c) => c !== p.code) : [...prev, p.code],
+                            );
+                          }}
+                        >
+                          <span>{p.name}</span>
+                          <Tag color={riskMeta[p.risk_level]?.color || "default"} bordered={false}>
+                            {riskMeta[p.risk_level]?.label || p.risk_level}
+                          </Tag>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
 
             <Typography.Title level={5} style={{ marginTop: 24 }}>RAG 检索范围</Typography.Title>
-            <Space wrap>
+            <Space wrap className="rag-scope-picker">
               {catalog.rag_scopes.map((s) => (
                 <Checkbox
                   key={s.code}
@@ -251,7 +254,7 @@ export function RoleManagementView() {
                     );
                   }}
                 >
-                  {s.name} <Text type="secondary">({s.code})</Text>
+                  {s.name}
                 </Checkbox>
               ))}
             </Space>

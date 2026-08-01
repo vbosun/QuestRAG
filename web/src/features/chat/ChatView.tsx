@@ -176,9 +176,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
     <article className={`message-row ${isUser ? "user" : "assistant"}`}>
       {!isUser && <Avatar className="message-avatar">AI</Avatar>}
       <div
-        className={`message-bubble ${isUser ? "user-bubble" : "assistant-bubble"}${
-          message.error ? " error-bubble" : ""
-        } ${expanded ? "expanded" : "collapsed"}`}
+        className={`message-bubble ${isUser ? "user-bubble" : "assistant-bubble"} ${expanded ? "expanded" : "collapsed"}`}
       >
         <div className="message-content">
           {!isUser && message.status && (
@@ -197,6 +195,9 @@ function ChatBubble({ message }: { message: ChatMessage }) {
           ))}
           {!isUser && !!message.citations?.length && (
             <CitationList citations={message.citations} onSelectCitation={setActiveCitation} />
+          )}
+          {!isUser && message.error && (
+            <div className="message-error">{message.errorMessage || "请求失败，请稍后重试"}</div>
           )}
         </div>
         {!isUser && hasAssistantContent && (

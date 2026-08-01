@@ -149,15 +149,15 @@ body {
 }
 
 .app-content {
-  height: 100vh;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 18px;
+  padding: 14px 18px;
 }
 
 .view-shell {
-  height: calc(100vh - 36px);
+  height: calc(100vh - 28px);
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -169,6 +169,8 @@ body {
 .chat-view {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
+  height: calc(100vh - 128px);
+  max-height: calc(100vh - 128px);
   min-height: 0;
 }
 
@@ -234,8 +236,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 82px;
-  padding: 18px 22px;
+  min-height: 72px;
+  padding: 14px 22px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -251,7 +253,7 @@ body {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 22px;
+  padding: 18px 22px;
 }
 
 .chat-empty {
@@ -302,12 +304,6 @@ body {
   color: #fff;
 }
 
-.error-bubble {
-  border-color: #e2b8b1;
-  background: var(--danger-soft);
-  color: #954137;
-}
-
 .message-bubble.collapsed .message-content {
   max-height: 460px;
   overflow: hidden;
@@ -341,6 +337,15 @@ body {
   align-items: center;
   gap: 8px;
   min-height: 28px;
+}
+
+.message-error {
+  margin-top: 12px;
+  border: 1px solid #e2b8b1;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: #954137;
+  padding: 8px 10px;
 }
 
 .status-dot {
@@ -576,8 +581,10 @@ body {
   grid-template-columns: minmax(0, 1fr) 104px;
   gap: 12px;
   align-items: end;
-  min-height: 84px;
-  padding: 16px 22px 20px;
+  position: relative;
+  z-index: 2;
+  min-height: 72px;
+  padding: 12px 22px 14px;
   border-top: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.94);
 }
@@ -585,7 +592,7 @@ body {
 .composer textarea {
   width: 100%;
   min-height: 48px;
-  max-height: 152px;
+  max-height: 120px;
   resize: vertical;
   border: 1px solid #d9d9d9;
   border-radius: 8px;
@@ -601,6 +608,83 @@ body {
 
 .composer .ant-btn {
   height: 48px;
+}
+
+.role-assign-select .ant-select-selector {
+  min-height: 46px;
+  padding: 6px 10px !important;
+}
+
+.permission-picker {
+  display: grid;
+  gap: 16px;
+}
+
+.permission-group {
+  display: grid;
+  gap: 8px;
+}
+
+.permission-group-title {
+  color: #17242b;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.permission-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.permission-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfdfe;
+  color: var(--text);
+  cursor: pointer;
+  padding: 7px 10px;
+  text-align: left;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.permission-option:hover {
+  border-color: #bdd4d6;
+  background: #f2f8f8;
+}
+
+.permission-option.checked {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.permission-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-option .ant-tag {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+}
+
+.rag-scope-picker .ant-checkbox-wrapper {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfdfe;
+  padding: 6px 10px;
 }
 
 .knowledge-view {
@@ -1229,6 +1313,8 @@ body {
 
   .chat-view {
     grid-template-columns: 1fr;
+    height: calc(100vh - 20px);
+    max-height: none;
   }
 
   .session-panel {

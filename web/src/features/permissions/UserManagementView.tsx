@@ -245,9 +245,11 @@ export function UserManagementView() {
         </Form>
       </Modal>
 
-      <Modal title="分配角色" open={roleOpen} onOk={handleAssignRoles} onCancel={() => setRoleOpen(false)}>
+      <Modal title="分配角色" open={roleOpen} onOk={handleAssignRoles} onCancel={() => setRoleOpen(false)} width={640}>
         <Select
+          className="role-assign-select"
           mode="multiple"
+          size="large"
           style={{ width: "100%" }}
           value={selectedRoles}
           onChange={setSelectedRoles}

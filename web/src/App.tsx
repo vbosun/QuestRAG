@@ -379,7 +379,8 @@ function ChatPage() {
             updateAssistantMessage(session.id, assistantId, (current) => ({
               ...current,
               error: true,
-              parts: [...(current.parts || []), { type: "markdown", content: `\n\n请求失败：${event.data.message}` }],
+              errorMessage: `请求失败：${event.data.message}`,
+              status: undefined,
             }));
           }
         },
@@ -388,7 +389,8 @@ function ChatPage() {
       updateAssistantMessage(session.id, assistantId, (current) => ({
         ...current,
         error: true,
-        parts: [{ type: "markdown", content: `请求失败：${error instanceof Error ? error.message : "请稍后重试"}` }],
+        errorMessage: `请求失败：${error instanceof Error ? error.message : "请稍后重试"}`,
+        status: undefined,
       }));
     } finally {
       setSending(false);

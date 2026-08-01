@@ -1,6 +1,8 @@
 """
 生成回复
 """
+from contextvars import copy_context
+
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -47,6 +49,19 @@ def generate(question: str, thread_id: str = "1", current_user: CurrentUser | No
 
 
 def generate_stream(question: str, thread_id: str = "1", current_user: CurrentUser | None = None):
+    context = copy_context()
+    iterator = context.run(_generate_stream_items, question, thread_id, current_user)
+    try:
+        while True:
+            try:
+                yield context.run(next, iterator)
+            except StopIteration:
+                return
+    finally:
+        context.run(iterator.close)
+
+
+def _generate_stream_items(question: str, thread_id: str, current_user: CurrentUser | None):
     reset_citations()
     token = current_user_ctx.set(current_user)
     try:
