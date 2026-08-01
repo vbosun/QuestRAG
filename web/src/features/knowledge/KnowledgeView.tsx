@@ -320,9 +320,16 @@ export function KnowledgeView({
                 }
               },
               {
-                title: "召回次数",
-                width: 120,
+                title: "片段数",
+                width: 100,
                 render: (_value: unknown, doc: DocumentInfo) => <Text>{doc.chunk_count || 0}</Text>
+              },
+              {
+                title: "Token",
+                width: 100,
+                render: (_value: unknown, doc: DocumentInfo) => (
+                  <Text>{doc.token_count != null ? doc.token_count.toLocaleString() : "-"}</Text>
+                )
               },
               {
                 title: "上传时间",
@@ -834,14 +841,19 @@ export function KnowledgeView({
                 <Statistic title="总文本量" value={stats.total_text_length} suffix="字" />
               </Card>
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Card size="small">
-                <Statistic title="最大文本" value={stats.max_text_length} suffix="字" />
+                <Statistic title="总 Token" value={stats.total_token_count} suffix="" />
               </Card>
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Card size="small">
-                <Statistic title="最小文本" value={stats.min_text_length} suffix="字" />
+                <Statistic title="最大文档" value={stats.max_text_length} suffix="字" />
+              </Card>
+            </Col>
+            <Col span={8}>
+              <Card size="small">
+                <Statistic title="最小文档" value={stats.min_text_length} suffix="字" />
               </Card>
             </Col>
           </Row>

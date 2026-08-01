@@ -6,6 +6,7 @@ export interface DocumentInfo {
   doc_id: string;
   filename: string;
   chunk_count: number;
+  token_count?: number;
   uploaded_at?: string;
   strategy?: string;
   separator_preset?: string;
@@ -15,6 +16,7 @@ export interface DocumentStats {
   document_count: number;
   total_chunks: number;
   total_text_length: number;
+  total_token_count: number;
   max_text_length: number;
   min_text_length: number;
   format_distribution: Record<string, number>;
