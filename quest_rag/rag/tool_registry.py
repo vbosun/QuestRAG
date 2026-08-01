@@ -33,6 +33,21 @@ TOOL_REGISTRY: dict[str, dict] = {
         "risk_level": "LOW",
         "mode": "read",
     },
+    "social_security_search": {
+        "permission": "llm.tool.social_security_search",
+        "risk_level": "LOW",
+        "mode": "read",
+    },
+    "subsidy_match": {
+        "permission": "llm.tool.subsidy_match",
+        "risk_level": "LOW",
+        "mode": "read",
+    },
+    "subsidy_calculate": {
+        "permission": "llm.tool.subsidy_calculate",
+        "risk_level": "LOW",
+        "mode": "read",
+    },
 }
 
 # 第一阶段不注册给 Agent 的高风险工具

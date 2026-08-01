@@ -254,6 +254,73 @@ export interface Session {
   updatedAt: string;
 }
 
+export interface SocialSecuritySummary {
+  insured_status: string;
+  insured_unit?: string | null;
+  first_insured_date?: string | null;
+  current_base: number;
+  total_payment_months: number;
+  pension_account_balance: number;
+  medical_account_balance: number;
+  updated_at?: string | null;
+}
+
+export interface SocialSecurityPaymentRecord {
+  payment_month: string;
+  insurance_type: string;
+  payment_base: number;
+  personal_amount: number;
+  company_amount: number;
+  total_amount: number;
+  paid_status: string;
+  paid_at?: string | null;
+}
+
+export interface RequiredInput {
+  field: string;
+  label: string;
+  source: string;
+  required: boolean;
+}
+
+export interface ConditionResult {
+  field: string;
+  label: string;
+  passed: boolean;
+  actual_value?: unknown;
+  expected_value?: unknown;
+  message: string;
+}
+
+export interface SubsidyMatchResult {
+  policy_id: string;
+  policy_name: string;
+  category: string;
+  match_status: "eligible" | "possible" | "not_eligible";
+  match_score: number;
+  passed_conditions: ConditionResult[];
+  failed_conditions: ConditionResult[];
+  missing_inputs: RequiredInput[];
+  source_doc_id?: string | null;
+}
+
+export interface SubsidyCalculationResult {
+  policy_id: string;
+  policy_name: string;
+  eligible: boolean;
+  status: "eligible" | "missing_info" | "not_eligible";
+  estimated_amount?: number | null;
+  amount_range?: [number, number] | null;
+  amount_unit: string;
+  condition_results: ConditionResult[];
+  missing_inputs: RequiredInput[];
+  calculation_steps: string[];
+  materials: string[];
+  process_steps: string[];
+  source_doc_id?: string | null;
+  disclaimer: string;
+}
+
 export type StreamEvent =
   | { event: "meta"; data: { session_id: string } }
   | { event: "delta"; data: { text: string } }

@@ -22,6 +22,12 @@ SYSTEM_PROMPT = """
 如果用户要求输出图表, 或者你的回答中确实需要用可量化数据表达图表, 必须先调用 create_chart_artifact 工具.
 工具返回的图表资产 JSON 必须原样放入独立的 ```questrag-artifact 代码块中, 不要改字段名, 不要输出完整 ECharts option.
 图表代码块前后继续使用 Markdown 解释图表含义. 如果没有可量化数据, 不要硬画图, 请说明无法生成图表的原因.
+当用户询问本人社保、缴费记录、养老/医保账户时，应调用 social_security_search 工具，不要编造社保数据.
+当用户询问补贴资格、可享受哪些补贴或补贴金额时，应先调用 subsidy_match 或 subsidy_calculate 工具，不要直接根据政策文本猜测金额.
+如果 subsidy_match/subsidy_calculate 返回缺失信息，应先追问用户补充关键信息，不要强行测算.
+补贴金额、是否符合、计算过程必须以 subsidy_calculate 的结果为准.
+政策依据、办理材料、办理流程可结合 retrieve_context 的引用编号说明.
+补贴测算结果仅供参考，最终以当地经办机构审核为准.
 """
 
 checkpointer = InMemorySaver()

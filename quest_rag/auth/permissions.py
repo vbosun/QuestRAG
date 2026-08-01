@@ -35,6 +35,18 @@ PERMISSIONS: dict[str, dict] = {
         "name": "权限管理", "type": "ROUTE", "group_code": "workspace",
         "risk_level": "CRITICAL",
     },
+    "public_services.view": {
+        "name": "政务工具", "type": "ROUTE", "group_code": "workspace",
+        "risk_level": "LOW",
+    },
+    "public_services.social_security.view": {
+        "name": "社保查询", "type": "ROUTE", "group_code": "workspace",
+        "risk_level": "LOW",
+    },
+    "public_services.subsidy_calculator.view": {
+        "name": "补贴测算", "type": "ROUTE", "group_code": "workspace",
+        "risk_level": "LOW",
+    },
 
     # ── 知识库操作 ──
     "knowledge.document.read": {
@@ -177,6 +189,18 @@ PERMISSIONS: dict[str, dict] = {
         "name": "用户权限管理工具", "type": "LLM_TOOL", "group_code": "llm_tool",
         "risk_level": "CRITICAL",
     },
+    "llm.tool.social_security_search": {
+        "name": "社保查询工具", "type": "LLM_TOOL", "group_code": "llm_tool",
+        "risk_level": "LOW",
+    },
+    "llm.tool.subsidy_match": {
+        "name": "补贴匹配工具", "type": "LLM_TOOL", "group_code": "llm_tool",
+        "risk_level": "LOW",
+    },
+    "llm.tool.subsidy_calculate": {
+        "name": "补贴测算工具", "type": "LLM_TOOL", "group_code": "llm_tool",
+        "risk_level": "LOW",
+    },
 }
 
 RAG_SCOPES: dict[str, dict] = {
@@ -186,6 +210,8 @@ RAG_SCOPES: dict[str, dict] = {
     "internal_policy": {"name": "内部政策库", "description": "内部口径文档"},
     "department_docs": {"name": "部门文档", "description": "部门范围文档"},
     "private_docs": {"name": "个人文档", "description": "个人私有文档"},
+    "social_security_mock": {"name": "模拟社保库", "description": "本人模拟社保数据"},
+    "subsidy_policy": {"name": "补贴政策库", "description": "补贴规则及政策原文"},
 }
 
 DEFAULT_ROLES: dict[str, dict] = {
@@ -206,10 +232,13 @@ DEFAULT_ROLES: dict[str, dict] = {
             "permission.user.view", "permission.user.create", "permission.user.update",
             "permission.user.assign_role", "permission.user.lock", "permission.user.unlock",
             "permission.user.reset_password", "permission.user.kick",
+            "public_services.view", "public_services.social_security.view",
+            "public_services.subsidy_calculator.view",
             "llm.tool.knowledge_search", "llm.tool.job_search",
+            "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
             "llm.tool.evaluation_read", "llm.tool.system_config_read",
         ],
-        "rag_scopes": ["public_policy", "jobs", "evaluation_docs"],
+        "rag_scopes": ["public_policy", "jobs", "evaluation_docs", "social_security_mock", "subsidy_policy"],
     },
     "OPERATOR": {
         "name": "业务经办员",
@@ -222,9 +251,12 @@ DEFAULT_ROLES: dict[str, dict] = {
             "evaluation.view", "evaluation.run.read", "evaluation.run.create",
             "evaluation.document.manage", "evaluation.dataset.manage",
             "system.retrieval_config.view",
+            "public_services.view", "public_services.social_security.view",
+            "public_services.subsidy_calculator.view",
             "llm.tool.knowledge_search", "llm.tool.job_search", "llm.tool.evaluation_read",
+            "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
         ],
-        "rag_scopes": ["public_policy", "jobs", "evaluation_docs"],
+        "rag_scopes": ["public_policy", "jobs", "evaluation_docs", "social_security_mock", "subsidy_policy"],
     },
     "REVIEWER": {
         "name": "审阅人员",
@@ -243,9 +275,12 @@ DEFAULT_ROLES: dict[str, dict] = {
         "system_builtin": True,
         "permissions": [
             "chat.view", "profile.view",
+            "public_services.view", "public_services.social_security.view",
+            "public_services.subsidy_calculator.view",
             "llm.tool.knowledge_search", "llm.tool.job_search",
+            "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
         ],
-        "rag_scopes": ["public_policy", "jobs"],
+        "rag_scopes": ["public_policy", "jobs", "social_security_mock", "subsidy_policy"],
     },
 }
 
@@ -298,11 +333,12 @@ def seed_default_permissions():
             role_id = role["id"]
             is_new = role["is_new"]
 
-            if is_new:
+            if is_new or info.get("system_builtin", False):
                 scope_id_list = [scope_ids[s] for s in info.get("rag_scopes", []) if s in scope_ids]
                 perm_id_list = [perm_ids[p] for p in info.get("permissions", []) if p in perm_ids]
-                conn.execute("DELETE FROM auth_role_permission WHERE role_id = %s", (role_id,))
-                conn.execute("DELETE FROM auth_role_rag_scope WHERE role_id = %s", (role_id,))
+                if is_new:
+                    conn.execute("DELETE FROM auth_role_permission WHERE role_id = %s", (role_id,))
+                    conn.execute("DELETE FROM auth_role_rag_scope WHERE role_id = %s", (role_id,))
                 for pid in perm_id_list:
                     conn.execute(
                         "INSERT INTO auth_role_permission (role_id, permission_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",

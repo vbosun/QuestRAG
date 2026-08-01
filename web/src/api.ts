@@ -12,9 +12,13 @@ import type {
   EvaluationDocumentRun,
   EvaluationRun,
   RetrievalOptions,
+  SocialSecurityPaymentRecord,
+  SocialSecuritySummary,
   DocumentStage,
   SplitOptions,
   StreamEvent,
+  SubsidyCalculationResult,
+  SubsidyMatchResult,
 } from "./types";
 import type { PermissionCatalog, RoleDetail, RoleInfo, UserListResponse } from "./features/permissions/types";
 
@@ -338,4 +342,40 @@ export function disableUser(userId: number): Promise<unknown> {
 
 export function kickUser(userId: number): Promise<unknown> {
   return postJson(`/permissions/users/${userId}/kick`);
+}
+
+// ── 政务工具 ──────────────────────────────────────────────────────────
+
+export function getSocialSecuritySummary(): Promise<SocialSecuritySummary> {
+  return getJson<SocialSecuritySummary>("/public-services/social-security/summary");
+}
+
+export function listSocialSecurityPayments(params?: {
+  insurance_type?: string;
+  start_month?: string;
+  end_month?: string;
+  limit?: number;
+}): Promise<SocialSecurityPaymentRecord[]> {
+  const sp = new URLSearchParams();
+  if (params?.insurance_type) sp.set("insurance_type", params.insurance_type);
+  if (params?.start_month) sp.set("start_month", params.start_month);
+  if (params?.end_month) sp.set("end_month", params.end_month);
+  if (params?.limit) sp.set("limit", String(params.limit));
+  const qs = sp.toString();
+  return getJson<SocialSecurityPaymentRecord[]>(`/public-services/social-security/payments${qs ? `?${qs}` : ""}`);
+}
+
+export function matchSubsidies(payload: {
+  user_description: string;
+  extracted_facts?: Record<string, unknown>;
+  top_k?: number;
+}): Promise<SubsidyMatchResult[]> {
+  return postJson<SubsidyMatchResult[]>("/public-services/subsidies/match", payload);
+}
+
+export function calculateSubsidy(payload: {
+  policy_id: string;
+  user_inputs?: Record<string, unknown>;
+}): Promise<SubsidyCalculationResult> {
+  return postJson<SubsidyCalculationResult>("/public-services/subsidies/calculate", payload);
 }

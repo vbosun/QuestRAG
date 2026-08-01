@@ -18,6 +18,10 @@ from quest_rag.schemas.schemas import (
     DocMetadata,
     JobSearchToolInput,
 )
+from quest_rag.social_security.schemas import SocialSecuritySearchToolInput
+from quest_rag.social_security.service import format_social_security_result
+from quest_rag.subsidy.schemas import SubsidyCalculateToolInput, SubsidyMatchToolInput
+from quest_rag.subsidy.service import calculate_for_user, match_for_user
 
 
 @tool
@@ -187,7 +191,60 @@ def sanitize_filename(value: str) -> str:
 
 
 # ── 工具列表 ──
-tools = [retrieve_context, get_document_list, retrieve_jobs, create_chart_artifact]
+@tool(args_schema=SocialSecuritySearchToolInput)
+def social_security_search(
+    query_type: str = "summary",
+    insurance_type: str | None = None,
+    start_month: str | None = None,
+    end_month: str | None = None,
+    limit: int = 12,
+) -> str:
+    """查询当前登录用户本人的模拟社保概要、缴费记录或账户余额。"""
+    user = current_user_ctx.get()
+    if user is None:
+        return "社保查询需要登录用户上下文。"
+    assert_tool_permission(user, "social_security_search")
+    return format_social_security_result(
+        user,
+        query_type=query_type,
+        insurance_type=insurance_type,
+        start_month=start_month,
+        end_month=end_month,
+        limit=limit,
+    )
+
+
+@tool(args_schema=SubsidyMatchToolInput)
+def subsidy_match(user_description: str, extracted_facts: dict | None = None, top_k: int = 5) -> str:
+    """根据用户描述、本人画像和模拟社保数据匹配候选补贴，并返回缺失字段。"""
+    user = current_user_ctx.get()
+    if user is None:
+        return "补贴匹配需要登录用户上下文。"
+    assert_tool_permission(user, "subsidy_match")
+    matches = match_for_user(user, user_description, extracted_facts or {}, top_k)
+    return json.dumps([item.model_dump() for item in matches], ensure_ascii=False, default=str)
+
+
+@tool(args_schema=SubsidyCalculateToolInput)
+def subsidy_calculate(policy_id: str, user_inputs: dict | None = None) -> str:
+    """对指定补贴执行确定性规则测算，返回资格、金额、计算过程、材料和流程。"""
+    user = current_user_ctx.get()
+    if user is None:
+        return "补贴测算需要登录用户上下文。"
+    assert_tool_permission(user, "subsidy_calculate")
+    result = calculate_for_user(user, policy_id, user_inputs or {})
+    return json.dumps(result.model_dump(), ensure_ascii=False, default=str)
+
+
+tools = [
+    retrieve_context,
+    get_document_list,
+    retrieve_jobs,
+    create_chart_artifact,
+    social_security_search,
+    subsidy_match,
+    subsidy_calculate,
+]
 
 
 def format_job_result(job: dict) -> str:
