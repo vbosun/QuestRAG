@@ -496,5 +496,152 @@ def list_system_configs() -> list[dict]:
     return results
 
 
+# ── Jobs ──────────────────────────────────────────────────────
+
+_JOBS_TABLE_INITIALIZED = False
+
+
+def init_jobs_table():
+    global _JOBS_TABLE_INITIALIZED
+    if _JOBS_TABLE_INITIALIZED:
+        return
+    with get_conn() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                company TEXT,
+                address TEXT,
+                salary TEXT,
+                education TEXT,
+                experience TEXT,
+                industry TEXT,
+                scale TEXT,
+                category TEXT,
+                headcount TEXT,
+                updated TEXT,
+                source TEXT,
+                url TEXT,
+                content TEXT,
+                embedding double precision[],
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+    _JOBS_TABLE_INITIALIZED = True
+
+
+def insert_jobs_batch(rows: list[dict]):
+    if not rows:
+        return
+    init_jobs_table()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            for row in rows:
+                emb = row.get("embedding")
+                emb_literal = _vec_to_pg_array(emb) if emb else "NULL"
+                cur.execute(
+                    f"""
+                    INSERT INTO jobs (id, title, company, address, salary, education,
+                                      experience, industry, scale, category, headcount,
+                                      updated, source, url, content, embedding)
+                    VALUES (%(id)s, %(title)s, %(company)s, %(address)s, %(salary)s,
+                            %(education)s, %(experience)s, %(industry)s, %(scale)s,
+                            %(category)s, %(headcount)s, %(updated)s, %(source)s,
+                            %(url)s, %(content)s, {emb_literal}::double precision[])
+                    ON CONFLICT (id) DO UPDATE SET
+                        title = EXCLUDED.title,
+                        company = EXCLUDED.company,
+                        address = EXCLUDED.address,
+                        salary = EXCLUDED.salary,
+                        education = EXCLUDED.education,
+                        experience = EXCLUDED.experience,
+                        industry = EXCLUDED.industry,
+                        scale = EXCLUDED.scale,
+                        category = EXCLUDED.category,
+                        headcount = EXCLUDED.headcount,
+                        updated = EXCLUDED.updated,
+                        source = EXCLUDED.source,
+                        url = EXCLUDED.url,
+                        content = EXCLUDED.content,
+                        embedding = EXCLUDED.embedding
+                    """,
+                    {k: v for k, v in row.items() if k != "embedding"},
+                )
+
+
+def delete_all_jobs():
+    with get_conn() as conn:
+        conn.execute("DELETE FROM jobs")
+
+
+def vector_search_jobs(query_vector: list[float], top_k: int) -> list[dict]:
+    """Python 侧计算余弦相似度（1000 级数据量足够快）"""
+    init_jobs_table()
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE embedding IS NOT NULL"
+        ).fetchall()
+    results = [dict(row) for row in rows]
+    for r in results:
+        emb = r.get("embedding")
+        if isinstance(emb, str):
+            emb = _parse_pg_array(emb)
+        r["similarity"] = _cosine_similarity(query_vector, emb) if emb else 0
+    results.sort(key=lambda r: r["similarity"], reverse=True)
+    return results[:top_k]
+
+
+def keyword_search_jobs(query: str, top_k: int) -> list[dict]:
+    init_jobs_table()
+    with get_conn() as conn:
+        pattern = f"%{query}%"
+        rows = conn.execute(
+            """
+            SELECT *, ts_rank(to_tsvector('simple', coalesce(content,'') || ' ' ||
+                coalesce(title,'') || ' ' || coalesce(company,'') || ' ' ||
+                coalesce(category,'') || ' ' || coalesce(address,'')),
+                plainto_tsquery('simple', %s)) AS rank
+            FROM jobs
+            WHERE title ILIKE %s
+               OR company ILIKE %s
+               OR category ILIKE %s
+               OR address ILIKE %s
+               OR content ILIKE %s
+            ORDER BY rank DESC
+            LIMIT %s
+            """,
+            (query, pattern, pattern, pattern, pattern, pattern, top_k),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _vec_to_pg_array(vec: list[float]) -> str:
+    return "ARRAY[" + ",".join(str(v) for v in vec) + "]"
+
+
+def _parse_pg_array(val: str | list) -> list[float]:
+    if isinstance(val, list):
+        return val
+    if not val:
+        return []
+    clean = val.strip("{}")
+    if not clean:
+        return []
+    return [float(v) for v in clean.split(",")]
+
+
+def _cosine_similarity(v1: list[float], v2: list[float]) -> float:
+    if not v1 or not v2 or len(v1) != len(v2):
+        return 0.0
+    dot = sum(a * b for a, b in zip(v1, v2))
+    norm1 = (sum(a * a for a in v1)) ** 0.5
+    norm2 = (sum(b * b for b in v2)) ** 0.5
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    return dot / (norm1 * norm2)
+
+
 def json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)

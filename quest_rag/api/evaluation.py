@@ -578,7 +578,7 @@ def serialize_job_result(job: dict, rank: int) -> dict:
         "rank": rank,
         "chunk_id": job.get("id"),
         "doc_id": JOB_SOURCE_ID,
-        "filename": "岗位库（ES）",
+        "filename": "岗位库（PG）",
         "text": text,
         "score": round(float(job.get("score", 0)), 6),
         "vector_score": round(float(job.get("vector_score", 0)), 6),

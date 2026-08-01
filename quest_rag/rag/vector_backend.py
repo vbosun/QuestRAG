@@ -9,6 +9,11 @@ from langchain_core.documents import Document
 from quest_rag.core.config import (
     ELASTICSEARCH_INDEX,
     ELASTICSEARCH_URL,
+    MILVUS_COLLECTION_NAME,
+    MILVUS_HOST,
+    MILVUS_PASSWORD,
+    MILVUS_PORT,
+    MILVUS_USER,
     VECTOR_BACKEND,
 )
 
@@ -27,6 +32,18 @@ class VectorBackend(ABC):
 
     @abstractmethod
     def search(self, query: str, query_vector: list[float], top_k: int) -> list[dict]:
+        pass
+
+    @abstractmethod
+    def search_with_options(
+        self,
+        query: str,
+        query_vector: list[float],
+        top_k: int,
+        mode: str = "hybrid",
+        recall_k: int | None = None,
+        rrf_k: int = 60,
+    ) -> list[dict]:
         pass
 
     @abstractmethod
@@ -67,6 +84,21 @@ class MemoryVectorBackend(VectorBackend):
         vector_results = vector_search(query_vector, vector_store, top_k)
         keyword_results = keyword_search(query, vector_store, top_k)
         return merge_results(vector_results, keyword_results, top_k)
+
+    def search_with_options(
+        self,
+        query: str,
+        query_vector: list[float],
+        top_k: int,
+        mode: str = "hybrid",
+        recall_k: int | None = None,
+        rrf_k: int = 60,
+    ) -> list[dict]:
+        mode = mode if mode in {"hybrid", "vector", "keyword"} else "hybrid"
+        recall = recall_k or top_k
+        vector_results = [] if mode == "keyword" else vector_search(query_vector, vector_store, recall)
+        keyword_results = [] if mode == "vector" else keyword_search(query, vector_store, recall)
+        return merge_results(vector_results, keyword_results, top_k, rrf_k=rrf_k)
 
     def list_documents(self) -> list[dict]:
         docs: dict[str, dict] = {}
@@ -320,9 +352,170 @@ class ElasticsearchVectorBackend(VectorBackend):
         }
 
 
+class MilvusVectorBackend(VectorBackend):
+    def __init__(self, host: str, port: str, collection_name: str, user: str = "", password: str = ""):
+        self._host = host
+        self._port = port
+        self._collection_name = collection_name
+        self._user = user
+        self._password = password
+        self._client = None
+
+    @property
+    def _mc(self):
+        if self._client is None:
+            from pymilvus import MilvusClient
+
+            uri = f"http://{self._host}:{self._port}"
+            client_kwargs = {"uri": uri}
+            if self._user and self._password:
+                client_kwargs["user"] = self._user
+                client_kwargs["password"] = self._password
+            self._client = MilvusClient(**client_kwargs)
+        return self._client
+
+    def add_documents(self, docs: list[Document], embeddings: list[list[float]]) -> list[str]:
+        if not docs:
+            return []
+        ids = []
+        rows = []
+        for doc, embedding in zip(docs, embeddings, strict=True):
+            chunk_id = f"chunk_{uuid4().hex}"
+            metadata = doc.metadata.copy()
+            metadata["chunk_id"] = chunk_id
+            rows.append({
+                "id": chunk_id,
+                "text": doc.page_content,
+                "embedding": embedding,
+                "doc_id": metadata.get("doc_id", ""),
+                "filename": metadata.get("filename", ""),
+                "chunk_index": metadata.get("chunk_index", 0),
+                "metadata": metadata,
+            })
+            ids.append(chunk_id)
+        self._mc.insert(collection_name=self._collection_name, data=rows)
+        return ids
+
+    def delete_documents(self, doc_id: str):
+        self._mc.delete(
+            collection_name=self._collection_name,
+            filter=f'doc_id == "{doc_id}"',
+        )
+
+    def search(self, query: str, query_vector: list[float], top_k: int) -> list[dict]:
+        return self.search_with_options(query, query_vector, top_k)
+
+    def search_with_options(
+        self,
+        query: str,
+        query_vector: list[float],
+        top_k: int,
+        mode: str = "hybrid",
+        recall_k: int | None = None,
+        rrf_k: int = 60,
+    ) -> list[dict]:
+        mode = mode if mode in {"hybrid", "vector", "keyword"} else "hybrid"
+        recall = recall_k or top_k
+        vector_results = [] if mode == "keyword" else self._vector_search(query_vector, recall)
+        keyword_results = [] if mode == "vector" else self._keyword_search(query, recall)
+        return merge_results(vector_results, keyword_results, top_k, rrf_k=rrf_k)
+
+    def _vector_search(self, query_vector: list[float], top_k: int) -> list[dict]:
+        results = self._mc.search(
+            collection_name=self._collection_name,
+            data=[query_vector],
+            anns_field="embedding",
+            search_params={"metric_type": "COSINE"},
+            limit=top_k,
+            output_fields=["id", "text", "doc_id", "filename", "chunk_index", "metadata"],
+        )
+        return [
+            {
+                "id": hit["id"],
+                "text": hit["entity"].get("text", ""),
+                "metadata": hit["entity"].get("metadata", {}),
+                "vector_score": hit["distance"],
+                "keyword_score": 0,
+            }
+            for hit in results[0]
+        ]
+
+    def _keyword_search(self, query: str, top_k: int) -> list[dict]:
+        if not query:
+            return []
+        escaped = query.replace('"', '\\"')
+        results = self._mc.query(
+            collection_name=self._collection_name,
+            filter=f'text like "%{escaped}%"',
+            output_fields=["id", "text", "doc_id", "filename", "chunk_index", "metadata"],
+            limit=top_k,
+        )
+        return [
+            {
+                "id": r["id"],
+                "text": r.get("text", ""),
+                "metadata": r.get("metadata", {}),
+                "vector_score": 0,
+                "keyword_score": 1.0,
+            }
+            for r in results
+        ]
+
+    def list_documents(self) -> list[dict]:
+        results = self._mc.query(
+            collection_name=self._collection_name,
+            filter="id != ''",
+            output_fields=["doc_id", "filename", "metadata"],
+            limit=10000,
+        )
+        docs_map: dict[str, dict] = {}
+        for r in results:
+            doc_id = r.get("doc_id", "")
+            if not doc_id:
+                continue
+            if doc_id not in docs_map:
+                meta = r.get("metadata", {})
+                docs_map[doc_id] = {
+                    "doc_id": doc_id,
+                    "filename": meta.get("filename") or r.get("filename") or doc_id,
+                    "chunk_count": 0,
+                    "uploaded_at": meta.get("ingested_at") or datetime.now().isoformat(),
+                    "strategy": meta.get("strategy") or "fixed",
+                    "separator_preset": meta.get("separator_preset") or "general",
+                }
+            docs_map[doc_id]["chunk_count"] += 1
+        return list(docs_map.values())
+
+    def list_chunks(self, doc_id: str) -> list[dict]:
+        results = self._mc.query(
+            collection_name=self._collection_name,
+            filter=f'doc_id == "{doc_id}"',
+            output_fields=["id", "text", "metadata", "chunk_index"],
+            limit=10000,
+        )
+        chunks = [
+            {
+                "chunk_id": r["id"],
+                "text": r.get("text", ""),
+                "metadata": r.get("metadata", {}),
+                "length": len(r.get("text", "")),
+            }
+            for r in results
+        ]
+        return sorted(chunks, key=lambda c: c["metadata"].get("chunk_index", 0))
+
+
 def get_vector_backend() -> VectorBackend:
     if VECTOR_BACKEND == "elasticsearch":
         return ElasticsearchVectorBackend(ELASTICSEARCH_URL, ELASTICSEARCH_INDEX)
+    if VECTOR_BACKEND == "milvus":
+        return MilvusVectorBackend(
+            host=MILVUS_HOST,
+            port=MILVUS_PORT,
+            collection_name=MILVUS_COLLECTION_NAME,
+            user=MILVUS_USER,
+            password=MILVUS_PASSWORD,
+        )
     if VECTOR_BACKEND == "memory":
         return MemoryVectorBackend()
     raise ValueError(f"不支持的向量后端: {VECTOR_BACKEND}")
@@ -415,11 +608,11 @@ def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
 
 
 def extract_keywords(query: str) -> list[str]:
-    tokens = re.findall(r"[a-zA-Z_/\-.0-9]+|[\u4e00-\u9fff]+", query)
+    tokens = re.findall(r"[a-zA-Z_/\-.0-9]+|[一-鿿]+", query)
     keywords = []
 
     for token in tokens:
-        if re.fullmatch(r"[\u4e00-\u9fff]+", token):
+        if re.fullmatch(r"[一-鿿]+", token):
             if len(token) <= 2:
                 keywords.append(token)
             else:
