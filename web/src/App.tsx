@@ -1,16 +1,30 @@
-import { BookOutlined, ExperimentOutlined, MessageOutlined, SettingOutlined } from "@ant-design/icons";
-import { App, ConfigProvider, Layout, Menu, Typography } from "antd";
+import {
+  BookOutlined,
+  ExperimentOutlined,
+  LogoutOutlined,
+  MessageOutlined,
+  SettingOutlined,
+  UserOutlined,
+} from "@ant-design/icons";
+import { App, Avatar, Button, ConfigProvider, Dropdown, Layout, Menu, Typography } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { deleteDocument, deleteEvaluation, listDocuments, listEvaluations, streamChat, uploadDocument } from "./api";
 import { parseMessageParts } from "./artifacts";
+import { AuthProvider, useAuth } from "./auth/AuthProvider";
+import { ChangePasswordView } from "./auth/ChangePasswordView";
+import { LoginPage } from "./auth/LoginPage";
+import { ProfileView } from "./auth/ProfileView";
+import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { ChatView } from "./features/chat/ChatView";
 import { EvaluationView } from "./features/evaluation/EvaluationView";
 import { KnowledgeView } from "./features/knowledge/KnowledgeView";
 import { RetrievalConfigView } from "./features/retrieval/RetrievalConfigView";
+import { clearTokens } from "./request";
 import type { ChatMessage, DocumentInfo, EvaluationRun, Session } from "./types";
 import { artifactToPart, createBlankSession, loadSessions, saveSessions } from "./utils";
 
-const { Content, Sider } = Layout;
+const { Content, Sider, Header: AntHeader } = Layout;
 const { Text, Title } = Typography;
 
 export function QuestRagApp() {
@@ -25,35 +39,162 @@ export function QuestRagApp() {
           colorError: "#b84242",
           borderRadius: 8,
           fontFamily:
-            'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif'
-        }
+            'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif',
+        },
       }}
     >
       <App>
-        <Workspace />
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/app"
+              element={
+                <ProtectedRoute>
+                  <WorkspaceLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="/app/chat" replace />} />
+              <Route path="chat" element={<ChatPage />} />
+              <Route path="knowledge" element={<KnowledgePage />} />
+              <Route path="evaluation" element={<Navigate to="/app/evaluation/runs" replace />} />
+              <Route path="evaluation/runs" element={<EvalPage initialMode="list" />} />
+              <Route path="evaluation/documents" element={<EvalPage initialMode="documents" />} />
+              <Route path="evaluation/datasets" element={<EvalPage initialMode="datasets" />} />
+              <Route path="retrieval-config" element={<RetrievalConfigView />} />
+              <Route path="profile" element={<ProfileView />} />
+              <Route path="profile/password" element={<ChangePasswordView />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/app/chat" replace />} />
+          </Routes>
+        </AuthProvider>
       </App>
     </ConfigProvider>
   );
 }
 
-function Workspace() {
+function buildMenuItems(navigate: ReturnType<typeof useNavigate>) {
+  return [
+    { key: "/app/chat", icon: <MessageOutlined />, label: "助手聊天" },
+    { key: "/app/knowledge", icon: <BookOutlined />, label: "知识库管理" },
+    {
+      key: "evaluation",
+      icon: <ExperimentOutlined />,
+      label: "评测工作",
+      onTitleClick: () => navigate("/app/evaluation/runs", { state: { resetAt: Date.now() } }),
+      children: [
+        { key: "/app/evaluation/runs", label: "评测记录" },
+        { key: "/app/evaluation/documents", label: "评测文档" },
+        { key: "/app/evaluation/datasets", label: "评测集" },
+      ],
+    },
+    { key: "/app/retrieval-config", icon: <SettingOutlined />, label: "检索配置" },
+  ];
+}
+
+function WorkspaceLayout() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user, encryptAndLogout } = useAuth();
   const { message } = App.useApp();
-  const [activeMenu, setActiveMenu] = useState("chat");
+
+  const selectedKey = (() => {
+    if (location.pathname.startsWith("/app/chat")) return "/app/chat";
+    if (location.pathname.startsWith("/app/knowledge")) return "/app/knowledge";
+    if (location.pathname.startsWith("/app/evaluation")) {
+      if (location.pathname.includes("documents")) return "/app/evaluation/documents";
+      if (location.pathname.includes("datasets")) return "/app/evaluation/datasets";
+      return "/app/evaluation/runs";
+    }
+    if (location.pathname.startsWith("/app/retrieval-config")) return "/app/retrieval-config";
+    if (location.pathname.startsWith("/app/profile")) return "/app/profile";
+    return "/app/chat";
+  })();
+
+  async function handleLogout() {
+    await encryptAndLogout();
+    message.success("已退出登录");
+    navigate("/login", { replace: true });
+  }
+
+  const userMenuItems = [
+    { key: "profile", icon: <UserOutlined />, label: "个人管理" },
+    { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true },
+  ];
+
+  function handleUserMenuClick({ key }: { key: string }) {
+    if (key === "profile") navigate("/app/profile");
+    if (key === "logout") handleLogout();
+  }
+
+  return (
+    <Layout className="app-shell">
+      <Sider className="app-sider" breakpoint="lg" collapsedWidth={0} width={232}>
+        <div className="brand">
+          <div className="brand-mark">Q</div>
+          <div>
+            <Title level={4}>QuestRAG</Title>
+            <Text type="secondary">知识库问答工作台</Text>
+          </div>
+        </div>
+        <Menu
+          defaultOpenKeys={["evaluation"]}
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          items={buildMenuItems(navigate)}
+          onClick={({ key }) => {
+            if (key.startsWith("/app/evaluation")) {
+              navigate(key, { state: { resetAt: Date.now() } });
+            } else {
+              navigate(key);
+            }
+          }}
+        />
+        <div className="sider-summary">
+          <Text type="secondary">{user?.full_name || ""}</Text>
+        </div>
+      </Sider>
+      <Layout>
+        <AntHeader
+          style={{
+            background: "#fff",
+            padding: "0 24px",
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            borderBottom: "1px solid #f0f0f0",
+          }}
+        >
+          <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }} placement="bottomRight">
+            <Button type="text" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Avatar size="small" icon={<UserOutlined />} />
+              <span>{user?.full_name || ""}</span>
+            </Button>
+          </Dropdown>
+        </AntHeader>
+        <Content className="app-content">
+          <Outlet />
+        </Content>
+      </Layout>
+    </Layout>
+  );
+}
+
+function ChatPage() {
+  const { message } = App.useApp();
   const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
   const [activeSessionId, setActiveSessionId] = useState(() => loadSessions()[0]?.id);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
-  const [documentError, setDocumentError] = useState("");
   const [loadingDocuments, setLoadingDocuments] = useState(false);
-  const [evaluations, setEvaluations] = useState<EvaluationRun[]>([]);
-  const [evaluationError, setEvaluationError] = useState("");
-  const [loadingEvaluations, setLoadingEvaluations] = useState(false);
+  const [documentError, setDocumentError] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const activeSession = useMemo(
-    () => sessions.find((session) => session.id === activeSessionId) || sessions[0],
-    [activeSessionId, sessions]
+    () => sessions.find((s) => s.id === activeSessionId) || sessions[0],
+    [activeSessionId, sessions],
   );
 
   useEffect(() => {
@@ -70,7 +211,6 @@ function Workspace() {
 
   useEffect(() => {
     void refreshDocuments();
-    void refreshEvaluations();
   }, []);
 
   useEffect(() => {
@@ -79,7 +219,7 @@ function Workspace() {
 
   function updateSession(sessionId: string, updater: (session: Session) => Session) {
     setSessions((current) =>
-      current.map((session) => (session.id === sessionId ? updater({ ...session }) : session))
+      current.map((s) => (s.id === sessionId ? updater({ ...s }) : s)),
     );
   }
 
@@ -87,7 +227,6 @@ function Workspace() {
     const session = createBlankSession();
     setSessions((current) => [session, ...current]);
     setActiveSessionId(session.id);
-    setActiveMenu("chat");
   }
 
   function removeSession(id: string) {
@@ -97,7 +236,7 @@ function Workspace() {
         setActiveSessionId(next.id);
         return [next];
       }
-      const next = current.filter((session) => session.id !== id);
+      const next = current.filter((s) => s.id !== id);
       if (activeSessionId === id) setActiveSessionId(next[0]?.id);
       return next;
     });
@@ -117,20 +256,16 @@ function Workspace() {
   }
 
   async function handleUpload(file: File) {
-    const result = await uploadDocument(file);
+    const result: { chunk_count: number } = await uploadDocument(file);
     const session = activeSession;
     if (session) {
       updateSession(session.id, (draft) => ({
         ...draft,
         uploads: [
-          {
-            filename: file.name,
-            chunkCount: result.chunk_count,
-            uploadedAt: new Date().toISOString()
-          },
-          ...draft.uploads
+          { filename: file.name, chunkCount: result.chunk_count, uploadedAt: new Date().toISOString() },
+          ...draft.uploads,
         ],
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       }));
     }
     message.success(`${file.name} 上传完成，已索引 ${result.chunk_count} 个片段`);
@@ -141,6 +276,164 @@ function Workspace() {
     await deleteDocument(doc.doc_id);
     message.success(`${doc.filename || doc.doc_id} 已删除`);
     await refreshDocuments();
+  }
+
+  async function sendMessage() {
+    const text = inputValue.trim();
+    const session = activeSession;
+    if (!text || !session || sending) return;
+
+    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: text };
+    const assistantId = crypto.randomUUID();
+    const assistantMessage: ChatMessage = {
+      id: assistantId,
+      role: "assistant",
+      raw: "",
+      parts: [{ type: "markdown", content: "" }],
+      status: "正在准备回答...",
+    };
+    const nextMessages = [...session.messages, userMessage, assistantMessage];
+
+    setInputValue("");
+    setSending(true);
+    updateSession(session.id, (draft) => ({
+      ...draft,
+      title: draft.title === "新会话" ? text.slice(0, 24) : draft.title,
+      messages: nextMessages,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    try {
+      await streamChat(
+        { message: text, session_id: session.id, history: nextMessages },
+        (event) => {
+          if (event.event === "meta") { setActiveSessionId(event.data.session_id); return; }
+          if (event.event === "delta") {
+            updateAssistantMessage(session.id, assistantId, (current) => {
+              const raw = `${current.raw || ""}${event.data.text}`;
+              return { ...current, raw, parts: parseMessageParts(raw), status: undefined };
+            });
+            return;
+          }
+          if (event.event === "status") {
+            updateAssistantMessage(session.id, assistantId, (current) => ({ ...current, status: event.data.message }));
+            return;
+          }
+          if (event.event === "artifact") {
+            updateAssistantMessage(session.id, assistantId, (current) => ({
+              ...current,
+              parts: [...(current.parts || []), artifactToPart(event.data)],
+            }));
+            return;
+          }
+          if (event.event === "sources") {
+            updateAssistantMessage(session.id, assistantId, (current) => ({ ...current, citations: event.data.sources }));
+            return;
+          }
+          if (event.event === "done") {
+            updateAssistantMessage(session.id, assistantId, (current) => ({ ...current, status: undefined }));
+            return;
+          }
+          if (event.event === "error") {
+            updateAssistantMessage(session.id, assistantId, (current) => ({
+              ...current,
+              error: true,
+              parts: [...(current.parts || []), { type: "markdown", content: `\n\n请求失败：${event.data.message}` }],
+            }));
+          }
+        },
+      );
+    } catch (error) {
+      updateAssistantMessage(session.id, assistantId, (current) => ({
+        ...current,
+        error: true,
+        parts: [{ type: "markdown", content: `请求失败：${error instanceof Error ? error.message : "请稍后重试"}` }],
+      }));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function updateAssistantMessage(sessionId: string, messageId: string, updater: (m: ChatMessage) => ChatMessage) {
+    updateSession(sessionId, (draft) => ({
+      ...draft,
+      messages: draft.messages.map((item) => (item.id === messageId ? updater(item) : item)),
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+
+  return (
+    <ChatView
+      activeSession={activeSession}
+      documents={documents}
+      inputValue={inputValue}
+      messagesEndRef={messagesEndRef}
+      onCreateSession={createSession}
+      onDeleteSession={removeSession}
+      onInputChange={setInputValue}
+      onSelectSession={setActiveSessionId}
+      onSendMessage={sendMessage}
+      sending={sending}
+      sessions={sessions}
+    />
+  );
+}
+
+function KnowledgePage() {
+  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [documentError, setDocumentError] = useState("");
+  const { message } = App.useApp();
+
+  async function refreshDocuments() {
+    setLoadingDocuments(true);
+    setDocumentError("");
+    try {
+      setDocuments(await listDocuments());
+    } catch (error) {
+      setDocuments([]);
+      setDocumentError(error instanceof Error ? error.message : "读取文档失败");
+    } finally {
+      setLoadingDocuments(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshDocuments();
+  }, []);
+
+  async function handleDeleteDocument(doc: DocumentInfo) {
+    await deleteDocument(doc.doc_id);
+    message.success(`${doc.filename || doc.doc_id} 已删除`);
+    await refreshDocuments();
+  }
+
+  return (
+    <KnowledgeView
+      documents={documents}
+      documentError={documentError}
+      loadingDocuments={loadingDocuments}
+      onDeleteDocument={handleDeleteDocument}
+      onRefreshDocuments={refreshDocuments}
+    />
+  );
+}
+
+function EvalPage({ initialMode }: { initialMode: "list" | "documents" | "datasets" }) {
+  const location = useLocation();
+  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
+  const [evaluations, setEvaluations] = useState<EvaluationRun[]>([]);
+  const [evaluationError, setEvaluationError] = useState("");
+  const [loadingEvaluations, setLoadingEvaluations] = useState(false);
+  const { message } = App.useApp();
+  const resetKey = (location.state as { resetAt?: number } | null)?.resetAt;
+
+  async function refreshDocuments() {
+    try {
+      setDocuments(await listDocuments());
+    } catch {
+      setDocuments([]);
+    }
   }
 
   async function refreshEvaluations() {
@@ -156,219 +449,28 @@ function Workspace() {
     }
   }
 
+  useEffect(() => {
+    void refreshDocuments();
+    void refreshEvaluations();
+  }, []);
+
   async function handleDeleteEvaluation(run: EvaluationRun) {
     await deleteEvaluation(run.id);
     message.success(`${run.name} 已删除`);
     await refreshEvaluations();
   }
 
-  async function sendMessage() {
-    const text = inputValue.trim();
-    const session = activeSession;
-    if (!text || !session || sending) return;
-
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: text
-    };
-    const assistantId = crypto.randomUUID();
-    const assistantMessage: ChatMessage = {
-      id: assistantId,
-      role: "assistant",
-      raw: "",
-      parts: [{ type: "markdown", content: "" }],
-      status: "正在准备回答..."
-    };
-    const nextMessages = [...session.messages, userMessage, assistantMessage];
-
-    setInputValue("");
-    setSending(true);
-    updateSession(session.id, (draft) => ({
-      ...draft,
-      title: draft.title === "新会话" ? text.slice(0, 24) : draft.title,
-      messages: nextMessages,
-      updatedAt: new Date().toISOString()
-    }));
-
-    try {
-      await streamChat(
-        {
-          message: text,
-          session_id: session.id,
-          history: nextMessages
-        },
-        (event) => {
-          if (event.event === "meta") {
-            setActiveSessionId(event.data.session_id);
-            return;
-          }
-
-          if (event.event === "delta") {
-            updateAssistantMessage(session.id, assistantId, (current) => {
-              const raw = `${current.raw || ""}${event.data.text}`;
-              return {
-                ...current,
-                raw,
-                parts: parseMessageParts(raw),
-                status: undefined
-              };
-            });
-            return;
-          }
-
-          if (event.event === "status") {
-            updateAssistantMessage(session.id, assistantId, (current) => ({
-              ...current,
-              status: event.data.message
-            }));
-            return;
-          }
-
-          if (event.event === "artifact") {
-            updateAssistantMessage(session.id, assistantId, (current) => ({
-              ...current,
-              parts: [...(current.parts || []), artifactToPart(event.data)]
-            }));
-            return;
-          }
-
-          if (event.event === "sources") {
-            updateAssistantMessage(session.id, assistantId, (current) => ({
-              ...current,
-              citations: event.data.sources
-            }));
-            return;
-          }
-
-          if (event.event === "done") {
-            updateAssistantMessage(session.id, assistantId, (current) => ({
-              ...current,
-              status: undefined
-            }));
-            return;
-          }
-
-          if (event.event === "error") {
-            updateAssistantMessage(session.id, assistantId, (current) => ({
-              ...current,
-              error: true,
-              parts: [
-                ...(current.parts || []),
-                { type: "markdown", content: `\n\n请求失败：${event.data.message}` }
-              ]
-            }));
-          }
-        }
-      );
-    } catch (error) {
-      updateAssistantMessage(session.id, assistantId, (current) => ({
-        ...current,
-        error: true,
-        parts: [
-          {
-            type: "markdown",
-            content: `请求失败：${error instanceof Error ? error.message : "请稍后重试"}`
-          }
-        ]
-      }));
-    } finally {
-      setSending(false);
-    }
-  }
-
-  function updateAssistantMessage(
-    sessionId: string,
-    messageId: string,
-    updater: (message: ChatMessage) => ChatMessage
-  ) {
-    updateSession(sessionId, (draft) => ({
-      ...draft,
-      messages: draft.messages.map((item) => (item.id === messageId ? updater(item) : item)),
-      updatedAt: new Date().toISOString()
-    }));
-  }
-
   return (
-    <Layout className="app-shell">
-      <Sider className="app-sider" breakpoint="lg" collapsedWidth={0} width={232}>
-        <div className="brand">
-          <div className="brand-mark">Q</div>
-          <div>
-            <Title level={4}>QuestRAG</Title>
-            <Text type="secondary">知识库问答工作台</Text>
-          </div>
-        </div>
-        <Menu
-          defaultOpenKeys={["evaluation"]}
-          mode="inline"
-          selectedKeys={[activeMenu]}
-          items={[
-            { key: "chat", icon: <MessageOutlined />, label: "助手聊天" },
-            { key: "knowledge", icon: <BookOutlined />, label: "知识库管理" },
-            {
-              key: "evaluation",
-              icon: <ExperimentOutlined />,
-              label: "评测工作",
-              children: [
-                { key: "evaluation-runs", label: "评测记录" },
-                { key: "evaluation-documents", label: "评测文档" },
-                { key: "evaluation-datasets", label: "评测集" }
-              ]
-            },
-            { key: "retrieval-config", icon: <SettingOutlined />, label: "检索配置" }
-          ]}
-          onClick={({ key }) => setActiveMenu(key)}
-        />
-        <div className="sider-summary">
-          <Text type="secondary">{documents.length} 个文档</Text>
-          <Text type="secondary">{sessions.length} 个会话</Text>
-        </div>
-      </Sider>
-      <Content className="app-content">
-        {activeMenu === "chat" ? (
-          <ChatView
-            activeSession={activeSession}
-            documents={documents}
-            inputValue={inputValue}
-            messagesEndRef={messagesEndRef}
-            onCreateSession={createSession}
-            onDeleteSession={removeSession}
-            onInputChange={setInputValue}
-            onSelectSession={setActiveSessionId}
-            onSendMessage={sendMessage}
-            sending={sending}
-            sessions={sessions}
-          />
-        ) : activeMenu === "knowledge" ? (
-          <KnowledgeView
-            documents={documents}
-            documentError={documentError}
-            loadingDocuments={loadingDocuments}
-            onDeleteDocument={handleDeleteDocument}
-            onRefreshDocuments={refreshDocuments}
-          />
-        ) : activeMenu === "retrieval-config" ? (
-          <RetrievalConfigView />
-        ) : (
-          <EvaluationView
-            documents={documents}
-            evaluationError={evaluationError}
-            evaluations={evaluations}
-            initialMode={
-              activeMenu === "evaluation-documents"
-                ? "documents"
-                : activeMenu === "evaluation-datasets"
-                  ? "datasets"
-                  : "list"
-            }
-            loadingEvaluations={loadingEvaluations}
-            onDeleteEvaluation={handleDeleteEvaluation}
-            onRefreshDocuments={refreshDocuments}
-            onRefreshEvaluations={refreshEvaluations}
-          />
-        )}
-      </Content>
-    </Layout>
+    <EvaluationView
+      documents={documents}
+      evaluationError={evaluationError}
+      evaluations={evaluations}
+      initialMode={initialMode}
+      resetKey={resetKey}
+      loadingEvaluations={loadingEvaluations}
+      onDeleteEvaluation={handleDeleteEvaluation}
+      onRefreshDocuments={refreshDocuments}
+      onRefreshEvaluations={refreshEvaluations}
+    />
   );
 }

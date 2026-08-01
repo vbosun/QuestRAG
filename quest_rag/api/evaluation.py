@@ -6,10 +6,12 @@ import uuid
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from langchain_core.documents import Document
 
 from quest_rag.api.document import clean_document_text
+from quest_rag.auth.dependencies import get_current_user
+from quest_rag.auth.schemas import CurrentUser
 from quest_rag.core.config import MILVUS_HOST, MILVUS_PASSWORD, MILVUS_PORT, MILVUS_USER
 from quest_rag.rag.document_embedding import get_embedding
 from quest_rag.rag.document_splitter import split_docs
@@ -56,13 +58,13 @@ def _eval_backend(collection_name: str) -> MilvusVectorBackend:
 
 
 @router.post("", response_model=list[EvaluationRunSummary])
-def list_runs():
+def list_runs(current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     return list_evaluation_runs()
 
 
 @router.post("/runs/get", response_model=EvaluationRunDetail)
-def get_run(payload: dict):
+def get_run(payload: dict, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     run_id = payload["run_id"]
     run = get_evaluation_run(run_id)
@@ -72,7 +74,7 @@ def get_run(payload: dict):
 
 
 @router.delete("/runs/delete", response_model=CommonResponse)
-def delete_run(payload: dict):
+def delete_run(payload: dict, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     run_id = payload["run_id"]
     run = delete_evaluation_run(run_id)
@@ -86,14 +88,14 @@ def delete_run(payload: dict):
 
 
 @router.post("/documents/list", response_model=list[EvaluationDocumentSummary])
-def list_eval_documents():
+def list_eval_documents(current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     runs = list_evaluation_runs()
     return [with_latest_eval_chunk_count(with_baseline_chunk_count(doc), runs) for doc in list_evaluation_documents()]
 
 
 @router.post("/documents/upload", response_model=list[EvaluationDocumentSummary])
-async def upload_eval_documents(files: list[UploadFile] = File(...)):
+async def upload_eval_documents(files: list[UploadFile] = File(...), current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     saved = []
     for file in files:
@@ -102,7 +104,7 @@ async def upload_eval_documents(files: list[UploadFile] = File(...)):
 
 
 @router.post("/documents/runs")
-def list_eval_document_runs(payload: dict):
+def list_eval_document_runs(payload: dict, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     doc_id = payload["doc_id"]
     if not get_evaluation_document(doc_id):
@@ -130,7 +132,7 @@ def list_eval_document_runs(payload: dict):
 
 
 @router.post("/documents/runs/chunks")
-def list_eval_document_run_chunks(payload: dict):
+def list_eval_document_run_chunks(payload: dict, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     doc_id = payload["doc_id"]
     run_id = payload["run_id"]
@@ -146,7 +148,7 @@ def list_eval_document_run_chunks(payload: dict):
 
 
 @router.post("/documents/get", response_model=EvaluationDocumentDetail)
-def get_eval_document(payload: dict):
+def get_eval_document(payload: dict, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     doc_id = payload["doc_id"]
     doc = get_evaluation_document(doc_id)
@@ -157,7 +159,7 @@ def get_eval_document(payload: dict):
 
 
 @router.delete("/documents/delete", response_model=CommonResponse)
-def delete_eval_document(payload: dict):
+def delete_eval_document(payload: dict, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     doc_id = payload["doc_id"]
     if not delete_evaluation_document(doc_id):
@@ -166,13 +168,13 @@ def delete_eval_document(payload: dict):
 
 
 @router.post("/datasets/list")
-def list_datasets():
+def list_datasets(current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     return list_evaluation_datasets()
 
 
 @router.post("/datasets/import")
-async def import_dataset(file: UploadFile = File(...)):
+async def import_dataset(file: UploadFile = File(...), current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     content = await file.read()
     text = content.decode("utf-8-sig")
@@ -185,7 +187,7 @@ async def import_dataset(file: UploadFile = File(...)):
 
 
 @router.post("/datasets")
-def create_dataset(req: EvaluationDatasetInput):
+def create_dataset(req: EvaluationDatasetInput, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     dataset_id = f"dataset_{uuid.uuid4().hex[:12]}"
     upsert_evaluation_dataset({"id": dataset_id, "name": req.name, "items": [item.model_dump() for item in req.items]})
@@ -193,7 +195,7 @@ def create_dataset(req: EvaluationDatasetInput):
 
 
 @router.post("/datasets/get")
-def get_dataset(payload: dict):
+def get_dataset(payload: dict, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     dataset_id = payload["dataset_id"]
     dataset = get_evaluation_dataset(dataset_id)
@@ -203,7 +205,7 @@ def get_dataset(payload: dict):
 
 
 @router.put("/datasets/update")
-def update_dataset(payload: dict):
+def update_dataset(payload: dict, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     dataset_id = payload["dataset_id"]
     name = payload["name"]
@@ -215,7 +217,7 @@ def update_dataset(payload: dict):
 
 
 @router.delete("/datasets/delete", response_model=CommonResponse)
-def delete_dataset(payload: dict):
+def delete_dataset(payload: dict, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     dataset_id = payload["dataset_id"]
     if not delete_evaluation_dataset(dataset_id):
@@ -224,7 +226,7 @@ def delete_dataset(payload: dict):
 
 
 @router.post("/datasets/export")
-def export_dataset(payload: dict):
+def export_dataset(payload: dict, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     dataset_id = payload["dataset_id"]
     dataset = get_evaluation_dataset(dataset_id)
@@ -262,7 +264,7 @@ def export_dataset(payload: dict):
 
 
 @router.post("/run", response_model=EvaluationRunDetail)
-def run_evaluation(req: EvaluationRunRequest):
+def run_evaluation(req: EvaluationRunRequest, current_user: CurrentUser = Depends(get_current_user)):
     init_db()
     dataset = get_evaluation_dataset(req.dataset_id)
     if not dataset:

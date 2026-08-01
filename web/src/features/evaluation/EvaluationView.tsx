@@ -1,5 +1,5 @@
 import { ArrowLeftOutlined, CheckCircleOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
-import { App, Button, Checkbox, Descriptions, Empty, Input, InputNumber, List, Modal, Popconfirm, Select, Space, Steps, Table, Tag, Typography, Upload } from "antd";
+import { App, Breadcrumb, Button, Checkbox, Descriptions, Empty, Input, InputNumber, List, Modal, Popconfirm, Select, Space, Steps, Table, Tag, Typography, Upload } from "antd";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { useEffect, useState } from "react";
 import {
@@ -31,6 +31,7 @@ export function EvaluationView({
   evaluationError,
   evaluations,
   initialMode,
+  resetKey,
   loadingEvaluations,
   onDeleteEvaluation,
   onRefreshDocuments,
@@ -40,6 +41,7 @@ export function EvaluationView({
   evaluationError: string;
   evaluations: EvaluationRun[];
   initialMode: "list" | "documents" | "datasets";
+  resetKey?: number;
   loadingEvaluations: boolean;
   onDeleteEvaluation: (run: EvaluationRun) => Promise<void>;
   onRefreshDocuments: () => Promise<void>;
@@ -48,6 +50,15 @@ export function EvaluationView({
   const { message } = App.useApp();
   const [mode, setMode] = useState<"list" | "create" | "detail" | "documents" | "documentDetail" | "documentRunChunks" | "datasets" | "datasetEdit">(initialMode);
   const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    setMode(initialMode);
+    setStep(0);
+    setActiveRun(null);
+    setActiveRetrievedItem(null);
+    setActiveEvalDocument(null);
+    setActiveDataset(null);
+  }, [initialMode, resetKey]);
   const [activeRun, setActiveRun] = useState<EvaluationRun | null>(null);
   const [activeRetrievedItem, setActiveRetrievedItem] = useState<EvaluationItem | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -156,10 +167,41 @@ export function EvaluationView({
   }
 
   function evalBackLabel() {
-    if (mode === "documentRunChunks") return "返回评测记录";
+    if (mode === "documentRunChunks") return "返回文档详情";
     if (mode === "documentDetail") return "返回评测文档";
     if (mode === "datasetEdit") return "返回评测集";
     return "返回评测记录";
+  }
+
+  function breadcrumbItems() {
+    const evalBase = { title: "评测工作" };
+    if (mode === "list" || mode === "create" || mode === "detail") {
+      if (mode === "create") return [evalBase, { title: "评测记录" }, { title: "新建评测" }];
+      if (mode === "detail") return [evalBase, { title: "评测记录" }, { title: "评测详情" }];
+      return [evalBase, { title: "评测记录" }];
+    }
+    if (mode === "documents" || mode === "documentDetail" || mode === "documentRunChunks") {
+      if (mode === "documentRunChunks") return [evalBase, { title: "评测文档" }, { title: activeEvalDocument?.title || "文档详情" }, { title: "检索详情" }];
+      if (mode === "documentDetail") return [evalBase, { title: "评测文档" }, { title: activeEvalDocument?.title || "文档详情" }];
+      return [evalBase, { title: "评测文档" }];
+    }
+    if (mode === "datasets" || mode === "datasetEdit") {
+      if (mode === "datasetEdit") return [evalBase, { title: "评测集" }, { title: activeDataset?.name || "编辑评测集" }];
+      return [evalBase, { title: "评测集" }];
+    }
+    return [evalBase];
+  }
+
+  function pageSubtitle() {
+    if (mode === "create") return "调整清洗、分块和检索策略后运行检索评测";
+    if (mode === "detail") return activeRun?.name || "查看评测参数和报告";
+    if (mode === "documentDetail") return activeEvalDocument?.title || activeEvalDocument?.filename || "";
+    if (mode === "documentRunChunks") return activeEvalDocumentRun?.name || "";
+    if (mode === "datasetEdit") return activeDataset?.name || "";
+    if (mode === "list") return `${evaluations.length} 条评测记录`;
+    if (mode === "documents") return `${evalDocuments.length} 个评测文档`;
+    if (mode === "datasets") return `${evalDatasets.length} 个评测集`;
+    return "";
   }
 
   async function openDetail(run: EvaluationRun) {
@@ -348,11 +390,24 @@ export function EvaluationView({
       <header className="panel-header knowledge-header">
         <div className="knowledge-title">
           {showBackButton() && (
-            <Button icon={<ArrowLeftOutlined />} onClick={handleEvalBack} type="text">
-              {evalBackLabel()}
-            </Button>
+            <div className="page-nav-row">
+              <Button
+                type="text"
+                icon={<ArrowLeftOutlined />}
+                onClick={handleEvalBack}
+                className="back-button"
+              >
+                {evalBackLabel()}
+              </Button>
+              <Breadcrumb className="page-breadcrumb" items={breadcrumbItems()} />
+            </div>
           )}
-          <div>
+          {!showBackButton() && (
+            <div className="page-nav-row">
+              <Breadcrumb className="page-breadcrumb" items={breadcrumbItems()} />
+            </div>
+          )}
+          <div className="page-title-block">
             <Title level={3}>
               {mode === "create"
                 ? "新建评测"
@@ -364,12 +419,8 @@ export function EvaluationView({
                       ? "评测集"
                       : "评测工作"}
             </Title>
-            <Text type={evaluationError ? "danger" : "secondary"}>
-              {mode === "create"
-                ? "调整清洗、分块和检索策略后运行检索评测"
-                : mode === "detail"
-                  ? activeRun?.name || "查看评测参数和报告"
-                  : evaluationError || `${evaluations.length} 条评测记录`}
+            <Text type={evaluationError && mode === "list" ? "danger" : "secondary"} className="page-subtitle">
+              {evaluationError && mode === "list" ? evaluationError : pageSubtitle()}
             </Text>
           </div>
         </div>

@@ -6,9 +6,12 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from langchain_core.documents import Document
 from quest_rag.logger import logger
+
+from quest_rag.auth.dependencies import get_current_user
+from quest_rag.auth.schemas import CurrentUser
 
 from quest_rag.rag.document_embedding import add_documents
 from quest_rag.rag.loader import load_file_with_ocr_fallback
@@ -43,7 +46,7 @@ SUPPORTED_TYPES = {"txt", "pdf", "md"}
 
 
 @router.post("/stage", response_model=DocumentStageResponse)
-async def stage_document(file: UploadFile = File(...)):
+async def stage_document(file: UploadFile = File(...), current_user: CurrentUser = Depends(get_current_user)):
     """上传文档并生成入库预览，不立即写入知识库。"""
     filename = file.filename
     if not filename:
@@ -80,14 +83,14 @@ async def stage_document(file: UploadFile = File(...)):
 
 
 @router.post("/stage/preview", response_model=DocumentStageResponse)
-def preview_stage(req: DocumentStageRequest):
+def preview_stage(req: DocumentStageRequest, current_user: CurrentUser = Depends(get_current_user)):
     """根据当前元数据、清洗和分块参数重新生成预览。"""
     ensure_stage(req.stage_id)
     return build_stage_response(req.stage_id, req.metadata, req.clean_options, req.split_options)
 
 
 @router.post("/stage/commit", response_model=DocumentCommitResponse)
-def commit_stage(req: DocumentStageRequest):
+def commit_stage(req: DocumentStageRequest, current_user: CurrentUser = Depends(get_current_user)):
     """确认入库：清洗、分块、向量化并写入知识库。"""
     stage = ensure_stage(req.stage_id)
     try:
@@ -135,7 +138,7 @@ def commit_stage(req: DocumentStageRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 @router.post("/upload", response_model=UploadResponse)
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), current_user: CurrentUser = Depends(get_current_user)):
     """上传文本文档"""
     filename = file.filename
     if not filename:
@@ -203,13 +206,13 @@ async def upload(file: UploadFile = File(...)):
 
 
 @router.post("/doclist", response_model=list[DocMetadata])
-def doclist():
+def doclist(current_user: CurrentUser = Depends(get_current_user)):
     """查看文档列表"""
     return get_all_docs()
 
 
 @router.post("/stats", response_model=DocumentStatsResponse)
-def document_stats():
+def document_stats(current_user: CurrentUser = Depends(get_current_user)):
     """知识库统计总览。"""
     from quest_rag.rag.pg_store import get_conn
 
@@ -256,14 +259,14 @@ def document_stats():
 
 
 @router.post("/chunks", response_model=list[DocumentChunk])
-def chunks(doc_info: DocInfo):
+def chunks(doc_info: DocInfo, current_user: CurrentUser = Depends(get_current_user)):
     """查看指定文档的分块列表。"""
     if not (doc_info and doc_info.id):
         raise HTTPException(status_code=400, detail="无效的文档ID")
     return backend.list_chunks(doc_info.id)
 
 @router.post("/deletedoc", response_model=CommonResponse)
-def deletedoc(doc_info:DocInfo):
+def deletedoc(doc_info: DocInfo, current_user: CurrentUser = Depends(get_current_user)):
     """删除指定文档"""
     if not (doc_info and doc_info.id):
         raise HTTPException(status_code=500, detail="无效的文档ID")

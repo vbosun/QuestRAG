@@ -1,5 +1,5 @@
 import { ArrowLeftOutlined, BarChartOutlined, CheckCircleOutlined, EyeOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
-import { App, Button, Card, Checkbox, Col, Descriptions, Drawer, Empty, Input, InputNumber, List, Modal, Popconfirm, Row, Select, Space, Statistic, Steps, Table, Tag, Typography, Upload } from "antd";
+import { App, Breadcrumb, Button, Card, Checkbox, Col, Descriptions, Drawer, Empty, Input, InputNumber, List, Modal, Popconfirm, Row, Select, Space, Statistic, Steps, Table, Tag, Typography, Upload } from "antd";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { useEffect, useState } from "react";
 import { commitDocumentStage, getDocumentStats, listDocumentChunks, previewDocumentStage, stageDocument } from "../../api";
@@ -199,35 +199,50 @@ export function KnowledgeView({
     <section className="view-shell knowledge-view">
       <header className="panel-header knowledge-header">
         <div className="knowledge-title">
-          {mode === "upload" && (
-            <Button icon={<ArrowLeftOutlined />} onClick={backToList} type="text">
-              返回
-            </Button>
+          {mode !== "list" && (
+            <div className="page-nav-row">
+              <Button
+                type="text"
+                icon={<ArrowLeftOutlined />}
+                onClick={backToList}
+                className="back-button"
+              >
+                {mode === "chunks" ? "返回文档列表" : "返回知识库"}
+              </Button>
+              <Breadcrumb
+                className="page-breadcrumb"
+                items={
+                  mode === "upload"
+                    ? [{ title: "知识库管理" }, { title: replaceDoc ? "更新文档" : "上传文档" }]
+                    : [{ title: "知识库管理" }, { title: "文档分块" }]
+                }
+              />
+            </div>
           )}
-          {mode === "chunks" && (
-            <Button icon={<ArrowLeftOutlined />} onClick={backToList} type="text">
-              返回文档列表
-            </Button>
+          {mode === "list" && (
+            <div className="page-nav-row">
+              <Breadcrumb className="page-breadcrumb" items={[{ title: "知识库管理" }]} />
+            </div>
           )}
-          <div>
-          <Title level={3}>
-            {mode === "upload"
-              ? replaceDoc
-                ? "更新文档"
-                : "上传文档"
-              : mode === "chunks"
-                ? "文档分块"
-                : "知识库管理"}
-          </Title>
-          <Text type={documentError ? "danger" : "secondary"}>
-            {mode === "upload"
-              ? replaceDoc
-                ? `处理新文档完成后，将替换 ${replaceDoc.filename}`
-                : "按步骤确认后再写入知识库"
-              : mode === "chunks"
-                ? selectedDoc?.filename || "查看文档分块"
-                : documentError || (documents.length ? `${documents.length} 个文档` : "暂无文档")}
-          </Text>
+          <div className="page-title-block">
+            <Title level={3}>
+              {mode === "upload"
+                ? replaceDoc
+                  ? "更新文档"
+                  : "上传文档"
+                : mode === "chunks"
+                  ? "文档分块"
+                  : "知识库管理"}
+            </Title>
+            <Text type={documentError && mode === "list" ? "danger" : "secondary"} className="page-subtitle">
+              {mode === "upload"
+                ? replaceDoc
+                  ? `处理新文档完成后，将替换 ${replaceDoc.filename}`
+                  : "按步骤确认后再写入知识库"
+                : mode === "chunks"
+                  ? selectedDoc?.filename || "查看文档分块"
+                  : documentError || (documents.length ? `${documents.length} 个文档` : "暂无文档")}
+            </Text>
           </div>
         </div>
         <Space wrap>

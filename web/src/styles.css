@@ -95,6 +95,51 @@ body {
   width: 100%;
 }
 
+/* --- Navigation visual improvements --- */
+
+.app-sider .ant-menu-submenu-selected > .ant-menu-submenu-title,
+.app-sider .ant-menu-submenu-open > .ant-menu-submenu-title {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.app-sider .ant-menu-submenu-title:hover {
+  background: #eef6f7 !important;
+  color: var(--primary) !important;
+}
+
+.app-sider .ant-menu-item-selected {
+  position: relative;
+  background: var(--primary-soft) !important;
+  color: var(--primary) !important;
+  font-weight: 600;
+}
+
+.app-sider .ant-menu-item-selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.app-sider .ant-menu-sub.ant-menu-inline {
+  background: transparent !important;
+}
+
+.app-sider .ant-menu-sub .ant-menu-item {
+  padding-left: 44px !important;
+  color: #4f5f68;
+}
+
+.app-sider .ant-menu-item:hover {
+  background: #eef6f7 !important;
+  color: var(--primary) !important;
+}
+
 .sider-summary {
   display: grid;
   gap: 8px;
@@ -565,6 +610,40 @@ body {
 
 .knowledge-header {
   min-height: 90px;
+}
+
+/* --- Page navigation (breadcrumb + back button) --- */
+
+.page-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.back-button {
+  height: 32px;
+  padding: 0 8px;
+  color: #3b4a54;
+  font-weight: 500;
+}
+
+.back-button:hover {
+  background: #eef6f7;
+  color: var(--primary);
+}
+
+.page-breadcrumb {
+  color: #7a8791;
+  font-size: 13px;
+}
+
+.page-title-block h3 {
+  margin: 0 0 4px;
+}
+
+.page-subtitle {
+  color: #7a8791;
 }
 
 .document-avatar {
@@ -1207,4 +1286,27 @@ body {
   .split-controls {
     grid-template-columns: 1fr;
   }
+}
+
+.login-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: var(--page-bg);
+}
+
+.login-card {
+  width: 420px;
+  max-width: 90vw;
+  box-shadow: var(--shadow);
+}
+
+.workspace-header {
+  background: #fff;
+  padding: 0 24px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
 }

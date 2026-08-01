@@ -19,26 +19,38 @@ def test_chat_stream_sse_events(monkeypatch):
         yield {"event": "done", "data": {"finish_reason": "stop"}}
 
     monkeypatch.setattr("quest_rag.api.chat.generate_stream", fake_generate_stream)
+
+    from quest_rag.auth.dependencies import get_current_user
+    from quest_rag.auth.schemas import CurrentUser
+
+    async def fake_get_current_user():
+        return CurrentUser(id=1, sid="test-sid", role="ADMIN", status=1, full_name="测试", id_number_masked="1101**********001", token_version=1)
+
+    app.dependency_overrides[get_current_user] = fake_get_current_user
+
     client = TestClient(app)
 
-    with client.stream(
-        "POST",
-        "/chat/stream",
-        json={
-            "message": "测试",
-            "session_id": "session-1",
-            "history": [],
-            "stream": True,
-        },
-    ) as response:
-        body = "".join(response.iter_text())
+    try:
+        with client.stream(
+            "POST",
+            "/chat/stream",
+            json={
+                "message": "测试",
+                "session_id": "session-1",
+                "history": [],
+                "stream": True,
+            },
+        ) as response:
+            body = "".join(response.iter_text())
 
-    assert response.status_code == 200
-    assert "event: meta" in body
-    assert 'data: {"session_id": "session-1"}' in body
-    assert "event: delta" in body
-    assert 'data: {"text": "你好"}' in body
-    assert "event: done" in body
+        assert response.status_code == 200
+        assert "event: meta" in body
+        assert 'data: {"session_id": "session-1"}' in body
+        assert "event: delta" in body
+        assert 'data: {"text": "你好"}' in body
+        assert "event: done" in body
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_create_chart_artifact_returns_stable_json_payload():

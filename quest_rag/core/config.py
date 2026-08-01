@@ -20,6 +20,17 @@ ELASTICSEARCH_INDEX = os.environ.get("ELASTICSEARCH_INDEX", "questrag_chunks")
 ELASTICSEARCH_JOBS_INDEX = os.environ.get("ELASTICSEARCH_JOBS_INDEX", "questrag_jobs")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
+# Auth
+REDIS_URL = os.environ.get("REDIS_URL", "")
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "")
+JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
+AUTH_ACCESS_TOKEN_MINUTES = int(os.environ.get("AUTH_ACCESS_TOKEN_MINUTES", "30"))
+AUTH_REFRESH_TOKEN_HOURS = int(os.environ.get("AUTH_REFRESH_TOKEN_HOURS", "8"))
+AUTH_LOGIN_FAIL_LIMIT = int(os.environ.get("AUTH_LOGIN_FAIL_LIMIT", "5"))
+AUTH_LOGIN_LOCK_MINUTES = int(os.environ.get("AUTH_LOGIN_LOCK_MINUTES", "15"))
+AUTH_ID_NUMBER_PEPPER = os.environ.get("AUTH_ID_NUMBER_PEPPER", "")
+SM2_PRIVATE_KEY = os.environ.get("SM2_PRIVATE_KEY", "")
+
 DEFAULT_RETRIEVAL_CONFIG = {
     "top_k": 5,
     "recall_k": 15,

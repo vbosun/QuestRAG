@@ -9,7 +9,7 @@ import {
   SendOutlined,
   ShrinkOutlined
 } from "@ant-design/icons";
-import { Avatar, Button, Drawer, Empty, List, Popconfirm, Space, Tag, Tooltip, Typography } from "antd";
+import { Avatar, Breadcrumb, Button, Drawer, Empty, List, Popconfirm, Space, Tag, Tooltip, Typography } from "antd";
 import React, { useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
@@ -56,12 +56,17 @@ export function ChatView(props: ChatViewProps) {
       <main className="chat-panel">
         <header className="panel-header">
           <div>
-            <Title level={3}>{props.activeSession?.title || "新会话"}</Title>
-            <Text type="secondary">
-              {props.documents.length
-                ? `已接入 ${props.documents.length} 个知识库文档`
-                : "上传文档后，可以直接围绕资料提问"}
-            </Text>
+            <div className="page-nav-row">
+              <Breadcrumb className="page-breadcrumb" items={[{ title: "助手聊天" }]} />
+            </div>
+            <div className="page-title-block">
+              <Title level={3}>{props.activeSession?.title || "新会话"}</Title>
+              <Text type="secondary" className="page-subtitle">
+                {props.documents.length
+                  ? `已接入 ${props.documents.length} 个知识库文档`
+                  : "上传文档后，可以直接围绕资料提问"}
+              </Text>
+            </div>
           </div>
         </header>
         <div className="messages" aria-live="polite">

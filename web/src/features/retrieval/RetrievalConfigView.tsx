@@ -1,5 +1,5 @@
 import { ReloadOutlined, SaveOutlined, SyncOutlined } from "@ant-design/icons";
-import { App, Button, Descriptions, InputNumber, Select, Space, Tag, Typography } from "antd";
+import { App, Breadcrumb, Button, Descriptions, InputNumber, Select, Space, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { getRetrievalConfig, listEvaluations, syncRetrievalConfig, updateRetrievalConfig } from "../../api";
 import type { EvaluationRun, RetrievalOptions } from "../../types";
@@ -76,8 +76,13 @@ export function RetrievalConfigView() {
     <section className="view-shell">
       <header className="panel-header">
         <div>
-          <Title level={3}>检索配置</Title>
-          <Text type="secondary">调整正式环境的检索参数，保存后即时生效，无需重启。</Text>
+          <div className="page-nav-row">
+            <Breadcrumb className="page-breadcrumb" items={[{ title: "检索配置" }]} />
+          </div>
+          <div className="page-title-block">
+            <Title level={3}>检索配置</Title>
+            <Text type="secondary" className="page-subtitle">调整正式环境的检索参数，保存后即时生效，无需重启。</Text>
+          </div>
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={loadConfig} loading={loading}>
