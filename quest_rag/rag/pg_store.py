@@ -614,9 +614,17 @@ def keyword_search_jobs(query: str, top_k: int) -> list[dict]:
                OR category ILIKE %s
                OR address ILIKE %s
                OR content ILIKE %s
+            ORDER BY
+                CASE WHEN title ILIKE %s THEN 0
+                     WHEN content ILIKE %s THEN 1
+                     WHEN category ILIKE %s THEN 2
+                     WHEN company ILIKE %s THEN 3
+                     ELSE 4 END
             LIMIT %s
             """,
-            (pattern, pattern, pattern, pattern, pattern, top_k),
+            (pattern, pattern, pattern, pattern, pattern,
+             pattern, pattern, pattern, pattern,
+             top_k),
         ).fetchall()
     return [dict(row) for row in rows]
 
