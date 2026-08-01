@@ -11,30 +11,34 @@ def search_jobs(query: str, top_k: int = 10) -> list[dict]:
     return merge_job_results(vector_hits, keyword_hits, top_k)
 
 
-def merge_job_results(vector_hits: list[dict], keyword_hits: list[dict], top_k: int) -> list[dict]:
-    merged: dict[str, dict] = {}
+def merge_job_results(vector_hits: list[dict], keyword_hits: list[dict], top_k: int, rrf_k: int = 60) -> list[dict]:
+    """RRF 倒数排名融合——只看排名不看分数，绕开分数量纲不可比问题。"""
+    rrf_scores: dict[str, float] = {}
+    job_map: dict[str, dict] = {}
 
-    for item in vector_hits:
-        job = _row_to_job(item, vector_score=item.get("similarity", 0), keyword_score=0)
-        merged[job["id"]] = job
+    for rank, item in enumerate(vector_hits, start=1):
+        jid = item["id"]
+        rrf_scores[jid] = rrf_scores.get(jid, 0) + 1.0 / (rrf_k + rank)
+        if jid not in job_map:
+            job_map[jid] = _row_to_job(item, vector_score=item.get("similarity", 0), keyword_score=0)
 
-    for item in keyword_hits:
-        kw_score = 3.0
-        if item["id"] not in merged:
-            merged[item["id"]] = _row_to_job(item, vector_score=0, keyword_score=kw_score)
+    for rank, item in enumerate(keyword_hits, start=1):
+        jid = item["id"]
+        rrf_scores[jid] = rrf_scores.get(jid, 0) + 1.0 / (rrf_k + rank)
+        if jid not in job_map:
+            job_map[jid] = _row_to_job(item, vector_score=0, keyword_score=3.0)
         else:
-            merged[item["id"]]["keyword_score"] = kw_score
+            job_map[jid]["keyword_score"] = 3.0
+
+    sorted_ids = sorted(rrf_scores, key=lambda i: rrf_scores[i], reverse=True)
 
     results = []
-    for job in merged.values():
-        job["score"] = job["keyword_score"] * 0.55 + job["vector_score"] * 0.45
+    for jid in sorted_ids[:top_k]:
+        job = job_map[jid]
+        job["score"] = round(rrf_scores[jid], 6)
         results.append(job)
 
-    return sorted(
-        results,
-        key=lambda j: (j["keyword_score"] > 0, j["score"]),
-        reverse=True,
-    )[:top_k]
+    return results
 
 
 def _row_to_job(row: dict, vector_score: float, keyword_score: float) -> dict:
