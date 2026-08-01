@@ -35,6 +35,7 @@ def init_db():
                 metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
                 content_hash TEXT,
                 text_length INTEGER DEFAULT 0,
+                token_count INTEGER DEFAULT 0,
                 format TEXT,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -150,24 +151,26 @@ def upsert_document(
     metadata: dict,
     content_hash: str | None = None,
     text_length: int = 0,
+    token_count: int = 0,
     fmt: str | None = None,
 ):
     version_id = f"{doc_id}::v::{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT INTO documents (id, filename, title, metadata, content_hash, text_length, format, updated_at)
-            VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, now())
+            INSERT INTO documents (id, filename, title, metadata, content_hash, text_length, token_count, format, updated_at)
+            VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s, now())
             ON CONFLICT (id) DO UPDATE SET
                 filename = EXCLUDED.filename,
                 title = EXCLUDED.title,
                 metadata = EXCLUDED.metadata,
                 content_hash = EXCLUDED.content_hash,
                 text_length = EXCLUDED.text_length,
+                token_count = EXCLUDED.token_count,
                 format = EXCLUDED.format,
                 updated_at = now()
             """,
-            (doc_id, filename, title, json.dumps(metadata, ensure_ascii=False), content_hash, text_length, fmt),
+            (doc_id, filename, title, json.dumps(metadata, ensure_ascii=False), content_hash, text_length, token_count, fmt),
         )
         conn.execute(
             """

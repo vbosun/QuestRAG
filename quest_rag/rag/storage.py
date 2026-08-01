@@ -14,7 +14,24 @@ def _load_doc_store_once():
     for item in backend.list_documents():
         meta = DocMetadata(**item)
         _doc_store[meta.doc_id] = meta
+    _enrich_from_pg()
     _doc_store_loaded = True
+
+
+def _enrich_from_pg():
+    from quest_rag.rag.pg_store import get_conn
+
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, token_count FROM documents WHERE token_count > 0"
+            ).fetchall()
+        for row in rows:
+            doc = _doc_store.get(row["id"])
+            if doc:
+                doc.token_count = row["token_count"]
+    except Exception:
+        pass
 
 
 def add_doc_metadata(meta: DocMetadata):

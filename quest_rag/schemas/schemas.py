@@ -251,6 +251,7 @@ class DocumentStatsResponse(BaseModel):
     document_count: int
     total_chunks: int
     total_text_length: int
+    total_token_count: int
     max_text_length: int
     min_text_length: int
     format_distribution: dict[str, int]
@@ -271,6 +272,7 @@ class DocMetadata(BaseModel):
     doc_id: str
     filename: str
     chunk_count: int
+    token_count: int = 0
     uploaded_at: datetime
 
 class ValidationResult(BaseModel):

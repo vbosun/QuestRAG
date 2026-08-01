@@ -214,10 +214,11 @@ def document_stats():
         doc_count = doc_count_row["cnt"]
 
         rows = conn.execute(
-            "SELECT text_length, format FROM documents WHERE text_length > 0"
+            "SELECT text_length, token_count, format FROM documents WHERE text_length > 0"
         ).fetchall()
 
     total_text = 0
+    total_tokens = 0
     max_text = 0
     min_text = float("inf")
     fmt_dist: dict[str, int] = {}
@@ -226,6 +227,7 @@ def document_stats():
         tl = row["text_length"]
         fmt = row["format"] or "unknown"
         total_text += tl
+        total_tokens += row["token_count"] or 0
         if tl > max_text:
             max_text = tl
         if tl < min_text:
@@ -239,6 +241,7 @@ def document_stats():
         document_count=doc_count,
         total_chunks=total_chunks,
         total_text_length=total_text,
+        total_token_count=total_tokens,
         max_text_length=max_text,
         min_text_length=min_text,
         format_distribution=fmt_dist,
@@ -395,6 +398,7 @@ def save_document_source(
     raw_text = "\n\n".join(page["text"] for page in raw_pages)
     filename = stage.get("filename") or metadata.title
     ext = Path(filename).suffix.lower().lstrip(".") if "." in filename else "unknown"
+    from quest_rag.rag.token_counter import count_tokens
     upsert_document(
         doc_id=doc_id,
         filename=filename,
@@ -407,6 +411,7 @@ def save_document_source(
         },
         content_hash=hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
         text_length=len(raw_text),
+        token_count=count_tokens(raw_text),
         fmt=ext or "unknown",
     )
 
