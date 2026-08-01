@@ -204,28 +204,30 @@ def doclist():
 @router.post("/stats", response_model=DocumentStatsResponse)
 def document_stats():
     """知识库统计总览。"""
+    from quest_rag.rag.pg_store import get_conn
+
     all_docs = get_all_docs()
-    total_chunks = 0
+    total_chunks = sum(doc.chunk_count for doc in all_docs)
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT text_length, format FROM documents WHERE text_length > 0"
+        ).fetchall()
+
     total_text = 0
     max_text = 0
     min_text = float("inf")
     fmt_dist: dict[str, int] = {}
 
-    for doc in all_docs:
-        total_chunks += doc.chunk_count
-        ext = Path(doc.filename).suffix.lower().lstrip(".") if doc.filename else "unknown"
-        if not ext:
-            ext = "unknown"
-        fmt_dist[ext] = fmt_dist.get(ext, 0) + 1
-
-        chunks = backend.list_chunks(doc.doc_id)
-        for chunk in chunks:
-            text_len = chunk.get("length", 0)
-            total_text += text_len
-            if text_len > max_text:
-                max_text = text_len
-            if text_len < min_text:
-                min_text = text_len
+    for row in rows:
+        tl = row["text_length"]
+        fmt = row["format"] or "unknown"
+        total_text += tl
+        if tl > max_text:
+            max_text = tl
+        if tl < min_text:
+            min_text = tl
+        fmt_dist[fmt] = fmt_dist.get(fmt, 0) + 1
 
     if min_text == float("inf"):
         min_text = 0
@@ -388,9 +390,11 @@ def save_document_source(
         for doc in stage.get("docs", [])
     ]
     raw_text = "\n\n".join(page["text"] for page in raw_pages)
+    filename = stage.get("filename") or metadata.title
+    ext = Path(filename).suffix.lower().lstrip(".") if "." in filename else "unknown"
     upsert_document(
         doc_id=doc_id,
-        filename=stage.get("filename") or metadata.title,
+        filename=filename,
         title=metadata.title,
         raw_text=raw_text,
         raw_pages=raw_pages,
@@ -399,6 +403,8 @@ def save_document_source(
             "clean_options": clean_options.model_dump(),
         },
         content_hash=hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+        text_length=len(raw_text),
+        fmt=ext or "unknown",
     )
 
 
