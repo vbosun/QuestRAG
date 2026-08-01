@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from langchain_core.documents import Document
 
 from quest_rag.api.document import clean_document_text
-from quest_rag.core.config import ELASTICSEARCH_URL
+from quest_rag.core.config import MILVUS_HOST, MILVUS_PASSWORD, MILVUS_PORT, MILVUS_USER
 from quest_rag.rag.document_embedding import get_embedding
 from quest_rag.rag.document_splitter import split_docs
 from quest_rag.rag.job_retriever import search_jobs
@@ -32,7 +32,7 @@ from quest_rag.rag.pg_store import (
     upsert_evaluation_dataset,
     upsert_evaluation_document,
 )
-from quest_rag.rag.vector_backend import ElasticsearchVectorBackend
+from quest_rag.rag.vector_backend import MilvusVectorBackend
 from quest_rag.schemas.schemas import (
     CleanOptions,
     CommonResponse,
@@ -48,6 +48,11 @@ from quest_rag.schemas.schemas import (
 router = APIRouter(prefix="/evaluations", tags=["EVALUATION"])
 SUPPORTED_TYPES = {"txt", "pdf", "md"}
 JOB_SOURCE_ID = "jobs::__es_index__"
+BGE_M3_DIMS = 1024
+
+
+def _eval_backend(collection_name: str) -> MilvusVectorBackend:
+    return MilvusVectorBackend(MILVUS_HOST, MILVUS_PORT, collection_name, MILVUS_USER, MILVUS_PASSWORD)
 
 
 @router.post("", response_model=list[EvaluationRunSummary])
@@ -73,8 +78,11 @@ def delete_run(payload: dict):
     run = delete_evaluation_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="评测记录不存在")
-    ElasticsearchVectorBackend(ELASTICSEARCH_URL, run["es_index_name"]).delete_index()
-    return CommonResponse(success=True, message="评测记录和历史索引已删除")
+    try:
+        _eval_backend("").drop_collection(run["es_index_name"])
+    except Exception:
+        pass
+    return CommonResponse(success=True, message="评测记录和临时集合已删除")
 
 
 @router.post("/documents/list", response_model=list[EvaluationDocumentSummary])
@@ -131,7 +139,7 @@ def list_eval_document_run_chunks(payload: dict):
         raise HTTPException(status_code=404, detail="评测记录不存在")
     if not run_includes_doc(run, doc_id):
         raise HTTPException(status_code=404, detail="该评测记录未使用此文档")
-    backend = ElasticsearchVectorBackend(ELASTICSEARCH_URL, run["es_index_name"])
+    backend = _eval_backend(run["es_index_name"])
     return backend.list_chunks(doc_id)
 
 
@@ -240,7 +248,7 @@ def export_dataset(payload: dict):
             }
         )
     return Response(
-        content="\ufeff" + buffer.getvalue(),
+        content="﻿" + buffer.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": (
@@ -275,7 +283,8 @@ def run_evaluation(req: EvaluationRunRequest):
     }
     create_evaluation_run(record)
 
-    eval_backend = ElasticsearchVectorBackend(ELASTICSEARCH_URL, index_name)
+    eval_backend = _eval_backend(index_name)
+    eval_backend.create_eval_collection(index_name, dims=BGE_M3_DIMS)
     try:
         indexed_chunks = index_eval_documents(eval_backend, scope_doc_ids, req.clean_options, req.split_options)
         items = evaluate_items(eval_id, eval_backend, dataset.get("items", []), req.retrieval_options)
@@ -352,13 +361,8 @@ def run_includes_doc(run: dict, doc_id: str) -> bool:
 
 def count_run_doc_chunks(run: dict, doc_id: str) -> int:
     try:
-        backend = ElasticsearchVectorBackend(ELASTICSEARCH_URL, run["es_index_name"])
-        response = backend.client.count(
-            index=run["es_index_name"],
-            query={"term": {"metadata.doc_id": doc_id}},
-            ignore_unavailable=True,
-        )
-        return int(response.get("count", 0))
+        backend = _eval_backend(run["es_index_name"])
+        return backend.count_chunks_by_doc(run["es_index_name"], doc_id)
     except Exception:
         return 0
 
@@ -377,7 +381,7 @@ def build_baseline_chunks(doc: dict) -> list[dict]:
     ]
 
 
-def index_eval_documents(eval_backend: ElasticsearchVectorBackend, doc_ids: list[str], clean_options, split_options) -> list[str]:
+def index_eval_documents(eval_backend: MilvusVectorBackend, doc_ids: list[str], clean_options, split_options) -> list[str]:
     all_chunks: list[Document] = []
     for doc_id in doc_ids:
         doc = get_evaluation_document(doc_id)
@@ -431,7 +435,7 @@ def parse_dataset_csv(text: str) -> list[dict]:
     return items
 
 
-def evaluate_items(eval_id: str, eval_backend: ElasticsearchVectorBackend, rows: list[dict], options) -> list[dict]:
+def evaluate_items(eval_id: str, eval_backend: MilvusVectorBackend, rows: list[dict], options) -> list[dict]:
     items = []
     for index, row in enumerate(rows, start=1):
         if not (row.get("question") or "").strip():

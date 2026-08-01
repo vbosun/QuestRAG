@@ -504,6 +504,45 @@ class MilvusVectorBackend(VectorBackend):
         ]
         return sorted(chunks, key=lambda c: c["metadata"].get("chunk_index", 0))
 
+    def create_eval_collection(self, name: str, dims: int):
+        """为评测创建临时集合。"""
+        from pymilvus import DataType, FieldSchema
+
+        if self._mc.has_collection(name):
+            self._mc.drop_collection(name)
+
+        schema = self._mc.create_schema(auto_id=False, enable_dynamic_field=False)
+        schema.add_field(FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=256))
+        schema.add_field(FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535))
+        schema.add_field(FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dims))
+        schema.add_field(FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=256))
+        schema.add_field(FieldSchema(name="filename", dtype=DataType.VARCHAR, max_length=512))
+        schema.add_field(FieldSchema(name="chunk_index", dtype=DataType.INT64))
+        schema.add_field(FieldSchema(name="metadata", dtype=DataType.JSON))
+
+        index_params = self._mc.prepare_index_params()
+        index_params.add_index(
+            field_name="embedding",
+            index_type="IVF_FLAT",
+            metric_type="COSINE",
+            params={"nlist": 128},
+        )
+
+        self._mc.create_collection(
+            collection_name=name, schema=schema, index_params=index_params
+        )
+
+    def drop_collection(self, name: str):
+        self._mc.drop_collection(name)
+
+    def count_chunks_by_doc(self, collection_name: str, doc_id: str) -> int:
+        results = self._mc.query(
+            collection_name=collection_name,
+            filter=f'doc_id == "{doc_id}"',
+            output_fields=["id"],
+        )
+        return len(results)
+
 
 def get_vector_backend() -> VectorBackend:
     if VECTOR_BACKEND == "elasticsearch":
