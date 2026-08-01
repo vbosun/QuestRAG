@@ -362,6 +362,8 @@ def run_includes_doc(run: dict, doc_id: str) -> bool:
 def count_run_doc_chunks(run: dict, doc_id: str) -> int:
     try:
         backend = _eval_backend(run["es_index_name"])
+        if not backend._mc.has_collection(run["es_index_name"]):
+            return 0
         return backend.count_chunks_by_doc(run["es_index_name"], doc_id)
     except Exception:
         return 0
