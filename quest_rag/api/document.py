@@ -210,6 +210,9 @@ def document_stats():
     total_chunks = sum(doc.chunk_count for doc in all_docs)
 
     with get_conn() as conn:
+        doc_count_row = conn.execute("SELECT count(*) AS cnt FROM documents").fetchone()
+        doc_count = doc_count_row["cnt"]
+
         rows = conn.execute(
             "SELECT text_length, format FROM documents WHERE text_length > 0"
         ).fetchall()
@@ -233,7 +236,7 @@ def document_stats():
         min_text = 0
 
     return DocumentStatsResponse(
-        document_count=len(all_docs),
+        document_count=doc_count,
         total_chunks=total_chunks,
         total_text_length=total_text,
         max_text_length=max_text,
