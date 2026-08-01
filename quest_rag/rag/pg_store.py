@@ -496,7 +496,7 @@ def list_system_configs() -> list[dict]:
     return results
 
 
-# ── Jobs ──────────────────────────────────────────────────────
+# ── Jobs (pgvector) ──────────────────────────────────────────
 
 _JOBS_TABLE_INITIALIZED = False
 
@@ -506,6 +506,7 @@ def init_jobs_table():
     if _JOBS_TABLE_INITIALIZED:
         return
     with get_conn() as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS jobs (
@@ -524,9 +525,15 @@ def init_jobs_table():
                 source TEXT,
                 url TEXT,
                 content TEXT,
-                embedding double precision[],
+                embedding vector(1024),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_jobs_embedding
+            ON jobs USING hnsw (embedding vector_cosine_ops)
             """
         )
     _JOBS_TABLE_INITIALIZED = True
@@ -540,7 +547,7 @@ def insert_jobs_batch(rows: list[dict]):
         with conn.cursor() as cur:
             for row in rows:
                 emb = row.get("embedding")
-                emb_literal = _vec_to_pg_array(emb) if emb else "NULL"
+                emb_literal = _vec_to_pg_vector(emb) if emb else "NULL"
                 cur.execute(
                     f"""
                     INSERT INTO jobs (id, title, company, address, salary, education,
@@ -549,7 +556,7 @@ def insert_jobs_batch(rows: list[dict]):
                     VALUES (%(id)s, %(title)s, %(company)s, %(address)s, %(salary)s,
                             %(education)s, %(experience)s, %(industry)s, %(scale)s,
                             %(category)s, %(headcount)s, %(updated)s, %(source)s,
-                            %(url)s, %(content)s, {emb_literal}::double precision[])
+                            %(url)s, %(content)s, {emb_literal}::vector)
                     ON CONFLICT (id) DO UPDATE SET
                         title = EXCLUDED.title,
                         company = EXCLUDED.company,
@@ -577,20 +584,21 @@ def delete_all_jobs():
 
 
 def vector_search_jobs(query_vector: list[float], top_k: int) -> list[dict]:
-    """Python 侧计算余弦相似度（1000 级数据量足够快）"""
+    """pgvector HNSW 索引检索。"""
     init_jobs_table()
+    vec_str = f"[{','.join(str(v) for v in query_vector)}]"
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM jobs WHERE embedding IS NOT NULL"
+            """
+            SELECT *, 1.0 - (embedding <=> %s::vector) AS similarity
+            FROM jobs
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+            """,
+            (vec_str, vec_str, top_k),
         ).fetchall()
-    results = [dict(row) for row in rows]
-    for r in results:
-        emb = r.get("embedding")
-        if isinstance(emb, str):
-            emb = _parse_pg_array(emb)
-        r["similarity"] = _cosine_similarity(query_vector, emb) if emb else 0
-    results.sort(key=lambda r: r["similarity"], reverse=True)
-    return results[:top_k]
+    return [dict(row) for row in rows]
 
 
 def keyword_search_jobs(query: str, top_k: int) -> list[dict]:
@@ -617,30 +625,8 @@ def keyword_search_jobs(query: str, top_k: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _vec_to_pg_array(vec: list[float]) -> str:
-    return "ARRAY[" + ",".join(str(v) for v in vec) + "]"
-
-
-def _parse_pg_array(val: str | list) -> list[float]:
-    if isinstance(val, list):
-        return val
-    if not val:
-        return []
-    clean = val.strip("{}")
-    if not clean:
-        return []
-    return [float(v) for v in clean.split(",")]
-
-
-def _cosine_similarity(v1: list[float], v2: list[float]) -> float:
-    if not v1 or not v2 or len(v1) != len(v2):
-        return 0.0
-    dot = sum(a * b for a, b in zip(v1, v2))
-    norm1 = (sum(a * a for a in v1)) ** 0.5
-    norm2 = (sum(b * b for b in v2)) ** 0.5
-    if norm1 == 0 or norm2 == 0:
-        return 0.0
-    return dot / (norm1 * norm2)
+def _vec_to_pg_vector(vec: list[float]) -> str:
+    return "[" + ",".join(str(v) for v in vec) + "]"
 
 
 def json_dumps(value: Any) -> str:
