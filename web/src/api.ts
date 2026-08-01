@@ -1,6 +1,8 @@
 import { request, requestJson } from "./request";
 import type {
   CleanOptions,
+  ConversationDetail,
+  ConversationListResponse,
   DocumentCommitResult,
   DocumentChunk,
   DocumentInfo,
@@ -229,6 +231,25 @@ export async function streamChat(
   }
 }
 
+export function listChatConversations(params?: { page?: number; page_size?: number }): Promise<ConversationListResponse> {
+  return postJson<ConversationListResponse>("/chat/conversations/list", {
+    page: params?.page || 1,
+    page_size: params?.page_size || 30,
+  });
+}
+
+export function createChatConversation(payload?: { title?: string }): Promise<ConversationDetail> {
+  return postJson<ConversationDetail>("/chat/conversations/create", { title: payload?.title || "新会话" });
+}
+
+export function getChatConversation(conversationId: string): Promise<ConversationDetail> {
+  return postJson<ConversationDetail>("/chat/conversations/get", { conversation_id: conversationId });
+}
+
+export function deleteChatConversation(conversationId: string): Promise<{ success: boolean }> {
+  return postJson<{ success: boolean }>("/chat/conversations/delete", { conversation_id: conversationId });
+}
+
 function parseSseFrame(frame: string): StreamEvent | null {
   let event = "message";
   const dataLines: string[] = [];
@@ -345,7 +366,7 @@ export function kickUser(userId: number): Promise<unknown> {
 // ── 政务工具 ──────────────────────────────────────────────────────────
 
 export function getSocialSecuritySummary(): Promise<SocialSecuritySummary> {
-  return getJson<SocialSecuritySummary>("/public-services/social-security/summary");
+  return postJson<SocialSecuritySummary>("/public-services/social-security/summary", {});
 }
 
 export function listSocialSecurityPayments(params?: {
@@ -354,11 +375,5 @@ export function listSocialSecurityPayments(params?: {
   end_month?: string;
   limit?: number;
 }): Promise<SocialSecurityPaymentRecord[]> {
-  const sp = new URLSearchParams();
-  if (params?.insurance_type) sp.set("insurance_type", params.insurance_type);
-  if (params?.start_month) sp.set("start_month", params.start_month);
-  if (params?.end_month) sp.set("end_month", params.end_month);
-  if (params?.limit) sp.set("limit", String(params.limit));
-  const qs = sp.toString();
-  return getJson<SocialSecurityPaymentRecord[]>(`/public-services/social-security/payments${qs ? `?${qs}` : ""}`);
+  return postJson<SocialSecurityPaymentRecord[]>("/public-services/social-security/payments", params || {});
 }

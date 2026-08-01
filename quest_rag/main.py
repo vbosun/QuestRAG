@@ -8,6 +8,7 @@ from quest_rag.rag.pg_store import init_db
 from quest_rag.auth.store import init_auth_db
 from quest_rag.auth.permission_store import init_permission_db
 from quest_rag.auth.permissions import seed_default_permissions
+from quest_rag.chat_memory.store import init_chat_memory_db
 from quest_rag.social_security.store import init_social_security_db, seed_social_security_data
 from quest_rag.subsidy.store import init_subsidy_db, seed_subsidy_rules
 
@@ -28,6 +29,7 @@ def startup():
         init_auth_db()
         init_permission_db()
         seed_default_permissions()
+        init_chat_memory_db()
         init_social_security_db()
         seed_social_security_data()
         init_subsidy_db()

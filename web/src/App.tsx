@@ -11,7 +11,18 @@ import {
 import { App, Avatar, Button, ConfigProvider, Dropdown, Layout, Menu, Result, Typography } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { deleteDocument, deleteEvaluation, listDocuments, listEvaluations, streamChat, uploadDocument } from "./api";
+import {
+  createChatConversation,
+  deleteChatConversation,
+  deleteDocument,
+  deleteEvaluation,
+  getChatConversation,
+  listChatConversations,
+  listDocuments,
+  listEvaluations,
+  streamChat,
+  uploadDocument
+} from "./api";
 import { parseMessageParts } from "./artifacts";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { ChangePasswordView } from "./auth/ChangePasswordView";
@@ -27,8 +38,8 @@ import { SocialSecurityView } from "./features/publicServices/SocialSecurityView
 import { UserManagementView } from "./features/permissions/UserManagementView";
 import { RetrievalConfigView } from "./features/retrieval/RetrievalConfigView";
 import { clearTokens } from "./request";
-import type { ChatMessage, DocumentInfo, EvaluationRun, Session } from "./types";
-import { artifactToPart, createBlankSession, loadSessions, saveSessions } from "./utils";
+import type { ChatMessage, ConversationDetail, ConversationListResponse, DocumentInfo, EvaluationRun, Session } from "./types";
+import { artifactToPart } from "./utils";
 
 const { Content, Sider, Header: AntHeader } = Layout;
 const { Text, Title } = Typography;
@@ -237,8 +248,8 @@ function WorkspaceLayout() {
 
 function ChatPage() {
   const { message } = App.useApp();
-  const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
-  const [activeSessionId, setActiveSessionId] = useState(() => loadSessions()[0]?.id);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | undefined>();
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const [documentError, setDocumentError] = useState("");
@@ -252,18 +263,7 @@ function ChatPage() {
   );
 
   useEffect(() => {
-    if (!sessions.length) {
-      const session = createBlankSession();
-      setSessions([session]);
-      setActiveSessionId(session.id);
-    }
-  }, [sessions.length]);
-
-  useEffect(() => {
-    saveSessions(sessions);
-  }, [sessions]);
-
-  useEffect(() => {
+    void refreshConversations();
     void refreshDocuments();
   }, []);
 
@@ -277,21 +277,54 @@ function ChatPage() {
     );
   }
 
-  function createSession() {
-    const session = createBlankSession();
+  async function refreshConversations() {
+    try {
+      const data = await listChatConversations({ page: 1, page_size: 30 });
+      if (!data.items.length) {
+        const created = await createChatConversation();
+        const session = conversationDetailToSession(created);
+        setSessions([session]);
+        setActiveSessionId(session.id);
+        return;
+      }
+      const listSessions = data.items.map(conversationListItemToSession);
+      setSessions(listSessions);
+      const firstId = listSessions[0]?.id;
+      if (firstId) {
+        setActiveSessionId(firstId);
+        await loadConversation(firstId);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "读取会话失败");
+    }
+  }
+
+  async function loadConversation(id: string) {
+    const detail = await getChatConversation(id);
+    const session = conversationDetailToSession(detail);
+    setSessions((current) => {
+      const exists = current.some((item) => item.id === id);
+      if (exists) return current.map((item) => (item.id === id ? session : item));
+      return [session, ...current];
+    });
+  }
+
+  async function createSession() {
+    const created = await createChatConversation();
+    const session = conversationDetailToSession(created);
     setSessions((current) => [session, ...current]);
     setActiveSessionId(session.id);
   }
 
-  function removeSession(id: string) {
+  async function removeSession(id: string) {
+    await deleteChatConversation(id);
     setSessions((current) => {
-      if (current.length <= 1) {
-        const next = createBlankSession();
-        setActiveSessionId(next.id);
-        return [next];
-      }
       const next = current.filter((s) => s.id !== id);
-      if (activeSessionId === id) setActiveSessionId(next[0]?.id);
+      if (activeSessionId === id) {
+        setActiveSessionId(next[0]?.id);
+        if (next[0]?.id) void loadConversation(next[0].id);
+      }
+      if (!next.length) void createSession();
       return next;
     });
   }
@@ -424,15 +457,51 @@ function ChatPage() {
       documents={documents}
       inputValue={inputValue}
       messagesEndRef={messagesEndRef}
-      onCreateSession={createSession}
-      onDeleteSession={removeSession}
+      onCreateSession={() => void createSession()}
+      onDeleteSession={(id) => void removeSession(id)}
       onInputChange={setInputValue}
-      onSelectSession={setActiveSessionId}
+      onSelectSession={(id) => {
+        setActiveSessionId(id);
+        void loadConversation(id);
+      }}
       onSendMessage={sendMessage}
       sending={sending}
       sessions={sessions}
     />
   );
+}
+
+function conversationListItemToSession(item: ConversationListResponse["items"][number]): Session {
+  return {
+    id: item.id,
+    title: item.title || "新会话",
+    messages: [],
+    uploads: [],
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+  };
+}
+
+function conversationDetailToSession(detail: ConversationDetail): Session {
+  return {
+    id: detail.id,
+    title: detail.title || "新会话",
+    messages: detail.messages.map((item) => ({
+      id: item.id,
+      sequence: item.sequence,
+      role: item.role,
+      content: item.content,
+      raw: item.raw || item.content,
+      parts: item.parts?.length ? item.parts : parseMessageParts(item.raw || item.content || ""),
+      citations: item.citations || [],
+      status: item.status === "completed" ? undefined : item.status,
+      error: Boolean(item.error),
+      errorMessage: item.error || undefined,
+    })),
+    uploads: [],
+    createdAt: detail.created_at,
+    updatedAt: detail.updated_at,
+  };
 }
 
 function KnowledgePage() {

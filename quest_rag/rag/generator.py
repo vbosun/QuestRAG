@@ -10,7 +10,7 @@ from quest_rag.auth.schemas import CurrentUser
 from quest_rag.rag.citations import get_citations, reset_citations
 from quest_rag.rag.llm import llm
 from quest_rag.rag.tools import tools
-from quest_rag.rag.tool_registry import build_tools_for_user, current_user_ctx
+from quest_rag.rag.tool_registry import build_tools_for_user, current_conversation_ctx, current_user_ctx
 
 SYSTEM_PROMPT = """
 你是一个政务助手.帮助用户解决就业登记业务,失业登记业务问题,或者其他的可以从文档中获取到相关业务知识的问题.如果没有符合条件的资料,则拒绝回答,不要编造.
@@ -40,23 +40,35 @@ def _make_agent(current_user: CurrentUser | None = None):
     )
 
 
-def generate(question: str, thread_id: str = "1", current_user: CurrentUser | None = None) -> str:
+def generate(
+    question: str,
+    thread_id: str = "1",
+    current_user: CurrentUser | None = None,
+    memory_context: str | None = None,
+) -> str:
     reset_citations()
     token = current_user_ctx.set(current_user)
+    conversation_token = current_conversation_ctx.set(thread_id)
     try:
         agent = _make_agent(current_user)
         result = agent.invoke(
-            {"messages": [{"role": "user", "content": question}]},
+            {"messages": [{"role": "user", "content": build_question_with_memory(question, memory_context)}]},
             {"configurable": {"thread_id": thread_id}},
         )
         return result["messages"][-1].content
     finally:
+        current_conversation_ctx.reset(conversation_token)
         current_user_ctx.reset(token)
 
 
-def generate_stream(question: str, thread_id: str = "1", current_user: CurrentUser | None = None):
+def generate_stream(
+    question: str,
+    thread_id: str = "1",
+    current_user: CurrentUser | None = None,
+    memory_context: str | None = None,
+):
     context = copy_context()
-    iterator = context.run(_generate_stream_items, question, thread_id, current_user)
+    iterator = context.run(_generate_stream_items, question, thread_id, current_user, memory_context)
     try:
         while True:
             try:
@@ -67,14 +79,20 @@ def generate_stream(question: str, thread_id: str = "1", current_user: CurrentUs
         context.run(iterator.close)
 
 
-def _generate_stream_items(question: str, thread_id: str, current_user: CurrentUser | None):
+def _generate_stream_items(
+    question: str,
+    thread_id: str,
+    current_user: CurrentUser | None,
+    memory_context: str | None,
+):
     reset_citations()
     token = current_user_ctx.set(current_user)
+    conversation_token = current_conversation_ctx.set(thread_id)
     try:
         agent = _make_agent(current_user)
         querying = False
         for chunk in agent.stream(
-            {"messages": [{"role": "user", "content": question}]},
+            {"messages": [{"role": "user", "content": build_question_with_memory(question, memory_context)}]},
             {"configurable": {"thread_id": thread_id}},
             stream_mode="messages",
         ):
@@ -92,7 +110,19 @@ def _generate_stream_items(question: str, thread_id: str, current_user: CurrentU
         yield {"event": "sources", "data": {"sources": get_citations()}}
         yield {"event": "done", "data": {"finish_reason": "stop"}}
     finally:
+        current_conversation_ctx.reset(conversation_token)
         current_user_ctx.reset(token)
+
+
+def build_question_with_memory(question: str, memory_context: str | None) -> str:
+    if not memory_context:
+        return question
+    return (
+        "以下是当前会话已保存的上下文和工具事实，只能作为本轮理解上下文使用；"
+        "涉及资格和金额时仍需按工具规则判断，不要编造。\n\n"
+        f"{memory_context}\n\n"
+        f"用户本轮问题：{question}"
+    )
 
 
 def is_tool_activity(chunk) -> bool:

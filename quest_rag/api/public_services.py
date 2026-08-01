@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
@@ -8,25 +9,29 @@ from quest_rag.social_security.service import get_my_social_security_summary, li
 router = APIRouter(prefix="/public-services", tags=["PUBLIC_SERVICES"])
 
 
-@router.get("/social-security/summary", response_model=SocialSecuritySummary)
+class SocialSecurityPaymentsRequest(BaseModel):
+    insurance_type: str | None = None
+    start_month: str | None = None
+    end_month: str | None = None
+    limit: int = Field(default=24, ge=1, le=36)
+
+
+@router.post("/social-security/summary", response_model=SocialSecuritySummary)
 def social_security_summary(
     current_user: CurrentUser = Depends(require_permission("public_services.social_security.view")),
 ):
     return get_my_social_security_summary(current_user)
 
 
-@router.get("/social-security/payments", response_model=list[SocialSecurityPaymentRecord])
+@router.post("/social-security/payments", response_model=list[SocialSecurityPaymentRecord])
 def social_security_payments(
-    insurance_type: str | None = None,
-    start_month: str | None = None,
-    end_month: str | None = None,
-    limit: int = 24,
+    req: SocialSecurityPaymentsRequest,
     current_user: CurrentUser = Depends(require_permission("public_services.social_security.view")),
 ):
     return list_my_payment_records(
         current_user,
-        insurance_type=insurance_type,
-        start_month=start_month,
-        end_month=end_month,
-        limit=max(1, min(limit, 36)),
+        insurance_type=req.insurance_type,
+        start_month=req.start_month,
+        end_month=req.end_month,
+        limit=req.limit,
     )

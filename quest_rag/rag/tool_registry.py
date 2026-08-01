@@ -10,6 +10,7 @@ from quest_rag.auth.schemas import CurrentUser
 
 # 工具执行时通过 contextvar 获取当前用户
 current_user_ctx: ContextVar[CurrentUser | None] = ContextVar("current_user", default=None)
+current_conversation_ctx: ContextVar[str | None] = ContextVar("current_conversation", default=None)
 
 
 TOOL_REGISTRY: dict[str, dict] = {

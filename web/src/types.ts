@@ -231,6 +231,7 @@ export type MessagePart =
 
 export interface ChatMessage {
   id: string;
+  sequence?: number;
   role: Role;
   content?: string;
   raw?: string;
@@ -252,6 +253,38 @@ export interface Session {
   }>;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ConversationListResponse {
+  items: Array<{
+    id: string;
+    title: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ConversationDetail {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages: Array<{
+    id: string;
+    sequence: number;
+    role: Role;
+    content: string;
+    raw: string;
+    parts: MessagePart[];
+    citations: CitationSource[];
+    status: string;
+    error?: string | null;
+    created_at: string;
+  }>;
+  tool_memories?: Array<Record<string, unknown>>;
 }
 
 export interface SocialSecuritySummary {

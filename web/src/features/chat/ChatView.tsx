@@ -5,9 +5,12 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   FileTextOutlined,
+  FormOutlined,
+  GoldOutlined,
   PlusOutlined,
   SendOutlined,
-  ShrinkOutlined
+  ShrinkOutlined,
+  WalletOutlined
 } from "@ant-design/icons";
 import { Avatar, Breadcrumb, Button, Drawer, Empty, List, Popconfirm, Space, Tag, Tooltip, Typography } from "antd";
 import React, { useRef, useState } from "react";
@@ -19,6 +22,34 @@ import type { ChartArtifact, ChatMessage, CitationSource, DocumentInfo, MessageP
 import { buildChartOption, chartTypeLabel } from "../../utils";
 
 const { Text, Title } = Typography;
+
+const starterQuestions = [
+  {
+    icon: <FileTextOutlined />,
+    title: "政策咨询",
+    question: "离校2年内高校毕业生可以享受哪些就业补贴政策？",
+  },
+  {
+    icon: <FormOutlined />,
+    title: "办理流程",
+    question: "灵活就业社保补贴的办理流程和申请材料有哪些？",
+  },
+  {
+    icon: <WalletOutlined />,
+    title: "社保查询",
+    question: "帮我查询一下本人的社保缴费概要和最近缴费记录。",
+  },
+  {
+    icon: <BarChartOutlined />,
+    title: "补贴测算",
+    question: "我是2025年毕业的，已经办理灵活就业登记，自己交社保，能领多少补贴？",
+  },
+  {
+    icon: <GoldOutlined />,
+    title: "岗位推荐",
+    question: "请根据我的情况推荐适合的就业岗位，并说明岗位要求和匹配理由。",
+  },
+];
 
 interface ChatViewProps {
   activeSession?: Session;
@@ -73,7 +104,7 @@ export function ChatView(props: ChatViewProps) {
           {messages.length ? (
             messages.map((item) => <ChatBubble key={item.id} message={item} />)
           ) : (
-            <Empty className="chat-empty" description="这里会显示当前会话的问答记录" />
+            <ChatStarters onPick={props.onInputChange} />
           )}
           <div ref={props.messagesEndRef} />
         </div>
@@ -103,6 +134,25 @@ export function ChatView(props: ChatViewProps) {
         </footer>
       </main>
     </section>
+  );
+}
+
+function ChatStarters({ onPick }: { onPick: (value: string) => void }) {
+  return (
+    <div className="chat-starters">
+      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="可以从这些常见问题开始" />
+      <div className="starter-grid">
+        {starterQuestions.map((item) => (
+          <button className="starter-card" key={item.title} type="button" onClick={() => onPick(item.question)}>
+            <span className="starter-icon">{item.icon}</span>
+            <span className="starter-copy">
+              <strong>{item.title}</strong>
+              <span>{item.question}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

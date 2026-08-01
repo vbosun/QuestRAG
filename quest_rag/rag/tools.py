@@ -11,7 +11,7 @@ from quest_rag.rag.job_retriever import search_jobs
 from quest_rag.rag.result_validator import validate_search_result
 from quest_rag.rag.retrieval_permissions import build_retrieval_permission_filter
 from quest_rag.rag.storage import get_all_docs, get_doc_by_name
-from quest_rag.rag.tool_registry import assert_tool_permission, current_user_ctx
+from quest_rag.rag.tool_registry import assert_tool_permission, current_conversation_ctx, current_user_ctx
 from quest_rag.schemas.schemas import (
     ChartArtifact,
     ChartToolInput,
@@ -22,6 +22,7 @@ from quest_rag.social_security.schemas import SocialSecuritySearchToolInput
 from quest_rag.social_security.service import format_social_security_result
 from quest_rag.subsidy.schemas import SubsidyCalculateToolInput, SubsidyMatchToolInput
 from quest_rag.subsidy.service import calculate_for_user, match_for_user
+from quest_rag.chat_memory.store import insert_tool_memory
 
 
 @tool
@@ -204,7 +205,7 @@ def social_security_search(
     if user is None:
         return "社保查询需要登录用户上下文。"
     assert_tool_permission(user, "social_security_search")
-    return format_social_security_result(
+    result = format_social_security_result(
         user,
         query_type=query_type,
         insurance_type=insurance_type,
@@ -212,6 +213,21 @@ def social_security_search(
         end_month=end_month,
         limit=limit,
     )
+    remember_tool_result(
+        user.id,
+        "social_security_search",
+        "social_security_summary",
+        {
+            "query_type": query_type,
+            "insurance_type": insurance_type,
+            "start_month": start_month,
+            "end_month": end_month,
+            "summary_text": result[:1200],
+        },
+        input_summary=f"{query_type}/{insurance_type or 'all'}",
+        output_summary=result[:300],
+    )
+    return result
 
 
 @tool(args_schema=SubsidyMatchToolInput)
@@ -222,7 +238,16 @@ def subsidy_match(user_description: str, extracted_facts: dict | None = None, to
         return "补贴匹配需要登录用户上下文。"
     assert_tool_permission(user, "subsidy_match")
     matches = match_for_user(user, user_description, extracted_facts or {}, top_k)
-    return json.dumps([item.model_dump() for item in matches], ensure_ascii=False, default=str)
+    payload = [item.model_dump() for item in matches]
+    remember_tool_result(
+        user.id,
+        "subsidy_match",
+        "subsidy_candidates",
+        {"user_description": user_description, "candidates": payload},
+        input_summary=user_description[:300],
+        output_summary="；".join(item.policy_name for item in matches[:3]),
+    )
+    return json.dumps(payload, ensure_ascii=False, default=str)
 
 
 @tool(args_schema=SubsidyCalculateToolInput)
@@ -233,7 +258,38 @@ def subsidy_calculate(policy_id: str, user_inputs: dict | None = None) -> str:
         return "补贴测算需要登录用户上下文。"
     assert_tool_permission(user, "subsidy_calculate")
     result = calculate_for_user(user, policy_id, user_inputs or {})
-    return json.dumps(result.model_dump(), ensure_ascii=False, default=str)
+    payload = result.model_dump()
+    remember_tool_result(
+        user.id,
+        "subsidy_calculate",
+        "subsidy_calculation",
+        payload,
+        input_summary=f"{policy_id}: {json.dumps(user_inputs or {}, ensure_ascii=False)[:240]}",
+        output_summary=f"{result.policy_name}: {result.status}, {result.estimated_amount or '-'}{result.amount_unit}",
+    )
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def remember_tool_result(
+    user_id: int,
+    tool_name: str,
+    memory_type: str,
+    facts: dict,
+    input_summary: str | None = None,
+    output_summary: str | None = None,
+) -> None:
+    conversation_id = current_conversation_ctx.get()
+    if not conversation_id:
+        return
+    insert_tool_memory(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        tool_name=tool_name,
+        memory_type=memory_type,
+        facts=facts,
+        input_summary=input_summary,
+        output_summary=output_summary,
+    )
 
 
 tools = [
