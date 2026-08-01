@@ -1,3 +1,4 @@
+import json
 import math
 import re
 from abc import ABC, abstractmethod
@@ -353,6 +354,11 @@ class ElasticsearchVectorBackend(VectorBackend):
 
 
 class MilvusVectorBackend(VectorBackend):
+    # 适配实际 Milvus collection schema（metadata_json 为 JSON 字符串，非 JSON 类型字段）
+    _QUERY_CORE = ["id", "text", "metadata_json"]
+    _QUERY_DOCS = ["id", "doc_id", "filename", "metadata_json"]
+    _QUERY_CHUNKS = ["id", "text", "metadata_json", "chunk_index"]
+
     def __init__(self, host: str, port: str, collection_name: str, user: str = "", password: str = ""):
         self._host = host
         self._port = port
@@ -374,6 +380,23 @@ class MilvusVectorBackend(VectorBackend):
             self._client = MilvusClient(**client_kwargs)
         return self._client
 
+    # ── metadata_json 转换 ──────────────────────────────────────
+
+    @staticmethod
+    def _parse_metadata(row: dict) -> dict:
+        val = row.get("metadata_json", "{}")
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str):
+            try:
+                parsed = json.loads(val)
+                return parsed if isinstance(parsed, dict) else {}
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        return {}
+
+    # ── VectorBackend 接口 ──────────────────────────────────────
+
     def add_documents(self, docs: list[Document], embeddings: list[list[float]]) -> list[str]:
         if not docs:
             return []
@@ -383,15 +406,7 @@ class MilvusVectorBackend(VectorBackend):
             chunk_id = f"chunk_{uuid4().hex}"
             metadata = doc.metadata.copy()
             metadata["chunk_id"] = chunk_id
-            rows.append({
-                "id": chunk_id,
-                "text": doc.page_content,
-                "embedding": embedding,
-                "doc_id": metadata.get("doc_id", ""),
-                "filename": metadata.get("filename", ""),
-                "chunk_index": metadata.get("chunk_index", 0),
-                "metadata": metadata,
-            })
+            rows.append(_doc_to_milvus_row(chunk_id, doc.page_content, embedding, metadata))
             ids.append(chunk_id)
         self._mc.insert(collection_name=self._collection_name, data=rows)
         return ids
@@ -427,13 +442,13 @@ class MilvusVectorBackend(VectorBackend):
             anns_field="embedding",
             search_params={"metric_type": "COSINE"},
             limit=top_k,
-            output_fields=["id", "text", "doc_id", "filename", "chunk_index", "metadata"],
+            output_fields=self._QUERY_CORE,
         )
         return [
             {
                 "id": hit["id"],
                 "text": hit["entity"].get("text", ""),
-                "metadata": hit["entity"].get("metadata", {}),
+                "metadata": self._parse_metadata(hit["entity"]),
                 "vector_score": hit["distance"],
                 "keyword_score": 0,
             }
@@ -447,14 +462,14 @@ class MilvusVectorBackend(VectorBackend):
         results = self._mc.query(
             collection_name=self._collection_name,
             filter=f'text like "%{escaped}%"',
-            output_fields=["id", "text", "doc_id", "filename", "chunk_index", "metadata"],
+            output_fields=self._QUERY_CORE,
             limit=top_k,
         )
         return [
             {
                 "id": r["id"],
                 "text": r.get("text", ""),
-                "metadata": r.get("metadata", {}),
+                "metadata": self._parse_metadata(r),
                 "vector_score": 0,
                 "keyword_score": 1.0,
             }
@@ -465,7 +480,7 @@ class MilvusVectorBackend(VectorBackend):
         results = self._mc.query(
             collection_name=self._collection_name,
             filter="id != ''",
-            output_fields=["doc_id", "filename", "metadata"],
+            output_fields=self._QUERY_DOCS,
             limit=10000,
         )
         docs_map: dict[str, dict] = {}
@@ -474,7 +489,7 @@ class MilvusVectorBackend(VectorBackend):
             if not doc_id:
                 continue
             if doc_id not in docs_map:
-                meta = r.get("metadata", {})
+                meta = self._parse_metadata(r)
                 docs_map[doc_id] = {
                     "doc_id": doc_id,
                     "filename": meta.get("filename") or r.get("filename") or doc_id,
@@ -490,35 +505,38 @@ class MilvusVectorBackend(VectorBackend):
         results = self._mc.query(
             collection_name=self._collection_name,
             filter=f'doc_id == "{doc_id}"',
-            output_fields=["id", "text", "metadata", "chunk_index"],
+            output_fields=self._QUERY_CHUNKS,
             limit=10000,
         )
         chunks = [
             {
                 "chunk_id": r["id"],
                 "text": r.get("text", ""),
-                "metadata": r.get("metadata", {}),
+                "metadata": self._parse_metadata(r),
                 "length": len(r.get("text", "")),
             }
             for r in results
         ]
         return sorted(chunks, key=lambda c: c["metadata"].get("chunk_index", 0))
 
+    # ── 评测临时集合 ────────────────────────────────────────────
+
     def create_eval_collection(self, name: str, dims: int):
-        """为评测创建临时集合。"""
         from pymilvus import DataType, FieldSchema
 
         if self._mc.has_collection(name):
             self._mc.drop_collection(name)
 
         schema = self._mc.create_schema(auto_id=False, enable_dynamic_field=False)
-        schema.add_field(FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=256))
+        schema.add_field(FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=128))
         schema.add_field(FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535))
         schema.add_field(FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dims))
+        schema.add_field(FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, max_length=256))
         schema.add_field(FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=256))
-        schema.add_field(FieldSchema(name="filename", dtype=DataType.VARCHAR, max_length=512))
         schema.add_field(FieldSchema(name="chunk_index", dtype=DataType.INT64))
-        schema.add_field(FieldSchema(name="metadata", dtype=DataType.JSON))
+        schema.add_field(FieldSchema(name="filename", dtype=DataType.VARCHAR, max_length=512))
+        schema.add_field(FieldSchema(name="source_type", dtype=DataType.VARCHAR, max_length=128))
+        schema.add_field(FieldSchema(name="metadata_json", dtype=DataType.VARCHAR, max_length=65535))
 
         index_params = self._mc.prepare_index_params()
         index_params.add_index(
@@ -542,6 +560,40 @@ class MilvusVectorBackend(VectorBackend):
             output_fields=["id"],
         )
         return len(results)
+
+
+def _doc_to_milvus_row(chunk_id: str, text: str, embedding: list[float], metadata: dict) -> dict:
+    """将 Document + embedding 映射为 Milvus collection 的实际字段。"""
+    return {
+        "id": chunk_id,
+        "text": text,
+        "embedding": embedding,
+        "chunk_id": chunk_id,
+        "doc_id": metadata.get("doc_id", ""),
+        "chunk_index": metadata.get("chunk_index", 0),
+        "filename": metadata.get("filename", ""),
+        "title": str(metadata.get("title", "")),
+        "source": str(metadata.get("source", "")),
+        "source_type": str(metadata.get("source_type", "")),
+        "start_index": int(metadata.get("start_index", 0)),
+        "end_index": int(metadata.get("end_index", 0)),
+        "page": int(metadata.get("page", 0)),
+        "total_pages": int(metadata.get("total_pages", 0)),
+        "creationdate": str(metadata.get("creationdate", "")),
+        "creator": str(metadata.get("creator", "")),
+        "organization": str(metadata.get("organization", "")),
+        "region": str(metadata.get("region", "")),
+        "heading_path": json.dumps(metadata.get("heading_path", []), ensure_ascii=False),
+        "ingested_at": str(metadata.get("ingested_at", "")),
+        "loader": str(metadata.get("loader", "")),
+        "moddate": str(metadata.get("moddate", "")),
+        "original_filename": str(metadata.get("original_filename", "")),
+        "producer": str(metadata.get("producer", "")),
+        "document_category": str(metadata.get("document_category", "")),
+        "mineru_output": str(metadata.get("mineru_output", "")),
+        "page_label": str(metadata.get("page_label", "")),
+        "metadata_json": json.dumps(metadata, ensure_ascii=False),
+    }
 
 
 def get_vector_backend() -> VectorBackend:
