@@ -140,6 +140,8 @@ def list_eval_document_run_chunks(payload: dict):
     if not run_includes_doc(run, doc_id):
         raise HTTPException(status_code=404, detail="该评测记录未使用此文档")
     backend = _eval_backend(run["es_index_name"])
+    if not backend._mc.has_collection(run["es_index_name"]):
+        return []
     return backend.list_chunks(doc_id)
 
 
