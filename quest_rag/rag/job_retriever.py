@@ -25,10 +25,11 @@ def merge_job_results(vector_hits: list[dict], keyword_hits: list[dict], top_k: 
     for rank, item in enumerate(keyword_hits, start=1):
         jid = item["id"]
         rrf_scores[jid] = rrf_scores.get(jid, 0) + 1.0 / (rrf_k + rank)
+        kw_score = item.get("rank", 0)
         if jid not in job_map:
-            job_map[jid] = _row_to_job(item, vector_score=0, keyword_score=3.0)
+            job_map[jid] = _row_to_job(item, vector_score=0, keyword_score=kw_score)
         else:
-            job_map[jid]["keyword_score"] = 3.0
+            job_map[jid]["keyword_score"] = kw_score
 
     sorted_ids = sorted(rrf_scores, key=lambda i: rrf_scores[i], reverse=True)
 

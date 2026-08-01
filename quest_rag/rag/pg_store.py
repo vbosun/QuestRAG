@@ -526,6 +526,15 @@ def init_jobs_table():
                 url TEXT,
                 content TEXT,
                 embedding vector(1024),
+                tsv TSVECTOR GENERATED ALWAYS AS (
+                    to_tsvector('chinese',
+                        coalesce(title, '') || ' ' ||
+                        coalesce(content, '') || ' ' ||
+                        coalesce(company, '') || ' ' ||
+                        coalesce(category, '') || ' ' ||
+                        coalesce(address, '')
+                    )
+                ) STORED,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
             """
@@ -534,6 +543,12 @@ def init_jobs_table():
             """
             CREATE INDEX IF NOT EXISTS idx_jobs_embedding
             ON jobs USING hnsw (embedding vector_cosine_ops)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_jobs_tsv
+            ON jobs USING GIN(tsv)
             """
         )
     _JOBS_TABLE_INITIALIZED = True
@@ -604,27 +619,15 @@ def vector_search_jobs(query_vector: list[float], top_k: int) -> list[dict]:
 def keyword_search_jobs(query: str, top_k: int) -> list[dict]:
     init_jobs_table()
     with get_conn() as conn:
-        pattern = f"%{query}%"
         rows = conn.execute(
             """
-            SELECT *
-            FROM jobs
-            WHERE title ILIKE %s
-               OR company ILIKE %s
-               OR category ILIKE %s
-               OR address ILIKE %s
-               OR content ILIKE %s
-            ORDER BY
-                CASE WHEN title ILIKE %s THEN 0
-                     WHEN content ILIKE %s THEN 1
-                     WHEN category ILIKE %s THEN 2
-                     WHEN company ILIKE %s THEN 3
-                     ELSE 4 END
+            SELECT *, ts_rank(tsv, query) AS rank
+            FROM jobs, plainto_tsquery('chinese', %s) query
+            WHERE tsv @@ query
+            ORDER BY rank DESC
             LIMIT %s
             """,
-            (pattern, pattern, pattern, pattern, pattern,
-             pattern, pattern, pattern, pattern,
-             top_k),
+            (query, top_k),
         ).fetchall()
     return [dict(row) for row in rows]
 
