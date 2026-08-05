@@ -226,13 +226,17 @@ def get_aggregated_user(user_id: int) -> dict:
 
 def list_roles() -> list[dict]:
     with get_conn() as conn:
+        valid_codes = _valid_permission_codes()
         roles = conn.execute(
             """SELECT r.*,
                       (SELECT COUNT(*) FROM auth_account_role ar WHERE ar.role_id = r.id) AS user_count,
-                      (SELECT COUNT(*) FROM auth_role_permission rp WHERE rp.role_id = r.id) AS permission_count,
+                      (SELECT COUNT(*) FROM auth_role_permission rp
+                       JOIN auth_permission p ON p.id = rp.permission_id
+                       WHERE rp.role_id = r.id AND p.code = ANY(%s)) AS permission_count,
                       (SELECT COUNT(*) FROM auth_role_rag_scope rs WHERE rs.role_id = r.id) AS scope_count
                FROM auth_role r
-               ORDER BY r.system_builtin DESC, r.id ASC"""
+               ORDER BY r.system_builtin DESC, r.id ASC""",
+            (valid_codes,),
         ).fetchall()
         return list(roles)
 
@@ -250,14 +254,16 @@ def create_role(code: str, name: str, description: str = "", system_builtin: boo
 
 def get_role(role_id: int) -> dict | None:
     with get_conn() as conn:
+        valid_codes = _valid_permission_codes()
         role = conn.execute("SELECT * FROM auth_role WHERE id = %s", (role_id,)).fetchone()
         if role is None:
             return None
         role = dict(role)
         perms = conn.execute(
             "SELECT p.code, p.name, p.type, p.group_code, p.risk_level FROM auth_permission p "
-            "JOIN auth_role_permission rp ON p.id = rp.permission_id WHERE rp.role_id = %s",
-            (role_id,),
+            "JOIN auth_role_permission rp ON p.id = rp.permission_id "
+            "WHERE rp.role_id = %s AND p.code = ANY(%s)",
+            (role_id, valid_codes),
         ).fetchall()
         role["permissions"] = [dict(p) for p in perms]
         scopes = conn.execute(
@@ -304,8 +310,11 @@ def delete_role(role_id: int) -> bool:
 
 def set_role_permissions(role_id: int, permission_codes: list[str]):
     with get_conn() as conn:
+        valid_codes = set(_valid_permission_codes())
         conn.execute("DELETE FROM auth_role_permission WHERE role_id = %s", (role_id,))
         for code in permission_codes:
+            if code not in valid_codes:
+                continue
             conn.execute(
                 """INSERT INTO auth_role_permission (role_id, permission_id)
                    SELECT %s, id FROM auth_permission WHERE code = %s
@@ -530,8 +539,13 @@ def insert_llm_tool_call_log(
 
 def get_permission_catalog() -> dict:
     with get_conn() as conn:
+        valid_codes = _valid_permission_codes()
         perms = conn.execute(
-            "SELECT code, name, type, group_code, risk_level, description FROM auth_permission ORDER BY group_code, code"
+            """SELECT code, name, type, group_code, risk_level, description
+               FROM auth_permission
+               WHERE code = ANY(%s)
+               ORDER BY group_code, code""",
+            (valid_codes,),
         ).fetchall()
         scopes = conn.execute(
             "SELECT code, name, description FROM rag_scope WHERE status = 1 ORDER BY code"
@@ -540,3 +554,9 @@ def get_permission_catalog() -> dict:
             "permissions": [dict(p) for p in perms],
             "rag_scopes": [dict(s) for s in scopes],
         }
+
+
+def _valid_permission_codes() -> list[str]:
+    from quest_rag.auth.permissions import PERMISSIONS
+
+    return list(PERMISSIONS.keys())

@@ -8,7 +8,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from quest_rag.auth.schemas import CurrentUser
 from quest_rag.rag.citations import get_citations, reset_citations
-from quest_rag.rag.llm import llm
+from quest_rag.rag.llm import llm, make_llm
+from quest_rag.rag.trace import current_eval_backend_ctx, current_eval_retrieval_options_ctx, current_trace_ctx
 from quest_rag.rag.tools import tools
 from quest_rag.rag.tool_registry import build_tools_for_user, current_conversation_ctx, current_user_ctx
 
@@ -33,10 +34,18 @@ SYSTEM_PROMPT = """
 checkpointer = InMemorySaver()
 
 
-def _make_agent(current_user: CurrentUser | None = None):
+def _make_agent(current_user: CurrentUser | None = None, generation_options: dict | None = None):
     agent_tools = build_tools_for_user(current_user, tools) if current_user else tools
+    model = llm
+    if generation_options:
+        model = make_llm(
+            model=generation_options.get("model") or None,
+            temperature=float(generation_options.get("temperature", 0.5)),
+            top_p=float(generation_options["top_p"]) if generation_options.get("top_p") is not None else None,
+            max_tokens=int(generation_options.get("max_tokens") or 25000),
+        )
     return create_agent(
-        model=llm, system_prompt=SYSTEM_PROMPT, tools=agent_tools, checkpointer=checkpointer
+        model=model, system_prompt=SYSTEM_PROMPT, tools=agent_tools, checkpointer=checkpointer
     )
 
 
@@ -57,6 +66,41 @@ def generate(
         )
         return result["messages"][-1].content
     finally:
+        current_conversation_ctx.reset(conversation_token)
+        current_user_ctx.reset(token)
+
+
+def generate_with_trace(
+    question: str,
+    thread_id: str = "1",
+    current_user: CurrentUser | None = None,
+    memory_context: str | None = None,
+    generation_options: dict | None = None,
+    eval_backend=None,
+    retrieval_options: dict | None = None,
+) -> dict:
+    trace: list[dict] = []
+    reset_citations()
+    token = current_user_ctx.set(current_user)
+    conversation_token = current_conversation_ctx.set(thread_id)
+    trace_token = current_trace_ctx.set(trace)
+    backend_token = current_eval_backend_ctx.set(eval_backend)
+    retrieval_token = current_eval_retrieval_options_ctx.set(retrieval_options)
+    try:
+        agent = _make_agent(current_user, generation_options)
+        result = agent.invoke(
+            {"messages": [{"role": "user", "content": build_question_with_memory(question, memory_context)}]},
+            {"configurable": {"thread_id": thread_id}},
+        )
+        return {
+            "answer": result["messages"][-1].content,
+            "tool_calls": trace,
+            "citations": get_citations(),
+        }
+    finally:
+        current_eval_retrieval_options_ctx.reset(retrieval_token)
+        current_eval_backend_ctx.reset(backend_token)
+        current_trace_ctx.reset(trace_token)
         current_conversation_ctx.reset(conversation_token)
         current_user_ctx.reset(token)
 

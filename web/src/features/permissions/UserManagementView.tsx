@@ -190,43 +190,55 @@ export function UserManagementView() {
   ];
 
   return (
-    <div>
-      <Space style={{ marginBottom: 16 }}>
-        <Input.Search
-          placeholder="搜索姓名/身份证"
-          allowClear
-          onSearch={setSearch}
-          style={{ width: 220 }}
-        />
-        <Select
-          placeholder="角色筛选"
-          allowClear
-          style={{ width: 140 }}
-          onChange={(v: string | undefined) => setRoleFilter(v || "")}
-          options={safeRoles.map((r) => ({ label: r.name, value: r.code }))}
-        />
-        <Select
-          placeholder="状态筛选"
-          allowClear
-          style={{ width: 120 }}
-          onChange={(v: number | undefined) => setStatusFilter(v)}
-          options={[
-            { label: "启用", value: 1 },
-            { label: "禁用", value: 0 },
-          ]}
-        />
-        <Button type="primary" icon={<UserAddOutlined />} onClick={() => setCreateOpen(true)}>
-          新建用户
-        </Button>
-      </Space>
+    <section className="view-shell knowledge-view">
+      <header className="panel-header">
+        <div className="page-title-block">
+          <Typography.Title level={3}>用户管理</Typography.Title>
+          <Typography.Text type="secondary" className="page-subtitle">
+            管理登录账户、角色分配、锁定解锁、禁用启用与强制下线。
+          </Typography.Text>
+        </div>
+        <Space wrap className="page-toolbar">
+          <Input.Search
+            placeholder="搜索姓名/身份证"
+            allowClear
+            onSearch={setSearch}
+            style={{ width: 220 }}
+          />
+          <Select
+            placeholder="角色筛选"
+            allowClear
+            style={{ width: 140 }}
+            onChange={(v: string | undefined) => setRoleFilter(v || "")}
+            options={safeRoles.map((r) => ({ label: r.name, value: r.code }))}
+          />
+          <Select
+            placeholder="状态筛选"
+            allowClear
+            style={{ width: 120 }}
+            onChange={(v: number | undefined) => setStatusFilter(v)}
+            options={[
+              { label: "启用", value: 1 },
+              { label: "禁用", value: 0 },
+            ]}
+          />
+          <Button type="primary" icon={<UserAddOutlined />} onClick={() => setCreateOpen(true)}>
+            新建用户
+          </Button>
+        </Space>
+      </header>
 
-      <Table
-        rowKey="id"
-        columns={columns}
-        dataSource={users}
-        loading={loading}
-        pagination={{ current: page, total, pageSize: 20, onChange: setPage, showTotal: (t) => `共 ${t} 人` }}
-      />
+      <main className="knowledge-table-page menu-table-page">
+        <div className="knowledge-table">
+          <Table
+            rowKey="id"
+            columns={columns}
+            dataSource={users}
+            loading={loading}
+            pagination={{ current: page, total, pageSize: 20, onChange: setPage, showTotal: (t) => `共 ${t} 人` }}
+          />
+        </div>
+      </main>
 
       <Modal title="新建用户" open={createOpen} onOk={handleCreate} onCancel={() => setCreateOpen(false)}>
         <Form form={createForm} layout="vertical">
@@ -264,6 +276,6 @@ export function UserManagementView() {
           onChange={(e) => setResetPwd(e.target.value)}
         />
       </Modal>
-    </div>
+    </section>
   );
 }

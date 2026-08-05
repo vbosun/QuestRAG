@@ -63,16 +63,35 @@ export interface RetrievalOptions {
   rrf_k: number;
 }
 
+export interface GenerationOptions {
+  model?: string | null;
+  temperature: number;
+  top_p: number;
+  max_tokens: number;
+  system_prompt_version: string;
+  tool_policy: "current_user";
+  seed?: number | null;
+}
+
+export interface RagasOptions {
+  enabled: boolean;
+  metrics: Array<"faithfulness" | "factual_correctness" | "response_relevancy" | "context_precision" | "context_recall">;
+}
+
 export interface EvaluationRun {
   id: string;
   name: string;
   status: string;
   dataset_path: string;
   es_index_name: string;
+  retrieval_index_name?: string | null;
+  evaluation_mode?: "retrieval" | "generation" | "both";
   document_scope: Record<string, unknown>;
   clean_options: Partial<CleanOptions>;
   split_options: Partial<SplitOptions>;
   retrieval_options: Partial<RetrievalOptions>;
+  generation_options?: Partial<GenerationOptions>;
+  ragas_options?: Partial<RagasOptions>;
   summary: Record<string, unknown>;
   error?: string | null;
   created_at: string;
@@ -92,6 +111,13 @@ export interface EvaluationItem {
   retrieval_queries?: Array<Record<string, unknown>>;
   retrieved: Array<Record<string, unknown>>;
   metrics: Record<string, unknown>;
+  generated_answer?: string | null;
+  answer_citations?: Array<Record<string, unknown>>;
+  tool_calls?: Array<Record<string, unknown>>;
+  generation_metrics?: Record<string, unknown>;
+  ragas_metrics?: Record<string, unknown>;
+  generation_error?: string | null;
+  latency_ms?: number | null;
 }
 
 export interface EvaluationDocument {

@@ -62,10 +62,14 @@ def init_db():
                 status TEXT NOT NULL,
                 dataset_path TEXT NOT NULL,
                 es_index_name TEXT NOT NULL,
+                retrieval_index_name TEXT,
+                evaluation_mode TEXT NOT NULL DEFAULT 'retrieval',
                 document_scope JSONB NOT NULL DEFAULT '{}'::jsonb,
                 clean_options JSONB NOT NULL DEFAULT '{}'::jsonb,
                 split_options JSONB NOT NULL DEFAULT '{}'::jsonb,
                 retrieval_options JSONB NOT NULL DEFAULT '{}'::jsonb,
+                generation_options JSONB NOT NULL DEFAULT '{}'::jsonb,
+                ragas_options JSONB NOT NULL DEFAULT '{}'::jsonb,
                 summary JSONB NOT NULL DEFAULT '{}'::jsonb,
                 error TEXT,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -115,12 +119,30 @@ def init_db():
                 retrieval_queries JSONB NOT NULL DEFAULT '[]'::jsonb,
                 retrieved JSONB NOT NULL DEFAULT '[]'::jsonb,
                 metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+                generated_answer TEXT,
+                answer_citations JSONB NOT NULL DEFAULT '[]'::jsonb,
+                tool_calls JSONB NOT NULL DEFAULT '[]'::jsonb,
+                generation_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+                ragas_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+                generation_error TEXT,
+                latency_ms INTEGER,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
             """
         )
+        conn.execute("ALTER TABLE evaluation_runs ADD COLUMN IF NOT EXISTS retrieval_index_name TEXT")
+        conn.execute("ALTER TABLE evaluation_runs ADD COLUMN IF NOT EXISTS evaluation_mode TEXT NOT NULL DEFAULT 'retrieval'")
+        conn.execute("ALTER TABLE evaluation_runs ADD COLUMN IF NOT EXISTS generation_options JSONB NOT NULL DEFAULT '{}'::jsonb")
+        conn.execute("ALTER TABLE evaluation_runs ADD COLUMN IF NOT EXISTS ragas_options JSONB NOT NULL DEFAULT '{}'::jsonb")
         conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS should_refuse BOOLEAN NOT NULL DEFAULT false")
         conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS retrieval_queries JSONB NOT NULL DEFAULT '[]'::jsonb")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS generated_answer TEXT")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS answer_citations JSONB NOT NULL DEFAULT '[]'::jsonb")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS tool_calls JSONB NOT NULL DEFAULT '[]'::jsonb")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS generation_metrics JSONB NOT NULL DEFAULT '{}'::jsonb")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS ragas_metrics JSONB NOT NULL DEFAULT '{}'::jsonb")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS generation_error TEXT")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS latency_ms INTEGER")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS system_config (
@@ -232,10 +254,11 @@ def create_evaluation_run(record: dict):
         conn.execute(
             """
             INSERT INTO evaluation_runs (
-                id, name, status, dataset_path, es_index_name, document_scope,
-                clean_options, split_options, retrieval_options, summary, error
+                id, name, status, dataset_path, es_index_name, retrieval_index_name,
+                evaluation_mode, document_scope, clean_options, split_options, retrieval_options,
+                generation_options, ragas_options, summary, error
             )
-            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s)
             """,
             (
                 record["id"],
@@ -243,10 +266,14 @@ def create_evaluation_run(record: dict):
                 record["status"],
                 record["dataset_path"],
                 record["es_index_name"],
+                record.get("retrieval_index_name") or record["es_index_name"],
+                record.get("evaluation_mode", "retrieval"),
                 json_dumps(record.get("document_scope", {})),
                 json_dumps(record.get("clean_options", {})),
                 json_dumps(record.get("split_options", {})),
                 json_dumps(record.get("retrieval_options", {})),
+                json_dumps(record.get("generation_options", {})),
+                json_dumps(record.get("ragas_options", {})),
                 json_dumps(record.get("summary", {})),
                 record.get("error"),
             ),
@@ -275,9 +302,11 @@ def add_evaluation_items(items: list[dict]):
                 INSERT INTO evaluation_items (
                     id, run_id, question_id, question, expected_answer,
                     expected_source_ids, expected_chunk_ids, expected_chunk_text,
-                    should_refuse, retrieval_queries, retrieved, metrics
+                    should_refuse, retrieval_queries, retrieved, metrics,
+                    generated_answer, answer_citations, tool_calls, generation_metrics,
+                    ragas_metrics, generation_error, latency_ms
                 )
-                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb)
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s)
                 """,
                 (
                     item["id"],
@@ -292,6 +321,13 @@ def add_evaluation_items(items: list[dict]):
                     json_dumps(item.get("retrieval_queries", [])),
                     json_dumps(item.get("retrieved", [])),
                     json_dumps(item.get("metrics", {})),
+                    item.get("generated_answer"),
+                    json_dumps(item.get("answer_citations", [])),
+                    json_dumps(item.get("tool_calls", [])),
+                    json_dumps(item.get("generation_metrics", {})),
+                    json_dumps(item.get("ragas_metrics", {})),
+                    item.get("generation_error"),
+                    item.get("latency_ms"),
                 ),
             )
 
@@ -300,8 +336,11 @@ def list_evaluation_runs() -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT id, name, status, dataset_path, es_index_name, document_scope,
-                   clean_options, split_options, retrieval_options, summary,
+            SELECT id, name, status, dataset_path, es_index_name,
+                   COALESCE(retrieval_index_name, es_index_name) AS retrieval_index_name,
+                   evaluation_mode, document_scope,
+                   clean_options, split_options, retrieval_options,
+                   generation_options, ragas_options, summary,
                    error, created_at, completed_at
             FROM evaluation_runs
             ORDER BY created_at DESC
@@ -314,8 +353,11 @@ def get_evaluation_run(run_id: str) -> dict | None:
     with get_conn() as conn:
         run = conn.execute(
             """
-            SELECT id, name, status, dataset_path, es_index_name, document_scope,
-                   clean_options, split_options, retrieval_options, summary,
+            SELECT id, name, status, dataset_path, es_index_name,
+                   COALESCE(retrieval_index_name, es_index_name) AS retrieval_index_name,
+                   evaluation_mode, document_scope,
+                   clean_options, split_options, retrieval_options,
+                   generation_options, ragas_options, summary,
                    error, created_at, completed_at
             FROM evaluation_runs
             WHERE id = %s
@@ -328,7 +370,9 @@ def get_evaluation_run(run_id: str) -> dict | None:
             """
              SELECT id, run_id, question_id, question, expected_answer,
                     expected_source_ids, expected_chunk_ids, expected_chunk_text,
-                    should_refuse, retrieval_queries, retrieved, metrics, created_at
+                    should_refuse, retrieval_queries, retrieved, metrics,
+                    generated_answer, answer_citations, tool_calls, generation_metrics,
+                    ragas_metrics, generation_error, latency_ms, created_at
              FROM evaluation_items
             WHERE run_id = %s
             ORDER BY question_id NULLS LAST, created_at ASC

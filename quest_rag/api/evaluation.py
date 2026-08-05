@@ -2,6 +2,7 @@ import csv
 import io
 import re
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from urllib.parse import quote
@@ -15,6 +16,7 @@ from quest_rag.auth.schemas import CurrentUser
 from quest_rag.core.config import MILVUS_HOST, MILVUS_PASSWORD, MILVUS_PORT, MILVUS_USER
 from quest_rag.rag.document_embedding import get_embedding
 from quest_rag.rag.document_splitter import split_docs
+from quest_rag.rag.generator import generate_with_trace
 from quest_rag.rag.job_retriever import search_jobs
 from quest_rag.rag.loader import load_file_with_ocr_fallback
 from quest_rag.rag.pg_store import (
@@ -35,6 +37,7 @@ from quest_rag.rag.pg_store import (
     upsert_evaluation_document,
 )
 from quest_rag.rag.vector_backend import MilvusVectorBackend
+from quest_rag.evaluation_ragas import score_ragas_sample
 from quest_rag.schemas.schemas import (
     CleanOptions,
     CommonResponse,
@@ -49,7 +52,8 @@ from quest_rag.schemas.schemas import (
 
 router = APIRouter(prefix="/evaluations", tags=["EVALUATION"])
 SUPPORTED_TYPES = {"txt", "pdf", "md"}
-JOB_SOURCE_ID = "jobs::__es_index__"
+JOB_SOURCE_ID = "jobs::__pg_index__"
+LEGACY_JOB_SOURCE_ID = "jobs::__es_index__"
 BGE_M3_DIMS = 1024
 
 
@@ -279,10 +283,14 @@ def run_evaluation(req: EvaluationRunRequest, current_user: CurrentUser = Depend
         "status": "running",
         "dataset_path": dataset["name"],
         "es_index_name": index_name,
+        "retrieval_index_name": index_name,
+        "evaluation_mode": req.evaluation_mode,
         "document_scope": {"mode": "selected" if req.document_ids else "all", "doc_ids": scope_doc_ids},
         "clean_options": req.clean_options.model_dump(),
         "split_options": req.split_options.model_dump(),
         "retrieval_options": req.retrieval_options.model_dump(),
+        "generation_options": req.generation_options.model_dump(),
+        "ragas_options": req.ragas_options.model_dump(),
         "summary": {},
     }
     create_evaluation_run(record)
@@ -291,7 +299,16 @@ def run_evaluation(req: EvaluationRunRequest, current_user: CurrentUser = Depend
     eval_backend.create_eval_collection(index_name, dims=BGE_M3_DIMS)
     try:
         indexed_chunks = index_eval_documents(eval_backend, scope_doc_ids, req.clean_options, req.split_options)
-        items = evaluate_items(eval_id, eval_backend, dataset.get("items", []), req.retrieval_options)
+        items = evaluate_items(
+            eval_id,
+            eval_backend,
+            dataset.get("items", []),
+            req.retrieval_options,
+            evaluation_mode=req.evaluation_mode,
+            generation_options=req.generation_options.model_dump(),
+            ragas_options=req.ragas_options.model_dump(),
+            current_user=current_user,
+        )
         add_evaluation_items(items)
         summary = build_summary(items, len(indexed_chunks), len(scope_doc_ids))
         finish_evaluation_run(eval_id, status="completed", summary=summary)
@@ -431,7 +448,7 @@ def parse_dataset_csv(text: str) -> list[dict]:
                 "id": get_first(row, ["ID", "id"]) or f"Q{index:04d}",
                 "question": question,
                 "expected_answer": get_first(row, ["期望答案要点", "expected_answer", "answer"]) or "",
-                "expected_source_ids": parse_refs(get_first(row, ["期望来源文档ID", "期望来源/文档", "source_id", "sourceid"]) or ""),
+                "expected_source_ids": normalize_source_ids(parse_refs(get_first(row, ["期望来源文档ID", "期望来源/文档", "source_id", "sourceid"]) or "")),
                 "expected_evidence": get_first(row, ["期望证据文本", "expected_evidence", "evidence"]) or "",
                 "should_refuse": (get_first(row, ["是否应拒答", "should_refuse"]) or "").strip() in {"是", "true", "True", "1"},
                 "focus": get_first(row, ["评测重点", "focus"]) or "",
@@ -441,48 +458,75 @@ def parse_dataset_csv(text: str) -> list[dict]:
     return items
 
 
-def evaluate_items(eval_id: str, eval_backend: MilvusVectorBackend, rows: list[dict], options) -> list[dict]:
+def evaluate_items(
+    eval_id: str,
+    eval_backend: MilvusVectorBackend,
+    rows: list[dict],
+    options,
+    *,
+    evaluation_mode: str = "retrieval",
+    generation_options: dict | None = None,
+    ragas_options: dict | None = None,
+    current_user: CurrentUser | None = None,
+) -> list[dict]:
     items = []
+    run_retrieval = evaluation_mode in {"retrieval", "both"}
+    run_generation = evaluation_mode in {"generation", "both"}
+    retrieval_options = options.model_dump() if hasattr(options, "model_dump") else dict(options)
     for index, row in enumerate(rows, start=1):
         if not (row.get("question") or "").strip():
             continue
-        expected_source_ids = row.get("expected_source_ids", [])
+        expected_source_ids = normalize_source_ids(row.get("expected_source_ids", []))
         query_text = row["question"]
-        if JOB_SOURCE_ID in expected_source_ids:
-            retrieval_queries = [
-                build_retrieval_query_snapshot(
-                    query=query_text,
-                    target="jobs",
-                    options=options,
+        retrieval_queries: list[dict] = []
+        retrieved: list[dict] = []
+        metrics: dict = {}
+        if run_retrieval:
+            retrieval_queries, retrieved, metrics = run_retrieval_eval(query_text, expected_source_ids, row, options, eval_backend)
+
+        generated_answer = None
+        answer_citations: list[dict] = []
+        tool_calls: list[dict] = []
+        generation_metrics: dict = {}
+        ragas_metrics: dict = {}
+        generation_error = None
+        latency_ms = None
+        if run_generation:
+            started = time.perf_counter()
+            try:
+                generation = generate_with_trace(
+                    query_text,
+                    thread_id=f"{eval_id}:{row.get('id') or index}",
+                    current_user=current_user,
+                    generation_options=generation_options,
+                    eval_backend=eval_backend,
+                    retrieval_options=retrieval_options,
                 )
-            ]
-            results = search_jobs(query_text, options.top_k)
-            retrieved = [serialize_job_result(result, rank) for rank, result in enumerate(results, start=1)]
-        else:
-            retrieval_queries = [
-                build_retrieval_query_snapshot(
-                    query=query_text,
-                    target="evaluation_documents",
-                    options=options,
+                generated_answer = generation.get("answer") or ""
+                answer_citations = generation.get("citations") or []
+                tool_calls = generation.get("tool_calls") or []
+                retrieval_queries.extend(build_tool_query_snapshots(tool_calls, options))
+                contexts = contexts_from_tool_calls(tool_calls)
+                ragas_metrics = score_ragas_sample(
+                    question=query_text,
+                    answer=generated_answer,
+                    contexts=contexts,
+                    reference=row.get("expected_answer"),
+                    options=ragas_options or {},
+                    generation_options=generation_options or {},
                 )
-            ]
-            query_vector = get_embedding(query_text)
-            results = eval_backend.search_with_options(
-                query_text,
-                query_vector,
-                options.top_k,
-                mode=options.mode,
-                recall_k=options.recall_k,
-                rrf_k=options.rrf_k,
-            )
-            retrieved = [serialize_result(result, rank) for rank, result in enumerate(results, start=1)]
-        metrics = calculate_metrics(
-            retrieved,
-            expected_source_ids,
-            row.get("expected_evidence", ""),
-            options.top_k,
-            should_refuse=bool(row.get("should_refuse")),
-        )
+                generation_metrics = calculate_generation_metrics(
+                    generated_answer,
+                    answer_citations,
+                    row,
+                    ragas_metrics,
+                )
+            except Exception as exc:
+                generation_error = str(exc)
+                generation_metrics = {"passed": False, "error": generation_error}
+            finally:
+                latency_ms = int((time.perf_counter() - started) * 1000)
+
         items.append(
             {
                 "id": f"{eval_id}_item_{index:04d}",
@@ -497,9 +541,55 @@ def evaluate_items(eval_id: str, eval_backend: MilvusVectorBackend, rows: list[d
                 "retrieval_queries": retrieval_queries,
                 "retrieved": retrieved,
                 "metrics": metrics,
+                "generated_answer": generated_answer,
+                "answer_citations": answer_citations,
+                "tool_calls": tool_calls,
+                "generation_metrics": generation_metrics,
+                "ragas_metrics": ragas_metrics,
+                "generation_error": generation_error,
+                "latency_ms": latency_ms,
             }
         )
     return items
+
+
+def run_retrieval_eval(query_text: str, expected_source_ids: list[str], row: dict, options, eval_backend: MilvusVectorBackend) -> tuple[list[dict], list[dict], dict]:
+    if JOB_SOURCE_ID in expected_source_ids:
+        retrieval_queries = [
+            build_retrieval_query_snapshot(
+                query=query_text,
+                target="jobs",
+                options=options,
+            )
+        ]
+        results = search_jobs(query_text, options.top_k)
+        retrieved = [serialize_job_result(result, rank) for rank, result in enumerate(results, start=1)]
+    else:
+        retrieval_queries = [
+            build_retrieval_query_snapshot(
+                query=query_text,
+                target="evaluation_documents",
+                options=options,
+            )
+        ]
+        query_vector = get_embedding(query_text)
+        results = eval_backend.search_with_options(
+            query_text,
+            query_vector,
+            options.top_k,
+            mode=options.mode,
+            recall_k=options.recall_k,
+            rrf_k=options.rrf_k,
+        )
+        retrieved = [serialize_result(result, rank) for rank, result in enumerate(results, start=1)]
+    metrics = calculate_metrics(
+        retrieved,
+        expected_source_ids,
+        row.get("expected_evidence", ""),
+        options.top_k,
+        should_refuse=bool(row.get("should_refuse")),
+    )
+    return retrieval_queries, retrieved, metrics
 
 
 def build_retrieval_query_snapshot(query: str, target: str, options) -> dict:
@@ -512,6 +602,78 @@ def build_retrieval_query_snapshot(query: str, target: str, options) -> dict:
         "mode": options.mode,
         "rrf_k": getattr(options, "rrf_k", None) or 60,
     }
+
+
+def build_tool_query_snapshots(tool_calls: list[dict], options) -> list[dict]:
+    snapshots = []
+    for call in tool_calls:
+        query = call.get("query")
+        if not query:
+            continue
+        snapshots.append(
+            {
+                "type": "agent_tool",
+                "tool_name": call.get("tool_name"),
+                "query": query,
+                "target": call.get("target"),
+                "top_k": call.get("top_k") or getattr(options, "top_k", None),
+                "recall_k": getattr(options, "recall_k", None) or getattr(options, "top_k", None),
+                "mode": getattr(options, "mode", None),
+                "rrf_k": getattr(options, "rrf_k", None) or 60,
+            }
+        )
+    return snapshots
+
+
+def contexts_from_tool_calls(tool_calls: list[dict]) -> list[str]:
+    contexts = []
+    for call in tool_calls:
+        for context in call.get("contexts", []) or []:
+            text = context.get("text") if isinstance(context, dict) else None
+            if isinstance(text, str) and text.strip():
+                contexts.append(text)
+    return contexts
+
+
+def calculate_generation_metrics(answer: str, citations: list[dict], row: dict, ragas_metrics: dict) -> dict:
+    should_refuse = bool(row.get("should_refuse"))
+    refused = looks_like_refusal(answer)
+    labels = {str(citation.get("label")) for citation in citations if citation.get("label")}
+    used_labels = set(re.findall(r"【([^】]+)】", answer or ""))
+    citation_valid = not used_labels or used_labels.issubset(labels)
+    expected_answer = row.get("expected_answer") or ""
+    expected_score = text_overlap(expected_answer, answer) if expected_answer else None
+    numeric_ragas = [float(value) for value in ragas_metrics.values() if isinstance(value, (int, float))]
+    ragas_average = round(sum(numeric_ragas) / len(numeric_ragas), 4) if numeric_ragas else None
+    if should_refuse:
+        passed = refused
+    else:
+        passed = bool(answer.strip()) and citation_valid and not refused
+    return {
+        "should_refuse": should_refuse,
+        "refusal_hit": refused if should_refuse else None,
+        "has_answer": bool(answer.strip()),
+        "citation_valid": citation_valid,
+        "used_citation_labels": sorted(used_labels),
+        "available_citation_labels": sorted(labels),
+        "expected_answer_overlap": round(expected_score, 4) if expected_score is not None else None,
+        "ragas_average": ragas_average,
+        "passed": passed,
+    }
+
+
+def looks_like_refusal(answer: str) -> bool:
+    compact = re.sub(r"\s+", "", answer or "")
+    refusal_terms = [
+        "无法回答",
+        "不能回答",
+        "没有符合条件的资料",
+        "未检索到",
+        "资料不足",
+        "无法确认",
+        "不能编造",
+    ]
+    return any(term in compact for term in refusal_terms)
 
 
 def calculate_metrics(
@@ -616,8 +778,9 @@ def build_summary(items: list[dict], chunk_count: int, document_count: int) -> d
     total = len(items)
     if not total:
         return {"question_count": 0, "document_count": document_count, "chunk_count": chunk_count}
-    refusal_items = [item for item in items if item["metrics"].get("should_refuse")]
-    retrieval_items = [item for item in items if not item["metrics"].get("should_refuse")]
+    retrieval_scored_items = [item for item in items if item.get("metrics")]
+    refusal_items = [item for item in retrieval_scored_items if item["metrics"].get("should_refuse")]
+    retrieval_items = [item for item in retrieval_scored_items if not item["metrics"].get("should_refuse")]
     retrieval_total = len(retrieval_items)
     refusal_total = len(refusal_items)
     source_hits = sum(1 for item in retrieval_items if item["metrics"].get("source_hit"))
@@ -625,6 +788,15 @@ def build_summary(items: list[dict], chunk_count: int, document_count: int) -> d
     refusal_hits = sum(1 for item in refusal_items if item["metrics"].get("refusal_hit"))
     avg_mrr = sum(float(item["metrics"].get("mrr", 0)) for item in retrieval_items) / retrieval_total if retrieval_total else 0
     pass_count = evidence_hits + refusal_hits
+    generation_items = [item for item in items if item.get("generation_metrics")]
+    generation_total = len(generation_items)
+    generation_pass = sum(1 for item in generation_items if item["generation_metrics"].get("passed"))
+    generation_errors = sum(1 for item in generation_items if item.get("generation_error"))
+    ragas_scores = [
+        float(item["generation_metrics"]["ragas_average"])
+        for item in generation_items
+        if isinstance(item.get("generation_metrics", {}).get("ragas_average"), (int, float))
+    ]
     return {
         "question_count": total,
         "retrieval_question_count": retrieval_total,
@@ -634,9 +806,14 @@ def build_summary(items: list[dict], chunk_count: int, document_count: int) -> d
         "source_hit_rate": round(source_hits / retrieval_total, 4) if retrieval_total else None,
         "evidence_hit_rate": round(evidence_hits / retrieval_total, 4) if retrieval_total else None,
         "refusal_hit_rate": round(refusal_hits / refusal_total, 4) if refusal_total else None,
-        "pass_rate": round(pass_count / total, 4),
+        "retrieval_pass_rate": round(pass_count / len(retrieval_scored_items), 4) if retrieval_scored_items else None,
+        "generation_question_count": generation_total,
+        "generation_pass_rate": round(generation_pass / generation_total, 4) if generation_total else None,
+        "generation_error_count": generation_errors,
+        "ragas_average": round(sum(ragas_scores) / len(ragas_scores), 4) if ragas_scores else None,
+        "pass_rate": round(pass_count / len(retrieval_scored_items), 4) if retrieval_scored_items else None,
         "mrr": round(avg_mrr, 4),
-        "miss_count": total - pass_count,
+        "miss_count": len(retrieval_scored_items) - pass_count if retrieval_scored_items else None,
     }
 
 
@@ -650,6 +827,10 @@ def get_first(row: dict, keys: list[str]) -> str | None:
 
 def parse_refs(value: str) -> list[str]:
     return [token.strip() for token in re.split(r"[;；,\n]", value) if token.strip()]
+
+
+def normalize_source_ids(values: list[str]) -> list[str]:
+    return [JOB_SOURCE_ID if value == LEGACY_JOB_SOURCE_ID else value for value in values]
 
 
 def text_overlap(expected: str, actual: str) -> float:

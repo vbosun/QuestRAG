@@ -3,6 +3,7 @@ from langchain_core.documents import Document
 from quest_rag.core.config import get_retrieval_config
 from quest_rag.rag.document_embedding import get_embedding
 from quest_rag.rag.retrieval_permissions import RetrievalPermissionFilter
+from quest_rag.rag.trace import current_eval_backend_ctx, current_eval_retrieval_options_ctx
 from quest_rag.rag.vector_backend import backend
 
 
@@ -11,7 +12,8 @@ def search(
     top_k: int | None = None,
     permission_filter: RetrievalPermissionFilter | None = None,
 ) -> list[Document]:
-    cfg = get_retrieval_config()
+    cfg = current_eval_retrieval_options_ctx.get() or get_retrieval_config()
+    active_backend = current_eval_backend_ctx.get() or backend
     if top_k is None:
         top_k = cfg["top_k"]
 
@@ -30,7 +32,7 @@ def search(
                 "keyword_score": result.get("keyword_score", 0),
             },
         )
-        for result in backend.search_with_options(
+        for result in active_backend.search_with_options(
             query,
             query_vector,
             top_k,

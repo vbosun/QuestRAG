@@ -155,13 +155,43 @@ class RetrievalOptions(BaseModel):
     rrf_k: int = Field(default=60, ge=1, le=120)
 
 
+class GenerationOptions(BaseModel):
+    model: str | None = Field(default=None, max_length=80)
+    temperature: float = Field(default=0.1, ge=0, le=2)
+    top_p: float = Field(default=1.0, ge=0.01, le=1)
+    max_tokens: int = Field(default=4000, ge=256, le=25000)
+    system_prompt_version: str = Field(default="default", max_length=80)
+    tool_policy: Literal["current_user"] = "current_user"
+    seed: int | None = Field(default=None, ge=0)
+
+
+class RagasOptions(BaseModel):
+    enabled: bool = True
+    metrics: list[Literal[
+        "faithfulness",
+        "factual_correctness",
+        "response_relevancy",
+        "context_precision",
+        "context_recall",
+    ]] = Field(default_factory=lambda: [
+        "faithfulness",
+        "factual_correctness",
+        "response_relevancy",
+        "context_precision",
+        "context_recall",
+    ])
+
+
 class EvaluationRunRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     dataset_id: str = Field(min_length=1)
     document_ids: list[str] = Field(default_factory=list)
+    evaluation_mode: Literal["retrieval", "generation", "both"] = "both"
     clean_options: CleanOptions = Field(default_factory=CleanOptions)
     split_options: SplitOptions = Field(default_factory=SplitOptions)
     retrieval_options: RetrievalOptions = Field(default_factory=RetrievalOptions)
+    generation_options: GenerationOptions = Field(default_factory=GenerationOptions)
+    ragas_options: RagasOptions = Field(default_factory=RagasOptions)
 
 
 class EvaluationDocumentSummary(BaseModel):
@@ -205,10 +235,14 @@ class EvaluationRunSummary(BaseModel):
     status: str
     dataset_path: str
     es_index_name: str
+    retrieval_index_name: str | None = None
+    evaluation_mode: str = "retrieval"
     document_scope: dict
     clean_options: dict
     split_options: dict
     retrieval_options: dict
+    generation_options: dict = Field(default_factory=dict)
+    ragas_options: dict = Field(default_factory=dict)
     summary: dict
     error: str | None = None
     created_at: datetime

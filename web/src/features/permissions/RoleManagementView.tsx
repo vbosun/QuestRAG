@@ -173,20 +173,32 @@ export function RoleManagementView() {
   ];
 
   return (
-    <div>
-      <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-          新建角色
-        </Button>
-      </Space>
+    <section className="view-shell knowledge-view">
+      <header className="panel-header">
+        <div className="page-title-block">
+          <Typography.Title level={3}>角色管理</Typography.Title>
+          <Typography.Text type="secondary" className="page-subtitle">
+            创建权限组角色，维护系统功能权限、大模型工具权限与 RAG 检索范围。
+          </Typography.Text>
+        </div>
+        <Space wrap>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+            新建角色
+          </Button>
+        </Space>
+      </header>
 
-      <Table
-        rowKey="id"
-        columns={columns}
-        dataSource={roles}
-        loading={loading}
-        pagination={false}
-      />
+      <main className="knowledge-table-page menu-table-page">
+        <div className="knowledge-table">
+          <Table
+            rowKey="id"
+            columns={columns}
+            dataSource={roles}
+            loading={loading}
+            pagination={false}
+          />
+        </div>
+      </main>
 
       <Drawer
         title={`编辑角色: ${editingRole?.name || ""}`}
@@ -275,6 +287,6 @@ export function RoleManagementView() {
           </Form.Item>
         </Form>
       </Modal>
-    </div>
+    </section>
   );
 }

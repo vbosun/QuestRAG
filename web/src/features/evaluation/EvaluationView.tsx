@@ -19,12 +19,20 @@ import {
   updateEvaluationDataset,
   uploadEvaluationDocuments
 } from "../../api";
-import type { CleanOptions, DocumentChunk, DocumentInfo, EvaluationDataset, EvaluationDatasetItem, EvaluationDocument, EvaluationDocumentRun, EvaluationItem, EvaluationRun, RetrievalOptions, SplitOptions } from "../../types";
+import type { CleanOptions, DocumentChunk, DocumentInfo, EvaluationDataset, EvaluationDatasetItem, EvaluationDocument, EvaluationDocumentRun, EvaluationItem, EvaluationRun, GenerationOptions, RagasOptions, RetrievalOptions, SplitOptions } from "../../types";
 import { evalStatusLabel, formatDate, formatRate, summarizeRetrieved } from "../../utils";
 
 const { Text, Title } = Typography;
-const JOB_SOURCE_ID = "jobs::__es_index__";
-const JOB_SOURCE_OPTION = { value: JOB_SOURCE_ID, label: "岗位库（ES）" };
+const JOB_SOURCE_ID = "jobs::__pg_index__";
+const LEGACY_JOB_SOURCE_ID = "jobs::__es_index__";
+const JOB_SOURCE_OPTION = { value: JOB_SOURCE_ID, label: "岗位库（PG）" };
+const RAGAS_METRIC_OPTIONS = [
+  { value: "faithfulness", label: "Faithfulness" },
+  { value: "factual_correctness", label: "Factual correctness" },
+  { value: "response_relevancy", label: "Response relevancy" },
+  { value: "context_precision", label: "Context precision" },
+  { value: "context_recall", label: "Context recall" }
+];
 
 export function EvaluationView({
   documents,
@@ -131,6 +139,20 @@ export function EvaluationView({
     mode: "hybrid",
     rrf_k: 60
   });
+  const [evaluationMode, setEvaluationMode] = useState<"retrieval" | "generation" | "both">("both");
+  const [generationOptions, setGenerationOptions] = useState<GenerationOptions>({
+    model: "",
+    temperature: 0.1,
+    top_p: 1,
+    max_tokens: 4000,
+    system_prompt_version: "default",
+    tool_policy: "current_user",
+    seed: null
+  });
+  const [ragasOptions, setRagasOptions] = useState<RagasOptions>({
+    enabled: true,
+    metrics: ["faithfulness", "factual_correctness", "response_relevancy", "context_precision", "context_recall"]
+  });
 
   function backToList() {
     setMode("list");
@@ -230,7 +252,10 @@ export function EvaluationView({
         document_ids: selectedDocIds,
         clean_options: cleanOptions,
         split_options: splitOptions,
-        retrieval_options: retrievalOptions
+        retrieval_options: retrievalOptions,
+        evaluation_mode: evaluationMode,
+        generation_options: generationOptions,
+        ragas_options: ragasOptions
       });
       message.success("评测完成");
       setActiveRun(result);
@@ -378,10 +403,10 @@ export function EvaluationView({
 
   function renderExpectedSources(value: string[] = []) {
     if (!value.length) return "未设置";
-    const hasJobs = value.includes(JOB_SOURCE_ID);
-    const docCount = value.filter((item) => item !== JOB_SOURCE_ID).length;
+    const hasJobs = value.includes(JOB_SOURCE_ID) || value.includes(LEGACY_JOB_SOURCE_ID);
+    const docCount = value.filter((item) => item !== JOB_SOURCE_ID && item !== LEGACY_JOB_SOURCE_ID).length;
     if (hasJobs && docCount) return `岗位库 + ${docCount} 个文档`;
-    if (hasJobs) return "岗位库（ES）";
+    if (hasJobs) return "岗位库（PG）";
     return `${docCount} 个文档`;
   }
 
@@ -539,6 +564,7 @@ export function EvaluationView({
               { title: "清洗策略" },
               { title: "分块策略" },
               { title: "检索策略" },
+              { title: "生成评测" },
               { title: "确认运行" }
             ]}
           />
@@ -666,11 +692,65 @@ export function EvaluationView({
                 </div>
               )}
               {step === 4 && (
+                <div className="eval-option-grid">
+                  <label>
+                    <Text strong>评测类型</Text>
+                    <Select
+                      value={evaluationMode}
+                      options={[
+                        { value: "both", label: "检索 + 生成" },
+                        { value: "retrieval", label: "仅检索" },
+                        { value: "generation", label: "仅生成" }
+                      ]}
+                      onChange={(value) => setEvaluationMode(value)}
+                    />
+                  </label>
+                  <label>
+                    <Text strong>模型</Text>
+                    <Input
+                      placeholder="留空使用当前服务默认模型"
+                      value={generationOptions.model || ""}
+                      onChange={(event) => setGenerationOptions({ ...generationOptions, model: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <Text strong>Temperature</Text>
+                    <InputNumber min={0} max={2} step={0.1} value={generationOptions.temperature} onChange={(value) => setGenerationOptions({ ...generationOptions, temperature: Number(value ?? 0.1) })} />
+                  </label>
+                  <label>
+                    <Text strong>Top P</Text>
+                    <InputNumber min={0.01} max={1} step={0.05} value={generationOptions.top_p} onChange={(value) => setGenerationOptions({ ...generationOptions, top_p: Number(value ?? 1) })} />
+                  </label>
+                  <label>
+                    <Text strong>最大生成 Token</Text>
+                    <InputNumber min={256} max={25000} value={generationOptions.max_tokens} onChange={(value) => setGenerationOptions({ ...generationOptions, max_tokens: Number(value || 4000) })} />
+                  </label>
+                  <label>
+                    <Text strong>系统提示版本</Text>
+                    <Input value={generationOptions.system_prompt_version} onChange={(event) => setGenerationOptions({ ...generationOptions, system_prompt_version: event.target.value })} />
+                  </label>
+                  <Checkbox checked={ragasOptions.enabled} onChange={(event) => setRagasOptions({ ...ragasOptions, enabled: event.target.checked })}>
+                    启用 Ragas 指标
+                  </Checkbox>
+                  <label>
+                    <Text strong>Ragas 指标</Text>
+                    <Select
+                      mode="multiple"
+                      disabled={!ragasOptions.enabled}
+                      value={ragasOptions.metrics}
+                      options={RAGAS_METRIC_OPTIONS}
+                      onChange={(value) => setRagasOptions({ ...ragasOptions, metrics: value })}
+                    />
+                  </label>
+                </div>
+              )}
+              {step === 5 && (
                 <div className="eval-confirm">
                   <Descriptions bordered column={1} size="small">
                     <Descriptions.Item label="评测名称">{name}</Descriptions.Item>
                     <Descriptions.Item label="评测集">{evalDatasets.find((dataset) => dataset.id === datasetId)?.name || datasetId || "未选择"}</Descriptions.Item>
                     <Descriptions.Item label="文档范围">{selectedDocIds.length ? `${selectedDocIds.length} 个评测文档` : "全部评测文档"}</Descriptions.Item>
+                    <Descriptions.Item label="评测类型">{evaluationMode === "both" ? "检索 + 生成" : evaluationMode === "generation" ? "仅生成" : "仅检索"}</Descriptions.Item>
                     <Descriptions.Item label="清洗策略">{JSON.stringify(cleanOptions)}</Descriptions.Item>
                     <Descriptions.Item label="分块策略">
                       {{
@@ -682,6 +762,8 @@ export function EvaluationView({
                       {splitOptions.attach_title ? " / 附标题" : ""}
                     </Descriptions.Item>
                     <Descriptions.Item label="检索策略">{JSON.stringify(retrievalOptions)}</Descriptions.Item>
+                    <Descriptions.Item label="生成参数">{JSON.stringify(generationOptions)}</Descriptions.Item>
+                    <Descriptions.Item label="Ragas">{ragasOptions.enabled ? ragasOptions.metrics.join(", ") : "未启用"}</Descriptions.Item>
                   </Descriptions>
                 </div>
               )}
@@ -691,8 +773,8 @@ export function EvaluationView({
             <Button disabled={step === 0 || running} onClick={() => setStep((value) => Math.max(value - 1, 0))}>
               上一步
             </Button>
-            {step < 4 ? (
-              <Button type="primary" onClick={() => setStep((value) => Math.min(value + 1, 4))}>
+            {step < 5 ? (
+              <Button type="primary" onClick={() => setStep((value) => Math.min(value + 1, 5))}>
                 下一步
               </Button>
             ) : (
@@ -1174,13 +1256,15 @@ export function EvaluationView({
                 <StatTile label="文档命中率" value={formatRate(activeRun.summary?.source_hit_rate)} />
                 <StatTile label="证据命中率" value={formatRate(activeRun.summary?.evidence_hit_rate)} />
                 <StatTile label="拒答通过率" value={formatRate(activeRun.summary?.refusal_hit_rate)} />
-                <StatTile label="总通过率" value={formatRate(activeRun.summary?.pass_rate)} />
+                <StatTile label="检索通过率" value={formatRate(activeRun.summary?.retrieval_pass_rate ?? activeRun.summary?.pass_rate)} />
+                <StatTile label="生成通过率" value={formatRate(activeRun.summary?.generation_pass_rate)} />
+                <StatTile label="Ragas 均分" value={String(activeRun.summary?.ragas_average ?? "-")} />
                 <StatTile label="MRR" value={String(activeRun.summary?.mrr ?? "-")} />
               </section>
               <section className="eval-detail-card">
                 <Title level={4}>参数快照</Title>
                 <Descriptions bordered column={2} size="small">
-                  <Descriptions.Item label="历史索引">{activeRun.es_index_name}</Descriptions.Item>
+                  <Descriptions.Item label="评测集合">{activeRun.retrieval_index_name || activeRun.es_index_name}</Descriptions.Item>
                   <Descriptions.Item label="状态">{evalStatusLabel(activeRun.status)}</Descriptions.Item>
                   <Descriptions.Item label="评测集">{activeRun.dataset_path}</Descriptions.Item>
                   <Descriptions.Item label="文档范围">{JSON.stringify(activeRun.document_scope)}</Descriptions.Item>
@@ -1194,6 +1278,9 @@ export function EvaluationView({
                     })()}
                   </Descriptions.Item>
                   <Descriptions.Item label="检索策略">{JSON.stringify(activeRun.retrieval_options)}</Descriptions.Item>
+                  <Descriptions.Item label="评测类型">{activeRun.evaluation_mode === "both" ? "检索 + 生成" : activeRun.evaluation_mode === "generation" ? "仅生成" : "仅检索"}</Descriptions.Item>
+                  {activeRun.generation_options && <Descriptions.Item label="生成参数">{JSON.stringify(activeRun.generation_options)}</Descriptions.Item>}
+                  {activeRun.ragas_options && <Descriptions.Item label="Ragas">{JSON.stringify(activeRun.ragas_options)}</Descriptions.Item>}
                   {activeRun.error && <Descriptions.Item label="错误">{activeRun.error}</Descriptions.Item>}
                 </Descriptions>
               </section>
@@ -1207,11 +1294,11 @@ export function EvaluationView({
                         title={
                           <Space wrap>
                             <Text strong>{item.question_id || item.id}</Text>
-                            {item.should_refuse || item.metrics?.should_refuse ? (
+                            {item.metrics && Object.keys(item.metrics).length > 0 && (item.should_refuse || item.metrics?.should_refuse) ? (
                               <Tag color={item.metrics?.refusal_hit ? "success" : "error"}>
                                 {item.metrics?.refusal_hit ? "拒答通过" : "拒答未通过"}
                               </Tag>
-                            ) : (
+                            ) : item.metrics && Object.keys(item.metrics).length > 0 ? (
                               <>
                                 <Tag color={item.metrics?.source_hit ? "success" : "error"}>
                                   {item.metrics?.source_hit ? "文档命中" : "文档未命中"}
@@ -1220,6 +1307,14 @@ export function EvaluationView({
                                   {item.metrics?.evidence_hit ? "证据命中" : "证据未命中"}
                                 </Tag>
                               </>
+                            ) : null}
+                            {item.generation_metrics && Object.keys(item.generation_metrics).length > 0 && (
+                              <Tag color={item.generation_metrics?.passed ? "success" : "error"}>
+                                {item.generation_metrics?.passed ? "生成通过" : "生成未通过"}
+                              </Tag>
+                            )}
+                            {item.generation_error && (
+                              <Tag color="error">生成错误</Tag>
                             )}
                           </Space>
                         }
@@ -1227,7 +1322,7 @@ export function EvaluationView({
                           <div className="eval-item-body">
                             <Text>{item.question}</Text>
                             <Text type="secondary">召回：{summarizeRetrieved(item.retrieved)}</Text>
-                            <Text type="secondary">点击查看本次召回结果</Text>
+                            <Text type="secondary">点击查看检索、生成和 Ragas 结果</Text>
                           </div>
                         }
                       />
@@ -1239,7 +1334,7 @@ export function EvaluationView({
                   footer={null}
                   onCancel={() => setActiveRetrievedItem(null)}
                   open={!!activeRetrievedItem}
-                  title={activeRetrievedItem ? `召回结果：${activeRetrievedItem.question_id || activeRetrievedItem.id}` : "召回结果"}
+                  title={activeRetrievedItem ? `评测结果：${activeRetrievedItem.question_id || activeRetrievedItem.id}` : "评测结果"}
                   width={1400}
                 >
                   {activeRetrievedItem && (
@@ -1261,9 +1356,9 @@ export function EvaluationView({
                           <Text type="secondary">期望来源</Text>
                           <Space wrap>
                             {(activeRetrievedItem.expected_source_ids || []).length ? (
-                              activeRetrievedItem.expected_source_ids.map((sourceId) => (
-                                <Tag key={sourceId}>{sourceId === JOB_SOURCE_ID ? "岗位库（ES）" : sourceId}</Tag>
-                              ))
+                                activeRetrievedItem.expected_source_ids.map((sourceId) => (
+                                  <Tag key={sourceId}>{sourceId === JOB_SOURCE_ID || sourceId === LEGACY_JOB_SOURCE_ID ? "岗位库（PG）" : sourceId}</Tag>
+                                ))
                             ) : (
                               <Tag>未设置</Tag>
                             )}
@@ -1272,13 +1367,13 @@ export function EvaluationView({
                         <div className="baseline-block">
                           <Text type="secondary">本题指标</Text>
                           <Space wrap>
-                            {activeRetrievedItem.should_refuse || activeRetrievedItem.metrics?.should_refuse ? (
+                            {activeRetrievedItem.metrics && Object.keys(activeRetrievedItem.metrics).length > 0 && (activeRetrievedItem.should_refuse || activeRetrievedItem.metrics?.should_refuse) ? (
                               <>
                                 <Tag color={activeRetrievedItem.metrics?.refusal_hit ? "success" : "error"}>
                                   {activeRetrievedItem.metrics?.refusal_hit ? "拒答通过" : "拒答未通过"}
                                 </Tag>
                               </>
-                            ) : (
+                            ) : activeRetrievedItem.metrics && Object.keys(activeRetrievedItem.metrics).length > 0 ? (
                               <>
                                 <Tag color={activeRetrievedItem.metrics?.source_hit ? "success" : "error"}>
                                   {activeRetrievedItem.metrics?.source_hit ? "来源命中" : "来源未命中"}
@@ -1288,12 +1383,55 @@ export function EvaluationView({
                                 </Tag>
                                 <Text type="secondary">证据分: {String(activeRetrievedItem.metrics?.evidence_score ?? "-")}</Text>
                               </>
+                            ) : (
+                              <Tag>未运行检索评测</Tag>
                             )}
-                            <Text type="secondary">MRR: {String(activeRetrievedItem.metrics?.mrr ?? "-")}</Text>
+                            {activeRetrievedItem.metrics && Object.keys(activeRetrievedItem.metrics).length > 0 && <Text type="secondary">MRR: {String(activeRetrievedItem.metrics?.mrr ?? "-")}</Text>}
                           </Space>
                         </div>
                       </aside>
                       <section className="retrieval-results">
+                        {(activeRetrievedItem.generated_answer || activeRetrievedItem.generation_error) && (
+                          <div className="baseline-block">
+                            <Text strong>生成回答</Text>
+                            {activeRetrievedItem.generation_error ? (
+                              <pre>{activeRetrievedItem.generation_error}</pre>
+                            ) : (
+                              <pre>{activeRetrievedItem.generated_answer}</pre>
+                            )}
+                            <Space wrap>
+                              {activeRetrievedItem.generation_metrics && Object.entries(activeRetrievedItem.generation_metrics).map(([key, value]) => (
+                                <Tag key={key}>{key}: {String(value)}</Tag>
+                              ))}
+                            </Space>
+                          </div>
+                        )}
+                        {activeRetrievedItem.ragas_metrics && Object.keys(activeRetrievedItem.ragas_metrics).length > 0 && (
+                          <div className="baseline-block">
+                            <Text strong>Ragas 指标</Text>
+                            <Space wrap>
+                              {Object.entries(activeRetrievedItem.ragas_metrics).map(([key, value]) => (
+                                <Tag key={key}>{key}: {typeof value === "object" ? JSON.stringify(value) : String(value)}</Tag>
+                              ))}
+                            </Space>
+                          </div>
+                        )}
+                        {(activeRetrievedItem.answer_citations || []).length > 0 && (
+                          <div className="baseline-block">
+                            <Text strong>生成引用</Text>
+                            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                              {(activeRetrievedItem.answer_citations || []).map((citation, index) => (
+                                <div className="retrieval-query-item" key={`${String(citation.label || index)}`}>
+                                  <Space wrap>
+                                    <Tag>【{String(citation.label || "-")}】</Tag>
+                                    <Text strong>{String(citation.title || "未知来源")}</Text>
+                                  </Space>
+                                  <pre>{String(citation.snippet || "")}</pre>
+                                </div>
+                              ))}
+                            </Space>
+                          </div>
+                        )}
                         <Text strong>本次召回结果</Text>
                         <div className="baseline-block retrieval-query-block">
                           <Text type="secondary">本次检索 Query</Text>

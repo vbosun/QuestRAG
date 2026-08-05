@@ -61,10 +61,6 @@ PERMISSIONS: dict[str, dict] = {
         "name": "删除文档", "type": "API", "group_code": "knowledge",
         "risk_level": "HIGH",
     },
-    "knowledge.document.acl.manage": {
-        "name": "管理文档权限", "type": "API", "group_code": "knowledge",
-        "risk_level": "HIGH",
-    },
 
     # ── 评测操作 ──
     "evaluation.run.read": {
@@ -157,34 +153,6 @@ PERMISSIONS: dict[str, dict] = {
         "name": "岗位检索工具", "type": "LLM_TOOL", "group_code": "llm_tool",
         "risk_level": "LOW",
     },
-    "llm.tool.evaluation_read": {
-        "name": "读取评测工具", "type": "LLM_TOOL", "group_code": "llm_tool",
-        "risk_level": "LOW",
-    },
-    "llm.tool.evaluation_run": {
-        "name": "运行评测工具", "type": "LLM_TOOL", "group_code": "llm_tool",
-        "risk_level": "MEDIUM",
-    },
-    "llm.tool.document_ingest": {
-        "name": "文档入库工具", "type": "LLM_TOOL", "group_code": "llm_tool",
-        "risk_level": "HIGH",
-    },
-    "llm.tool.document_delete": {
-        "name": "删除文档工具", "type": "LLM_TOOL", "group_code": "llm_tool",
-        "risk_level": "HIGH",
-    },
-    "llm.tool.system_config_read": {
-        "name": "读取系统配置工具", "type": "LLM_TOOL", "group_code": "llm_tool",
-        "risk_level": "LOW",
-    },
-    "llm.tool.system_config_write": {
-        "name": "修改系统配置工具", "type": "LLM_TOOL", "group_code": "llm_tool",
-        "risk_level": "HIGH",
-    },
-    "llm.tool.user_permission_manage": {
-        "name": "用户权限管理工具", "type": "LLM_TOOL", "group_code": "llm_tool",
-        "risk_level": "CRITICAL",
-    },
     "llm.tool.social_security_search": {
         "name": "社保查询工具", "type": "LLM_TOOL", "group_code": "llm_tool",
         "risk_level": "LOW",
@@ -197,6 +165,17 @@ PERMISSIONS: dict[str, dict] = {
         "name": "补贴测算工具", "type": "LLM_TOOL", "group_code": "llm_tool",
         "risk_level": "LOW",
     },
+}
+
+OBSOLETE_PERMISSION_CODES = {
+    "knowledge.document.acl.manage",
+    "llm.tool.evaluation_read",
+    "llm.tool.evaluation_run",
+    "llm.tool.document_ingest",
+    "llm.tool.document_delete",
+    "llm.tool.system_config_read",
+    "llm.tool.system_config_write",
+    "llm.tool.user_permission_manage",
 }
 
 RAG_SCOPES: dict[str, dict] = {
@@ -231,7 +210,6 @@ DEFAULT_ROLES: dict[str, dict] = {
             "public_services.view", "public_services.social_security.view",
             "llm.tool.knowledge_search", "llm.tool.job_search",
             "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
-            "llm.tool.evaluation_read", "llm.tool.system_config_read",
         ],
         "rag_scopes": ["public_policy", "jobs", "evaluation_docs", "social_security_mock", "subsidy_policy"],
     },
@@ -247,7 +225,7 @@ DEFAULT_ROLES: dict[str, dict] = {
             "evaluation.document.manage", "evaluation.dataset.manage",
             "system.retrieval_config.view",
             "public_services.view", "public_services.social_security.view",
-            "llm.tool.knowledge_search", "llm.tool.job_search", "llm.tool.evaluation_read",
+            "llm.tool.knowledge_search", "llm.tool.job_search",
             "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
         ],
         "rag_scopes": ["public_policy", "jobs", "evaluation_docs", "social_security_mock", "subsidy_policy"],
@@ -259,7 +237,7 @@ DEFAULT_ROLES: dict[str, dict] = {
         "permissions": [
             "chat.view", "profile.view",
             "evaluation.view", "evaluation.run.read",
-            "llm.tool.knowledge_search", "llm.tool.job_search", "llm.tool.evaluation_read",
+            "llm.tool.knowledge_search", "llm.tool.job_search",
         ],
         "rag_scopes": ["public_policy", "jobs", "evaluation_docs"],
     },
@@ -290,6 +268,9 @@ def seed_default_permissions():
     )
 
     with get_conn() as conn:
+        for code in OBSOLETE_PERMISSION_CODES:
+            conn.execute("DELETE FROM auth_permission WHERE code = %s", (code,))
+
         # 1. 写入权限
         perm_ids: dict[str, int] = {}
         for code, info in PERMISSIONS.items():

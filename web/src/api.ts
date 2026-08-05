@@ -13,6 +13,8 @@ import type {
   EvaluationDocument,
   EvaluationDocumentRun,
   EvaluationRun,
+  GenerationOptions,
+  RagasOptions,
   RetrievalOptions,
   SocialSecurityPaymentRecord,
   SocialSecuritySummary,
@@ -151,6 +153,9 @@ export async function runEvaluation(payload: {
   clean_options: CleanOptions;
   split_options: SplitOptions;
   retrieval_options: RetrievalOptions;
+  evaluation_mode: "retrieval" | "generation" | "both";
+  generation_options: GenerationOptions;
+  ragas_options: RagasOptions;
 }): Promise<EvaluationRun> {
   return postJson<EvaluationRun>("/evaluations/run", payload);
 }

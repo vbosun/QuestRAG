@@ -35,11 +35,18 @@ body {
 .app-shell {
   height: 100vh;
   min-height: 100vh;
+  min-width: 0;
   overflow: hidden;
   background:
     linear-gradient(135deg, rgba(36, 91, 97, 0.1), transparent 42%),
     linear-gradient(315deg, rgba(57, 100, 154, 0.08), transparent 38%),
     var(--page-bg);
+}
+
+.app-shell > .ant-layout {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .app-sider {
@@ -149,7 +156,8 @@ body {
 }
 
 .app-content {
-  height: 100%;
+  flex: 1 1 auto;
+  height: auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -157,7 +165,9 @@ body {
 }
 
 .view-shell {
-  height: calc(100vh - 28px);
+  height: 100%;
+  max-height: 100%;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -169,8 +179,8 @@ body {
 .chat-view {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  height: calc(100vh - 128px);
-  max-height: calc(100vh - 128px);
+  height: 100%;
+  max-height: 100%;
   min-height: 0;
 }
 
@@ -236,14 +246,83 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  min-width: 0;
   min-height: 72px;
+  flex: 0 0 auto;
   padding: 14px 22px;
   border-bottom: 1px solid var(--border);
+}
+
+.panel-header > div,
+.page-title-block,
+.page-toolbar {
+  min-width: 0;
 }
 
 .panel-header h3.ant-typography {
   margin: 0 0 4px;
   letter-spacing: 0;
+}
+
+.page-toolbar {
+  justify-content: flex-end;
+}
+
+.app-content .ant-table-wrapper,
+.app-content .ant-table,
+.app-content .ant-card,
+.app-content .ant-list,
+.app-content .ant-descriptions,
+.app-content .ant-form,
+.app-content .ant-space {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.app-content .ant-table-wrapper,
+.app-content .ant-table-content {
+  overflow-x: auto;
+}
+
+.app-content .ant-form-item-control-input-content,
+.app-content .ant-select,
+.app-content .ant-input,
+.app-content .ant-input-number,
+.app-content .ant-picker {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.ant-modal {
+  max-width: calc(100vw - 32px);
+}
+
+.ant-modal .ant-modal-content {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+}
+
+.ant-modal .ant-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.ant-modal .ant-modal-footer {
+  margin-top: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.ant-drawer .ant-drawer-content-wrapper {
+  max-width: calc(100vw - 24px);
+}
+
+.ant-drawer .ant-drawer-body {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .messages {
@@ -361,15 +440,30 @@ body {
 
 .message-bubble {
   position: relative;
+  max-width: 100%;
+  min-width: 0;
   border-radius: 8px;
   padding: 12px 14px;
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
 
+.message-content {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: visible;
+}
+
 .assistant-bubble {
+  min-width: 260px;
+  overflow: hidden;
+  padding: 0;
   border: 1px solid var(--border);
   background: var(--surface);
+}
+
+.assistant-bubble .message-content {
+  padding: 12px 14px;
 }
 
 .user-bubble {
@@ -379,7 +473,8 @@ body {
 
 .message-bubble.collapsed .message-content {
   max-height: min(820px, calc(100vh - 220px));
-  overflow: hidden;
+  overflow-x: visible;
+  overflow-y: hidden;
 }
 
 .message-bubble.expanded .message-content {
@@ -389,10 +484,13 @@ body {
 .message-actions {
   display: flex;
   justify-content: flex-end;
-  margin: 12px -14px -12px;
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
   border-top: 1px solid var(--border);
   background: #f7fafb;
   padding: 6px 10px;
+  white-space: nowrap;
 }
 
 .message-actions .ant-btn {
@@ -444,6 +542,10 @@ body {
 
 .markdown-body {
   color: inherit;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-body > :first-child {
@@ -468,9 +570,13 @@ body {
 }
 
 .markdown-body table {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   margin: 10px 0;
   border-collapse: collapse;
+  white-space: nowrap;
 }
 
 .markdown-body th,
@@ -484,14 +590,28 @@ body {
   border-radius: 4px;
   background: #eef3f5;
   padding: 2px 4px;
+  white-space: normal;
 }
 
 .markdown-body pre {
+  max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   border-radius: 8px;
   background: #172026;
   color: #f4f7fb;
   padding: 12px;
+}
+
+.markdown-body pre code {
+  display: block;
+  min-width: max-content;
+  background: transparent;
+  color: inherit;
+  overflow-wrap: normal;
+  padding: 0;
+  white-space: pre;
+  word-break: normal;
 }
 
 .citation-inline {
@@ -625,6 +745,8 @@ body {
 .artifact-card {
   display: grid;
   gap: 10px;
+  max-width: 100%;
+  min-width: 0;
   margin: 12px 0;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -637,9 +759,12 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .chart-canvas {
+  max-width: 100%;
+  min-width: 0;
   width: 100%;
   height: 320px;
 }
@@ -830,6 +955,11 @@ body {
   min-height: 0;
   overflow: hidden;
   padding: 22px;
+}
+
+.menu-table-page {
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
 }
 
 .knowledge-table-head {
@@ -1247,10 +1377,10 @@ body {
 
 .ingest-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
-  gap: 16px;
+  gap: 12px;
   overflow: hidden;
   padding: 18px;
 }
@@ -1367,11 +1497,15 @@ body {
 }
 
 .ingest-step-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   border-top: 1px solid var(--border);
-  padding: 14px 18px 0;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 12px 0 0;
 }
 
 .ingest-grid-single {
@@ -1395,13 +1529,14 @@ body {
   }
 
   .view-shell {
-    min-height: calc(100vh - 20px);
+    height: 100%;
+    min-height: 0;
   }
 
   .chat-view {
     grid-template-columns: 1fr;
-    height: calc(100vh - 20px);
-    max-height: none;
+    height: 100%;
+    max-height: 100%;
   }
 
   .session-panel {
@@ -1432,6 +1567,19 @@ body {
     padding: 16px;
   }
 
+  .page-toolbar,
+  .knowledge-toolbar {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .page-toolbar .ant-input-search,
+  .page-toolbar .ant-select,
+  .knowledge-toolbar .ant-input-search,
+  .knowledge-toolbar .ant-select {
+    width: 100% !important;
+  }
+
   .messages {
     padding: 16px;
   }
@@ -1442,6 +1590,10 @@ body {
 
   .message-row {
     max-width: 100%;
+  }
+
+  .assistant-bubble {
+    min-width: min(240px, 100%);
   }
 
   .starter-grid {

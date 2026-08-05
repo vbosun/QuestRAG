@@ -16,6 +16,8 @@ const RAG_SCOPE_LABELS: Record<string, string> = {
   internal_policy: "内部政策库",
   department_docs: "部门文档",
   private_docs: "个人文档",
+  social_security_mock: "模拟社保库",
+  subsidy_policy: "补贴政策库",
 };
 
 export function KnowledgeView({
@@ -841,9 +843,11 @@ export function KnowledgeView({
           </section>
           {step > 0 && step < 4 && (
             <div className="ingest-step-footer">
-              <Button onClick={() => setStep((value) => Math.max(value - 1, 0))}>
-                上一步
-              </Button>
+              {step !== 1 && (
+                <Button onClick={() => setStep((value) => Math.max(value - 1, 0))}>
+                  上一步
+                </Button>
+              )}
               <Button type="primary" loading={previewing} onClick={() => goNext(step + 1)}>
                 下一步
               </Button>

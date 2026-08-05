@@ -23,7 +23,7 @@ import {
   streamChat,
   uploadDocument
 } from "./api";
-import { parseMessageParts } from "./artifacts";
+import { parseMessageParts, parseStreamingMessageParts } from "./artifacts";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { ChangePasswordView } from "./auth/ChangePasswordView";
 import { LoginPage } from "./auth/LoginPage";
@@ -398,7 +398,13 @@ function ChatPage() {
           if (event.event === "delta") {
             updateAssistantMessage(session.id, assistantId, (current) => {
               const raw = `${current.raw || ""}${event.data.text}`;
-              return { ...current, raw, parts: parseMessageParts(raw), status: undefined };
+              const parsed = parseStreamingMessageParts(raw);
+              return {
+                ...current,
+                raw,
+                parts: parsed.parts,
+                status: parsed.bufferingArtifact ? "正在生成图表..." : undefined,
+              };
             });
             return;
           }

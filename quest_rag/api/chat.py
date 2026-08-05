@@ -9,6 +9,7 @@ from quest_rag.logger import logger
 
 from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
+from quest_rag.chat_memory.artifacts import parse_message_parts
 from quest_rag.chat_memory.store import (
     create_conversation,
     delete_conversation,
@@ -58,7 +59,7 @@ def chat(req: ChatRequest, current_user: CurrentUser = Depends(require_permissio
             current_user=current_user,
             memory_context=memory_context,
         )
-        insert_message(current_user.id, session_id, "assistant", result, raw=result)
+        insert_message(current_user.id, session_id, "assistant", result, raw=result, parts=parse_message_parts(result))
     except Exception as e:
         logger.exception(str(e))
         raise HTTPException(
@@ -112,7 +113,7 @@ def chat_stream(req: ChatRequest, current_user: CurrentUser = Depends(require_pe
                     "assistant",
                     raw,
                     raw=raw,
-                    parts=[{"type": "markdown", "content": raw}] if raw else [],
+                    parts=parse_message_parts(raw) if raw else [],
                     citations=citations,
                     status="failed" if error_message else "completed",
                     error=error_message,

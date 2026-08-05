@@ -23,6 +23,7 @@ dependencies = [
     "redis>=8.1.0",
     "argon2-cffi>=25.1.0",
     "gmssl>=3.2.2",
+    "ragas>=0.3.0",
 ]
 
 [tool.ruff.lint]

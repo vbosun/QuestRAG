@@ -12,6 +12,7 @@ from quest_rag.rag.result_validator import validate_search_result
 from quest_rag.rag.retrieval_permissions import build_retrieval_permission_filter
 from quest_rag.rag.storage import get_all_docs, get_doc_by_name
 from quest_rag.rag.tool_registry import assert_tool_permission, current_conversation_ctx, current_user_ctx
+from quest_rag.rag.trace import append_tool_trace
 from quest_rag.schemas.schemas import (
     ChartArtifact,
     ChartToolInput,
@@ -40,6 +41,20 @@ def retrieve_context(query: str) -> str:
     docs = search(query, cfg["top_k"], permission_filter=permission_filter)
 
     results = validate_search_result(docs)
+    append_tool_trace(
+        {
+            "tool_name": "retrieve_context",
+            "target": "evaluation_documents",
+            "query": query,
+            "contexts": [
+                {
+                    "text": doc.page_content,
+                    "metadata": doc.metadata or {},
+                }
+                for doc in results
+            ],
+        }
+    )
 
     serialized_parts = []
     for doc in results:
@@ -120,6 +135,26 @@ def retrieve_jobs(query: str, top_k: int | None = None) -> str:
     if top_k is None:
         top_k = get_retrieval_config()["top_k"]
     jobs = search_jobs(query, top_k)
+    append_tool_trace(
+        {
+            "tool_name": "retrieve_jobs",
+            "target": "jobs",
+            "query": query,
+            "top_k": top_k,
+            "contexts": [
+                {
+                    "text": format_job_result(job),
+                    "metadata": {
+                        "source_type": "job",
+                        "job_id": job.get("id"),
+                        "title": job.get("title"),
+                        "company": job.get("company"),
+                    },
+                }
+                for job in jobs
+            ],
+        }
+    )
     if not jobs:
         return "未检索到匹配岗位。"
 

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessageChunk, ToolMessage
 
 from quest_rag.main import app
+from quest_rag.chat_memory.artifacts import normalize_message_parts, parse_message_parts
 from quest_rag.rag.citations import get_citations, reset_citations
 from quest_rag.rag.generator import extract_stream_text, is_tool_activity
 from quest_rag.rag.tools import create_chart_artifact
@@ -83,6 +84,80 @@ def test_create_chart_artifact_returns_stable_json_payload():
     assert payload["encoding"] == {"x": "name", "y": "value", "series": None}
     assert payload["download"]["filename"] == "问题类型占比.png"
     assert payload["data"][0]["value"] == 42
+
+
+def test_message_parts_parse_questrag_chart_artifact():
+    raw = (
+        "图表如下：\n\n"
+        "```questrag-artifact\n"
+        + json.dumps(
+            {
+                "type": "chart",
+                "version": "1.0",
+                "id": "chart-test",
+                "chart_type": "pie",
+                "title": "问题类型占比",
+                "data": [{"name": "办理条件", "value": 42}],
+                "encoding": {"x": "name", "y": "value", "series": None},
+                "download": {"filename": "问题类型占比.png"},
+            },
+            ensure_ascii=False,
+        )
+        + "\n```\n\n图表解读。"
+    )
+
+    parts = parse_message_parts(raw)
+
+    assert [part["type"] for part in parts] == ["markdown", "chart", "markdown"]
+    assert parts[1]["artifact"]["chart_type"] == "pie"
+
+
+def test_normalize_message_parts_recovers_legacy_markdown_artifact():
+    raw = (
+        "```questrag-artifact\n"
+        + json.dumps(
+            {
+                "type": "chart",
+                "version": "1.0",
+                "id": "chart-test",
+                "chart_type": "pie",
+                "title": "问题类型占比",
+                "data": [{"name": "办理条件", "value": 42}],
+                "encoding": {"x": "name", "y": "value", "series": None},
+                "download": {"filename": "问题类型占比.png"},
+            },
+            ensure_ascii=False,
+        )
+        + "\n```"
+    )
+
+    parts = normalize_message_parts(raw, [{"type": "markdown", "content": raw}])
+
+    assert [part["type"] for part in parts] == ["chart"]
+
+
+def test_message_parts_accept_artifact_fence_with_space():
+    raw = (
+        "``` questrag-artifact\n"
+        + json.dumps(
+            {
+                "type": "chart",
+                "version": "1.0",
+                "id": "chart-test",
+                "chart_type": "pie",
+                "title": "问题类型占比",
+                "data": [{"name": "办理条件", "value": 42}],
+                "encoding": {"x": "name", "y": "value", "series": None},
+                "download": {"filename": "问题类型占比.png"},
+            },
+            ensure_ascii=False,
+        )
+        + "\n```"
+    )
+
+    parts = parse_message_parts(raw)
+
+    assert [part["type"] for part in parts] == ["chart"]
 
 
 def test_extract_stream_text_filters_tool_messages():

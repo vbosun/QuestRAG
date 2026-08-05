@@ -5,6 +5,7 @@ from typing import Any
 from psycopg.types.json import Jsonb
 
 from quest_rag.auth.store import get_conn
+from quest_rag.chat_memory.artifacts import normalize_message_parts
 
 _initialized = False
 
@@ -237,9 +238,15 @@ def get_conversation_detail(user_id: int, conversation_id: str) -> dict | None:
                ORDER BY sequence ASC""",
             (conversation_id, user_id),
         ).fetchall()
-    conversation["messages"] = [dict(row) for row in messages]
+    conversation["messages"] = [_normalize_message_row(dict(row)) for row in messages]
     conversation["tool_memories"] = [dict(row) for row in memories]
     return conversation
+
+
+def _normalize_message_row(row: dict) -> dict:
+    if row.get("role") == "assistant":
+        row["parts"] = normalize_message_parts(row.get("raw") or row.get("content") or "", row.get("parts"))
+    return row
 
 
 def load_memory_context(user_id: int, conversation_id: str, message_limit: int = 10, memory_limit: int = 8) -> str:
