@@ -217,9 +217,14 @@ class EvaluationDatasetItem(BaseModel):
     id: str = Field(min_length=1, max_length=40)
     question: str = ""
     expected_answer: str | None = None
+    required_points: list[str] = Field(default_factory=list)
+    forbidden_claims: list[str] = Field(default_factory=list)
+    answer_type: str | None = Field(default=None, max_length=40)
+    expected_citation_required: bool = False
     expected_source_ids: list[str] = Field(default_factory=list)
     expected_evidence: str | None = None
     should_refuse: bool = False
+    refusal_reason: str | None = Field(default=None, max_length=80)
     focus: str | None = None
     note: str | None = None
 

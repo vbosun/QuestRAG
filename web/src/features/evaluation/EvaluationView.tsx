@@ -1,4 +1,4 @@
-import { ArrowLeftOutlined, CheckCircleOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, CheckCircleOutlined, DeleteOutlined, DownloadOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { App, Breadcrumb, Button, Checkbox, Descriptions, Empty, Input, InputNumber, List, Modal, Popconfirm, Select, Space, Steps, Table, Tag, Typography, Upload } from "antd";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { useEffect, useState } from "react";
@@ -6,6 +6,7 @@ import {
   createEvaluationDataset,
   deleteEvaluationDataset,
   deleteEvaluationDocument,
+  downloadEvaluationDatasetTemplate,
   exportEvaluationDataset,
   getEvaluation,
   getEvaluationDataset,
@@ -32,6 +33,24 @@ const RAGAS_METRIC_OPTIONS = [
   { value: "response_relevancy", label: "Response relevancy" },
   { value: "context_precision", label: "Context precision" },
   { value: "context_recall", label: "Context recall" }
+];
+const ANSWER_TYPE_OPTIONS = [
+  { value: "policy_explain", label: "政策解释" },
+  { value: "material_list", label: "材料清单" },
+  { value: "process_steps", label: "办理流程" },
+  { value: "eligibility", label: "资格判断" },
+  { value: "amount_calculation", label: "金额/补贴测算" },
+  { value: "job_recommendation", label: "岗位推荐" },
+  { value: "refusal", label: "应拒答" },
+  { value: "comparison", label: "多政策对比" }
+];
+const REFUSAL_REASON_OPTIONS = [
+  { value: "no_evidence", label: "知识库无依据" },
+  { value: "out_of_scope", label: "超出业务范围" },
+  { value: "permission_denied", label: "权限不足" },
+  { value: "missing_personal_info", label: "缺少个人信息" },
+  { value: "unsafe_or_sensitive", label: "敏感/不应处理" },
+  { value: "ambiguous_question", label: "问题过于模糊" }
 ];
 
 export function EvaluationView({
@@ -296,9 +315,14 @@ export function EvaluationView({
       id: `Q${String((activeDataset?.items || []).length + 1).padStart(3, "0")}`,
       question: "",
       expected_answer: "",
+      required_points: [],
+      forbidden_claims: [],
+      answer_type: "",
+      expected_citation_required: false,
       expected_source_ids: [],
       expected_evidence: "",
       should_refuse: false,
+      refusal_reason: "",
       focus: "",
       note: ""
     };
@@ -408,6 +432,17 @@ export function EvaluationView({
     if (hasJobs && docCount) return `岗位库 + ${docCount} 个文档`;
     if (hasJobs) return "岗位库（PG）";
     return `${docCount} 个文档`;
+  }
+
+  function parseListText(value: string) {
+    return value
+      .split(/[;；\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function listText(value?: string[] | null) {
+    return (value || []).join("；");
   }
 
   return (
@@ -961,6 +996,24 @@ export function EvaluationView({
               <Text type="secondary">评测集使用评测文档和证据文本作为命中标准，不再绑定 chunk_id。</Text>
             </div>
             <Space>
+              <Button
+                icon={<DownloadOutlined />}
+                onClick={async () => {
+                  try {
+                    const blob = await downloadEvaluationDatasetTemplate();
+                    const url = URL.createObjectURL(blob);
+                    const anchor = document.createElement("a");
+                    anchor.href = url;
+                    anchor.download = "QuestRAG-评测集模板.csv";
+                    anchor.click();
+                    URL.revokeObjectURL(url);
+                  } catch (error) {
+                    message.error(error instanceof Error ? error.message : "下载评测集模板失败");
+                  }
+                }}
+              >
+                下载模板
+              </Button>
               <Button icon={<PlusOutlined />} onClick={createBlankDataset} type="primary">
                 新建评测集
               </Button>
@@ -1193,6 +1246,43 @@ export function EvaluationView({
                       />
                     </label>
                     <label className="span-3">
+                      <Text type="secondary">必须覆盖要点</Text>
+                      <Input.TextArea
+                        value={listText(datasetItemDraft.required_points)}
+                        placeholder="多个要点用分号或换行分隔"
+                        autoSize={{ minRows: 2, maxRows: 5 }}
+                        onChange={(event) => setDatasetItemDraft({ ...datasetItemDraft, required_points: parseListText(event.target.value) })}
+                      />
+                    </label>
+                    <label className="span-3">
+                      <Text type="secondary">禁止出现断言</Text>
+                      <Input.TextArea
+                        value={listText(datasetItemDraft.forbidden_claims)}
+                        placeholder="例如：一定通过；无需审核；所有人都能领取"
+                        autoSize={{ minRows: 2, maxRows: 5 }}
+                        onChange={(event) => setDatasetItemDraft({ ...datasetItemDraft, forbidden_claims: parseListText(event.target.value) })}
+                      />
+                    </label>
+                    <label>
+                      <Text type="secondary">答案类型</Text>
+                      <Select
+                        allowClear
+                        value={datasetItemDraft.answer_type || undefined}
+                        placeholder="选择题型"
+                        options={ANSWER_TYPE_OPTIONS}
+                        onChange={(value) => setDatasetItemDraft({ ...datasetItemDraft, answer_type: value || "" })}
+                      />
+                    </label>
+                    <label>
+                      <Text type="secondary">是否必须引用</Text>
+                      <Checkbox
+                        checked={Boolean(datasetItemDraft.expected_citation_required)}
+                        onChange={(event) => setDatasetItemDraft({ ...datasetItemDraft, expected_citation_required: event.target.checked })}
+                      >
+                        必须引用
+                      </Checkbox>
+                    </label>
+                    <label className="span-3">
                       <Text type="secondary">期望来源评测文档</Text>
                       <Select
                         mode="multiple"
@@ -1219,6 +1309,17 @@ export function EvaluationView({
                       >
                         应拒答
                       </Checkbox>
+                    </label>
+                    <label className="span-2">
+                      <Text type="secondary">拒答原因</Text>
+                      <Select
+                        allowClear
+                        disabled={!datasetItemDraft.should_refuse}
+                        value={datasetItemDraft.refusal_reason || undefined}
+                        placeholder="仅应拒答题填写"
+                        options={REFUSAL_REASON_OPTIONS}
+                        onChange={(value) => setDatasetItemDraft({ ...datasetItemDraft, refusal_reason: value || "" })}
+                      />
                     </label>
                     <label className="span-2">
                       <Text type="secondary">评测重点</Text>
@@ -1347,6 +1448,18 @@ export function EvaluationView({
                         <div className="baseline-block">
                           <Text type="secondary">期望答案要点</Text>
                           <pre>{activeRetrievedItem.expected_answer || "未填写"}</pre>
+                        </div>
+                        <div className="baseline-block">
+                          <Text type="secondary">生成评测标注</Text>
+                          <Space wrap>
+                            <Tag>{String(activeRetrievedItem.answer_type || "未分类")}</Tag>
+                            <Tag color={activeRetrievedItem.expected_citation_required ? "blue" : "default"}>
+                              {activeRetrievedItem.expected_citation_required ? "必须引用" : "不强制引用"}
+                            </Tag>
+                            {activeRetrievedItem.refusal_reason && <Tag color="warning">{String(activeRetrievedItem.refusal_reason)}</Tag>}
+                          </Space>
+                          {(activeRetrievedItem.required_points || []).length > 0 && <pre>必须覆盖：{(activeRetrievedItem.required_points || []).join("；")}</pre>}
+                          {(activeRetrievedItem.forbidden_claims || []).length > 0 && <pre>禁止断言：{(activeRetrievedItem.forbidden_claims || []).join("；")}</pre>}
                         </div>
                         <div className="baseline-block">
                           <Text type="secondary">期望证据文本</Text>

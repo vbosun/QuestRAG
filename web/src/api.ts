@@ -146,6 +146,17 @@ export async function exportEvaluationDataset(id: string): Promise<Blob> {
   return response.blob();
 }
 
+export async function downloadEvaluationDatasetTemplate(): Promise<Blob> {
+  const response = await request("/evaluations/datasets/template", {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "下载评测集模板失败");
+  }
+  return response.blob();
+}
+
 export async function runEvaluation(payload: {
   name: string;
   dataset_id: string;

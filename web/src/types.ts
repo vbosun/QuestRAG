@@ -104,10 +104,15 @@ export interface EvaluationItem {
   question_id?: string | null;
   question: string;
   expected_answer?: string | null;
+  required_points?: string[];
+  forbidden_claims?: string[];
+  answer_type?: string | null;
+  expected_citation_required?: boolean;
   expected_source_ids: string[];
   expected_chunk_ids: string[];
   expected_chunk_text?: string | null;
   should_refuse?: boolean;
+  refusal_reason?: string | null;
   retrieval_queries?: Array<Record<string, unknown>>;
   retrieved: Array<Record<string, unknown>>;
   metrics: Record<string, unknown>;
@@ -154,9 +159,14 @@ export interface EvaluationDatasetItem {
   id: string;
   question: string;
   expected_answer?: string | null;
+  required_points?: string[];
+  forbidden_claims?: string[];
+  answer_type?: string | null;
+  expected_citation_required?: boolean;
   expected_source_ids: string[];
   expected_evidence?: string | null;
   should_refuse: boolean;
+  refusal_reason?: string | null;
   focus?: string | null;
   note?: string | null;
 }

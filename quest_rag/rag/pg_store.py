@@ -112,10 +112,15 @@ def init_db():
                 question_id TEXT,
                 question TEXT NOT NULL,
                 expected_answer TEXT,
+                required_points JSONB NOT NULL DEFAULT '[]'::jsonb,
+                forbidden_claims JSONB NOT NULL DEFAULT '[]'::jsonb,
+                answer_type TEXT,
+                expected_citation_required BOOLEAN NOT NULL DEFAULT false,
                 expected_source_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
                 expected_chunk_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
                 expected_chunk_text TEXT,
                 should_refuse BOOLEAN NOT NULL DEFAULT false,
+                refusal_reason TEXT,
                 retrieval_queries JSONB NOT NULL DEFAULT '[]'::jsonb,
                 retrieved JSONB NOT NULL DEFAULT '[]'::jsonb,
                 metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -136,6 +141,11 @@ def init_db():
         conn.execute("ALTER TABLE evaluation_runs ADD COLUMN IF NOT EXISTS ragas_options JSONB NOT NULL DEFAULT '{}'::jsonb")
         conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS should_refuse BOOLEAN NOT NULL DEFAULT false")
         conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS retrieval_queries JSONB NOT NULL DEFAULT '[]'::jsonb")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS required_points JSONB NOT NULL DEFAULT '[]'::jsonb")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS forbidden_claims JSONB NOT NULL DEFAULT '[]'::jsonb")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS answer_type TEXT")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS expected_citation_required BOOLEAN NOT NULL DEFAULT false")
+        conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS refusal_reason TEXT")
         conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS generated_answer TEXT")
         conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS answer_citations JSONB NOT NULL DEFAULT '[]'::jsonb")
         conn.execute("ALTER TABLE evaluation_items ADD COLUMN IF NOT EXISTS tool_calls JSONB NOT NULL DEFAULT '[]'::jsonb")
@@ -301,12 +311,13 @@ def add_evaluation_items(items: list[dict]):
                 """
                 INSERT INTO evaluation_items (
                     id, run_id, question_id, question, expected_answer,
+                    required_points, forbidden_claims, answer_type, expected_citation_required,
                     expected_source_ids, expected_chunk_ids, expected_chunk_text,
-                    should_refuse, retrieval_queries, retrieved, metrics,
+                    should_refuse, refusal_reason, retrieval_queries, retrieved, metrics,
                     generated_answer, answer_citations, tool_calls, generation_metrics,
                     ragas_metrics, generation_error, latency_ms
                 )
-                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s)
                 """,
                 (
                     item["id"],
@@ -314,10 +325,15 @@ def add_evaluation_items(items: list[dict]):
                     item.get("question_id"),
                     item["question"],
                     item.get("expected_answer"),
+                    json_dumps(item.get("required_points", [])),
+                    json_dumps(item.get("forbidden_claims", [])),
+                    item.get("answer_type"),
+                    item.get("expected_citation_required", False),
                     json_dumps(item.get("expected_source_ids", [])),
                     json_dumps(item.get("expected_chunk_ids", [])),
                     item.get("expected_chunk_text"),
                     item.get("should_refuse", False),
+                    item.get("refusal_reason"),
                     json_dumps(item.get("retrieval_queries", [])),
                     json_dumps(item.get("retrieved", [])),
                     json_dumps(item.get("metrics", {})),
@@ -369,8 +385,9 @@ def get_evaluation_run(run_id: str) -> dict | None:
         items = conn.execute(
             """
              SELECT id, run_id, question_id, question, expected_answer,
+                    required_points, forbidden_claims, answer_type, expected_citation_required,
                     expected_source_ids, expected_chunk_ids, expected_chunk_text,
-                    should_refuse, retrieval_queries, retrieved, metrics,
+                    should_refuse, refusal_reason, retrieval_queries, retrieved, metrics,
                     generated_answer, answer_citations, tool_calls, generation_metrics,
                     ragas_metrics, generation_error, latency_ms, created_at
              FROM evaluation_items
