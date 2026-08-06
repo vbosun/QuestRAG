@@ -18,16 +18,21 @@ export function hasAllPermissions(codes: string[]): boolean {
 
 type MenuItemLike = Record<string, unknown> & {
   permission?: string;
+  ragScope?: string;
   children?: MenuItemLike[];
 };
 
 export function filterMenuByPermissions<T extends MenuItemLike>(
   items: T[],
   permissions: string[],
+  ragScopes: string[] = [],
 ): T[] {
   return items
     .filter((item) => {
       if (item.permission && !permissions.includes(item.permission)) {
+        return false;
+      }
+      if (item.ragScope && !ragScopes.includes(item.ragScope)) {
         return false;
       }
       return true;
@@ -36,7 +41,7 @@ export function filterMenuByPermissions<T extends MenuItemLike>(
       if (item.children && item.children.length > 0) {
         return {
           ...item,
-          children: filterMenuByPermissions(item.children, permissions),
+          children: filterMenuByPermissions(item.children, permissions, ragScopes),
         };
       }
       return item;

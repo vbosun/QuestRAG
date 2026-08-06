@@ -189,6 +189,59 @@ RAG_SCOPES: dict[str, dict] = {
     "subsidy_policy": {"name": "补贴政策库", "description": "补贴规则及政策原文"},
 }
 
+PERMISSION_DEPENDENCIES: dict[str, str] = {
+    "knowledge.document.read": "knowledge.view",
+    "knowledge.document.upload": "knowledge.view",
+    "knowledge.document.commit": "knowledge.view",
+    "knowledge.document.delete": "knowledge.view",
+    "evaluation.run.read": "evaluation.view",
+    "evaluation.run.create": "evaluation.view",
+    "evaluation.run.delete": "evaluation.view",
+    "evaluation.document.manage": "evaluation.view",
+    "evaluation.dataset.manage": "evaluation.view",
+    "system.retrieval_config.update": "system.retrieval_config.view",
+    "permission.role.view": "permission.manage",
+    "permission.role.create": "permission.manage",
+    "permission.role.update": "permission.manage",
+    "permission.role.delete": "permission.manage",
+    "permission.role.assign": "permission.manage",
+    "permission.user.view": "permission.manage",
+    "permission.user.create": "permission.manage",
+    "permission.user.update": "permission.manage",
+    "permission.user.assign_role": "permission.manage",
+    "permission.user.lock": "permission.manage",
+    "permission.user.unlock": "permission.manage",
+    "permission.user.reset_password": "permission.manage",
+    "permission.user.kick": "permission.manage",
+    "public_services.social_security.view": "public_services.view",
+}
+
+RAG_SCOPE_DEPENDENCIES: dict[str, list[str]] = {
+    "public_policy": ["llm.tool.knowledge_search"],
+    "evaluation_docs": ["llm.tool.knowledge_search"],
+    "internal_policy": ["llm.tool.knowledge_search"],
+    "department_docs": ["llm.tool.knowledge_search"],
+    "private_docs": ["llm.tool.knowledge_search"],
+    "jobs": ["llm.tool.job_search"],
+    "social_security_mock": [
+        "llm.tool.social_security_search",
+        "llm.tool.subsidy_match",
+        "llm.tool.subsidy_calculate",
+    ],
+    "subsidy_policy": [
+        "llm.tool.subsidy_match",
+        "llm.tool.subsidy_calculate",
+    ],
+}
+
+DOCUMENT_RAG_SCOPE_CODES = {
+    "public_policy",
+    "evaluation_docs",
+    "internal_policy",
+    "department_docs",
+    "private_docs",
+}
+
 DEFAULT_ROLES: dict[str, dict] = {
     "ADMIN": {
         "name": "系统管理员",
@@ -295,7 +348,8 @@ def seed_default_permissions():
             )
             scope_ids[code] = sid
 
-        # 3. 写入角色 及其 权限/scope 关联（仅对新建角色或 system_builtin 角色初始化）
+        # 3. 写入角色及其权限/scope关联。
+        # 已存在角色可能已由管理员在页面中调整，seed 不能把被移除的权限或 scope 自动补回。
         for role_code, info in DEFAULT_ROLES.items():
             role = ensure_role(
                 conn,
@@ -307,12 +361,11 @@ def seed_default_permissions():
             role_id = role["id"]
             is_new = role["is_new"]
 
-            if is_new or info.get("system_builtin", False):
+            if is_new:
                 scope_id_list = [scope_ids[s] for s in info.get("rag_scopes", []) if s in scope_ids]
                 perm_id_list = [perm_ids[p] for p in info.get("permissions", []) if p in perm_ids]
-                if is_new:
-                    conn.execute("DELETE FROM auth_role_permission WHERE role_id = %s", (role_id,))
-                    conn.execute("DELETE FROM auth_role_rag_scope WHERE role_id = %s", (role_id,))
+                conn.execute("DELETE FROM auth_role_permission WHERE role_id = %s", (role_id,))
+                conn.execute("DELETE FROM auth_role_rag_scope WHERE role_id = %s", (role_id,))
                 for pid in perm_id_list:
                     conn.execute(
                         "INSERT INTO auth_role_permission (role_id, permission_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",

@@ -38,7 +38,13 @@ export function RoleManagementView() {
   const { message } = App.useApp();
   const [roles, setRoles] = useState<RoleInfo[]>([]);
   const [loading, setLoading] = useState(false);
-  const [catalog, setCatalog] = useState<PermissionCatalog>({ permissions: [], rag_scopes: [] });
+  const [catalog, setCatalog] = useState<PermissionCatalog>({
+    permissions: [],
+    rag_scopes: [],
+    permission_dependencies: {},
+    rag_scope_dependencies: {},
+    document_rag_scope_codes: [],
+  });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<RoleDetail | null>(null);
   const [checkedPerms, setCheckedPerms] = useState<string[]>([]);
@@ -80,8 +86,9 @@ export function RoleManagementView() {
     if (!editingRole) return;
     setSaving(true);
     try {
-      await updateRolePermissions(editingRole.id, checkedPerms);
-      await updateRoleRagScopes(editingRole.id, checkedScopes);
+      const normalizedPerms = normalizePermissionSelection(checkedPerms);
+      await updateRolePermissions(editingRole.id, normalizedPerms);
+      await updateRoleRagScopes(editingRole.id, normalizeScopeSelection(checkedScopes, normalizedPerms));
       if (editForm.isFieldsTouched()) {
         const values = await editForm.validateFields();
         await updateRole(editingRole.id, {
@@ -128,6 +135,41 @@ export function RoleManagementView() {
     return acc;
   }, {});
 
+  const permissionByCode = catalog.permissions.reduce<Record<string, PermissionItem>>((acc, item) => {
+    acc[item.code] = item;
+    return acc;
+  }, {});
+  const permissionDependencies = catalog.permission_dependencies || {};
+  const childPermissionCodes = new Set(Object.keys(permissionDependencies));
+  const scopeDependencies = catalog.rag_scope_dependencies || {};
+  const documentScopeCodes = new Set(catalog.document_rag_scope_codes || []);
+  const documentScopes = catalog.rag_scopes.filter((scope) => documentScopeCodes.has(scope.code));
+  const toolDataScopes = catalog.rag_scopes.filter((scope) => !documentScopeCodes.has(scope.code));
+
+  const permissionSections = [
+    {
+      group: "workspace",
+      title: "页面入口与页面操作",
+      description: "先授予页面入口，下面的按钮、接口和操作权限才会启用。",
+    },
+    {
+      group: "llm_tool",
+      title: "大模型工具调用权限",
+      description: "工具权限决定 Agent 能调用哪些工具；工具涉及的数据范围在下方单独配置。",
+    },
+  ];
+
+  const hierarchicalGroups = new Set([
+    "workspace",
+    "knowledge",
+    "evaluation",
+    "system",
+    "permission",
+    "public_services",
+    "llm_tool",
+  ]);
+  const standaloneGroups = Object.keys(groupedPerms).filter((group) => !hierarchicalGroups.has(group));
+
   const riskMeta: Record<string, { label: string; color: string }> = {
     LOW: { label: "低", color: "green" },
     MEDIUM: { label: "中", color: "orange" },
@@ -171,6 +213,129 @@ export function RoleManagementView() {
       ),
     },
   ];
+
+  function normalizePermissionSelection(values: string[]) {
+    const selected = new Set(values);
+    return values.filter((code) => {
+      const parent = permissionDependencies[code];
+      return !parent || selected.has(parent);
+    });
+  }
+
+  function normalizeScopeSelection(values: string[], permissionValues = checkedPerms) {
+    const selectedPerms = new Set(permissionValues);
+    return values.filter((code) => {
+      const deps = scopeDependencies[code] || [];
+      return !deps.length || deps.some((permission) => selectedPerms.has(permission));
+    });
+  }
+
+  function togglePermission(code: string) {
+    setCheckedPerms((prev) => {
+      const checked = prev.includes(code);
+      if (checked) {
+        const next = prev.filter((item) => item !== code && permissionDependencies[item] !== code);
+        setCheckedScopes((scopes) => normalizeScopeSelection(scopes, next));
+        return next;
+      }
+      return [...prev, code];
+    });
+  }
+
+  function toggleScope(code: string, checked: boolean) {
+    setCheckedScopes((prev) => {
+      const next = checked ? Array.from(new Set([...prev, code])) : prev.filter((item) => item !== code);
+      return normalizeScopeSelection(next);
+    });
+  }
+
+  function isPermissionDisabled(permission: PermissionItem) {
+    const parent = permissionDependencies[permission.code];
+    return Boolean(parent && !checkedPerms.includes(parent));
+  }
+
+  function isScopeDisabled(scope: RagScopeItem) {
+    const deps = scopeDependencies[scope.code] || [];
+    return Boolean(deps.length && !deps.some((permission) => checkedPerms.includes(permission)));
+  }
+
+  function renderPermissionOption(permission: PermissionItem, nested = false) {
+    const checked = checkedPerms.includes(permission.code);
+    const disabled = isPermissionDisabled(permission);
+    return (
+      <button
+        type="button"
+        key={permission.code}
+        className={`permission-option ${checked ? "checked" : ""} ${nested ? "nested" : ""}`}
+        disabled={disabled}
+        onClick={() => togglePermission(permission.code)}
+      >
+        <span>{permission.name}</span>
+        <Tag color={riskMeta[permission.risk_level]?.color || "default"} bordered={false}>
+          {riskMeta[permission.risk_level]?.label || permission.risk_level}
+        </Tag>
+      </button>
+    );
+  }
+
+  function renderPermissionTree(group: string) {
+    const perms = groupedPerms[group] || [];
+    const parents = perms.filter((permission) => !childPermissionCodes.has(permission.code));
+    return (
+      <div className="permission-tree">
+        {parents.map((parent) => {
+          const children = catalog.permissions.filter((permission) => permissionDependencies[permission.code] === parent.code);
+          return (
+            <section className="permission-tree-node" key={parent.code}>
+              {renderPermissionOption(parent)}
+              {children.length > 0 && (
+                <div className="permission-child-grid">
+                  {children.map((child) => renderPermissionOption(child, true))}
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderPermissionGroup(group: string) {
+    const perms = groupedPerms[group] || [];
+    if (!perms.length) return null;
+    return (
+      <section className="permission-group" key={group}>
+        <div className="permission-group-title">{GROUP_LABELS[group] || group}</div>
+        <div className="permission-option-grid">
+          {perms.map((permission) => renderPermissionOption(permission))}
+        </div>
+      </section>
+    );
+  }
+
+  function renderScopeList(scopes: RagScopeItem[]) {
+    return (
+      <Space wrap className="rag-scope-picker">
+        {scopes.map((scope) => {
+          const disabled = isScopeDisabled(scope);
+          const deps = scopeDependencies[scope.code] || [];
+          return (
+            <Checkbox
+              key={scope.code}
+              checked={checkedScopes.includes(scope.code)}
+              disabled={disabled}
+              onChange={(e) => toggleScope(scope.code, e.target.checked)}
+            >
+              <span>{scope.name}</span>
+              {disabled && deps.length > 0 && (
+                <Typography.Text type="secondary"> 需先勾选{deps.map((code) => permissionByCode[code]?.name || code).join(" / ")}</Typography.Text>
+              )}
+            </Checkbox>
+          );
+        })}
+      </Space>
+    );
+  }
 
   return (
     <section className="view-shell knowledge-view">
@@ -225,51 +390,23 @@ export function RoleManagementView() {
 
             <Typography.Title level={5} style={{ marginTop: 16 }}>系统功能权限 & 大模型工具权限</Typography.Title>
             <div className="permission-picker">
-              {Object.entries(groupedPerms).map(([group, perms]) => (
-                <section className="permission-group" key={group}>
-                  <div className="permission-group-title">{GROUP_LABELS[group] || group}</div>
-                  <div className="permission-option-grid">
-                    {perms.map((p) => {
-                      const checked = checkedPerms.includes(p.code);
-                      return (
-                        <button
-                          type="button"
-                          key={p.code}
-                          className={`permission-option ${checked ? "checked" : ""}`}
-                          onClick={() => {
-                            setCheckedPerms((prev) =>
-                              checked ? prev.filter((c) => c !== p.code) : [...prev, p.code],
-                            );
-                          }}
-                        >
-                          <span>{p.name}</span>
-                          <Tag color={riskMeta[p.risk_level]?.color || "default"} bordered={false}>
-                            {riskMeta[p.risk_level]?.label || p.risk_level}
-                          </Tag>
-                        </button>
-                      );
-                    })}
-                  </div>
+              {permissionSections.map((section) => (
+                <section className="permission-group" key={section.group}>
+                  <div className="permission-group-title">{section.title}</div>
+                  <Typography.Text type="secondary">{section.description}</Typography.Text>
+                  {renderPermissionTree(section.group)}
                 </section>
               ))}
+              {standaloneGroups.map((group) => renderPermissionGroup(group))}
             </div>
 
-            <Typography.Title level={5} style={{ marginTop: 24 }}>RAG 检索范围</Typography.Title>
-            <Space wrap className="rag-scope-picker">
-              {catalog.rag_scopes.map((s) => (
-                <Checkbox
-                  key={s.code}
-                  checked={checkedScopes.includes(s.code)}
-                  onChange={(e) => {
-                    setCheckedScopes((prev) =>
-                      e.target.checked ? [...prev, s.code] : prev.filter((c) => c !== s.code),
-                    );
-                  }}
-                >
-                  {s.name}
-                </Checkbox>
-              ))}
-            </Space>
+            <Typography.Title level={5} style={{ marginTop: 24 }}>知识库文档范围</Typography.Title>
+            <Typography.Text type="secondary">这些范围只控制知识库文档检索；需先勾选“大模型工具调用权限”里的知识库检索工具。</Typography.Text>
+            {renderScopeList(documentScopes)}
+
+            <Typography.Title level={5} style={{ marginTop: 24 }}>工具数据范围</Typography.Title>
+            <Typography.Text type="secondary">岗位库、模拟社保库、补贴政策库属于工具数据源，不混入知识库文档范围。</Typography.Text>
+            {renderScopeList(toolDataScopes)}
           </>
         )}
       </Drawer>

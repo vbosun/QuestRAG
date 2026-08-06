@@ -82,7 +82,7 @@ export function QuestRagApp() {
               <Route path="retrieval-config" element={<ProtectedRoute permission="system.retrieval_config.view"><RetrievalConfigView /></ProtectedRoute>} />
               <Route path="profile" element={<ProtectedRoute permission="profile.view"><ProfileView /></ProtectedRoute>} />
               <Route path="profile/password" element={<ProtectedRoute permission="profile.view"><ChangePasswordView /></ProtectedRoute>} />
-              <Route path="public-services/social-security" element={<ProtectedRoute permission="public_services.social_security.view"><SocialSecurityView /></ProtectedRoute>} />
+              <Route path="public-services/social-security" element={<ProtectedRoute permission="public_services.social_security.view" ragScope="social_security_mock"><SocialSecurityView /></ProtectedRoute>} />
               <Route path="permissions/users" element={<ProtectedRoute permission="permission.user.view"><UserManagementView /></ProtectedRoute>} />
               <Route path="permissions/roles" element={<ProtectedRoute permission="permission.role.view"><RoleManagementView /></ProtectedRoute>} />
             </Route>
@@ -117,7 +117,7 @@ function buildMenuItems(navigate: ReturnType<typeof useNavigate>) {
       label: "政务工具",
       permission: "public_services.view",
       children: [
-        { key: "/app/public-services/social-security", label: "社保查询", permission: "public_services.social_security.view" },
+        { key: "/app/public-services/social-security", label: "社保查询", permission: "public_services.social_security.view", ragScope: "social_security_mock" },
       ],
     },
     {
@@ -165,18 +165,18 @@ function ForbiddenPage() {
 function WorkspaceLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, permissions, encryptAndLogout } = useAuth();
+  const { user, permissions, ragScopes, encryptAndLogout } = useAuth();
   const { message } = App.useApp();
 
   const allMenuItems = useMemo(() => buildMenuItems(navigate), [navigate]);
   const allSettingsMenuItems = useMemo(() => buildSettingsMenuItems(), []);
   const visibleMenuItems = useMemo(
-    () => filterMenuByPermissions(allMenuItems, permissions),
-    [allMenuItems, permissions],
+    () => filterMenuByPermissions(allMenuItems, permissions, ragScopes),
+    [allMenuItems, permissions, ragScopes],
   );
   const visibleSettingsMenuItems = useMemo(
-    () => filterMenuByPermissions(allSettingsMenuItems, permissions),
-    [allSettingsMenuItems, permissions],
+    () => filterMenuByPermissions(allSettingsMenuItems, permissions, ragScopes),
+    [allSettingsMenuItems, permissions, ragScopes],
   );
 
   const selectedKey = (() => {

@@ -16,16 +16,19 @@ current_conversation_ctx: ContextVar[str | None] = ContextVar("current_conversat
 TOOL_REGISTRY: dict[str, dict] = {
     "retrieve_context": {
         "permission": "llm.tool.knowledge_search",
+        "required_scopes": ["public_policy", "internal_policy", "department_docs", "private_docs"],
         "risk_level": "LOW",
         "mode": "read",
     },
     "get_document_list": {
         "permission": "llm.tool.knowledge_search",
+        "required_scopes": ["public_policy", "internal_policy", "department_docs", "private_docs"],
         "risk_level": "LOW",
         "mode": "read",
     },
     "retrieve_jobs": {
         "permission": "llm.tool.job_search",
+        "required_scopes": ["jobs"],
         "risk_level": "LOW",
         "mode": "read",
     },
@@ -36,16 +39,19 @@ TOOL_REGISTRY: dict[str, dict] = {
     },
     "social_security_search": {
         "permission": "llm.tool.social_security_search",
+        "required_scopes": ["social_security_mock"],
         "risk_level": "LOW",
         "mode": "read",
     },
     "subsidy_match": {
         "permission": "llm.tool.subsidy_match",
+        "required_scopes": ["subsidy_policy", "social_security_mock"],
         "risk_level": "LOW",
         "mode": "read",
     },
     "subsidy_calculate": {
         "permission": "llm.tool.subsidy_calculate",
+        "required_scopes": ["subsidy_policy", "social_security_mock"],
         "risk_level": "LOW",
         "mode": "read",
     },
@@ -75,6 +81,9 @@ def build_tools_for_user(current_user: CurrentUser, tools: list):
             continue
         if permission not in current_user.permissions:
             continue
+        required_scopes = set(spec.get("required_scopes") or [])
+        if required_scopes and not required_scopes.issubset(set(current_user.rag_scopes)):
+            continue
         if spec.get("risk_level") in {"HIGH", "CRITICAL"}:
             continue
         allowed.append(tool)
@@ -102,6 +111,22 @@ def assert_tool_permission(current_user: CurrentUser, tool_name: str):
             deny_reason="missing_permission",
         )
         raise ToolPermissionError(tool_name, "缺少权限")
+
+    required_scopes = set(spec.get("required_scopes") or [])
+    missing_scopes = sorted(required_scopes - set(current_user.rag_scopes))
+    if missing_scopes:
+        from quest_rag.auth.permission_store import insert_llm_tool_call_log
+
+        insert_llm_tool_call_log(
+            user_id=current_user.id,
+            session_id=current_user.sid,
+            tool_name=tool_name,
+            permission_code=permission,
+            allowed=False,
+            deny_reason="missing_rag_scope",
+            effective_scopes=current_user.rag_scopes,
+        )
+        raise ToolPermissionError(tool_name, f"缺少数据范围: {', '.join(missing_scopes)}")
 
     from quest_rag.auth.permission_store import insert_llm_tool_call_log
 

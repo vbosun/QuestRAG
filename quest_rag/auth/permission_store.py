@@ -311,10 +311,9 @@ def delete_role(role_id: int) -> bool:
 def set_role_permissions(role_id: int, permission_codes: list[str]):
     with get_conn() as conn:
         valid_codes = set(_valid_permission_codes())
+        normalized_codes = _normalize_permission_codes(permission_codes, valid_codes)
         conn.execute("DELETE FROM auth_role_permission WHERE role_id = %s", (role_id,))
-        for code in permission_codes:
-            if code not in valid_codes:
-                continue
+        for code in normalized_codes:
             conn.execute(
                 """INSERT INTO auth_role_permission (role_id, permission_id)
                    SELECT %s, id FROM auth_permission WHERE code = %s
@@ -325,8 +324,16 @@ def set_role_permissions(role_id: int, permission_codes: list[str]):
 
 def set_role_rag_scopes(role_id: int, scope_codes: list[str]):
     with get_conn() as conn:
+        permission_rows = conn.execute(
+            """SELECT p.code FROM auth_permission p
+               JOIN auth_role_permission rp ON p.id = rp.permission_id
+               WHERE rp.role_id = %s""",
+            (role_id,),
+        ).fetchall()
+        permission_codes = {row["code"] for row in permission_rows}
+        normalized_scopes = _normalize_rag_scope_codes(scope_codes, permission_codes)
         conn.execute("DELETE FROM auth_role_rag_scope WHERE role_id = %s", (role_id,))
-        for code in scope_codes:
+        for code in normalized_scopes:
             conn.execute(
                 """INSERT INTO auth_role_rag_scope (role_id, scope_id)
                    SELECT %s, id FROM rag_scope WHERE code = %s
@@ -553,6 +560,9 @@ def get_permission_catalog() -> dict:
         return {
             "permissions": [dict(p) for p in perms],
             "rag_scopes": [dict(s) for s in scopes],
+            "permission_dependencies": _permission_dependencies(),
+            "rag_scope_dependencies": _rag_scope_dependencies(),
+            "document_rag_scope_codes": _document_rag_scope_codes(),
         }
 
 
@@ -560,3 +570,41 @@ def _valid_permission_codes() -> list[str]:
     from quest_rag.auth.permissions import PERMISSIONS
 
     return list(PERMISSIONS.keys())
+
+
+def _permission_dependencies() -> dict[str, str]:
+    from quest_rag.auth.permissions import PERMISSION_DEPENDENCIES
+
+    return dict(PERMISSION_DEPENDENCIES)
+
+
+def _rag_scope_dependencies() -> dict[str, list[str]]:
+    from quest_rag.auth.permissions import RAG_SCOPE_DEPENDENCIES
+
+    return {code: list(deps) for code, deps in RAG_SCOPE_DEPENDENCIES.items()}
+
+
+def _document_rag_scope_codes() -> list[str]:
+    from quest_rag.auth.permissions import DOCUMENT_RAG_SCOPE_CODES
+
+    return sorted(DOCUMENT_RAG_SCOPE_CODES)
+
+
+def _normalize_permission_codes(permission_codes: list[str], valid_codes: set[str]) -> list[str]:
+    selected = {code for code in permission_codes if code in valid_codes}
+    deps = _permission_dependencies()
+    return sorted(
+        code
+        for code in selected
+        if not deps.get(code) or deps[code] in selected
+    )
+
+
+def _normalize_rag_scope_codes(scope_codes: list[str], permission_codes: set[str]) -> list[str]:
+    deps = _rag_scope_dependencies()
+    selected = set(scope_codes)
+    return sorted(
+        code
+        for code in selected
+        if not deps.get(code) or any(permission in permission_codes for permission in deps[code])
+    )

@@ -2,8 +2,16 @@ import { Spin } from "antd";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
 
-export function ProtectedRoute({ children, permission }: { children: React.ReactNode; permission?: string }) {
-  const { user, loading, permissions } = useAuth();
+export function ProtectedRoute({
+  children,
+  permission,
+  ragScope,
+}: {
+  children: React.ReactNode;
+  permission?: string;
+  ragScope?: string;
+}) {
+  const { user, loading, permissions, ragScopes } = useAuth();
 
   if (loading) {
     return (
@@ -18,6 +26,10 @@ export function ProtectedRoute({ children, permission }: { children: React.React
   }
 
   if (permission && !permissions.includes(permission)) {
+    return <Navigate to="/403" replace />;
+  }
+
+  if (ragScope && !ragScopes.includes(ragScope)) {
     return <Navigate to="/403" replace />;
   }
 

@@ -16,6 +16,9 @@ export interface RagScopeItem {
 export interface PermissionCatalog {
   permissions: PermissionItem[];
   rag_scopes: RagScopeItem[];
+  permission_dependencies?: Record<string, string>;
+  rag_scope_dependencies?: Record<string, string[]>;
+  document_rag_scope_codes?: string[];
 }
 
 export interface RoleInfo {

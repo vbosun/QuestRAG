@@ -1,7 +1,7 @@
 """
 权限管理 API：角色 CRUD、用户管理、权限目录。
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
@@ -28,12 +28,18 @@ class RoleCreate(BaseModel):
 
 
 class RoleUpdate(BaseModel):
+    role_id: int
     name: str | None = None
     description: str | None = None
     status: int | None = None
 
 
+class RoleIdRequest(BaseModel):
+    role_id: int
+
+
 class PermissionCodes(BaseModel):
+    role_id: int
     codes: list[str]
 
 
@@ -45,15 +51,30 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    user_id: int
     full_name: str | None = None
 
 
 class UserRoleUpdate(BaseModel):
+    user_id: int
     role_codes: list[str]
 
 
 class ResetPasswordBody(BaseModel):
+    user_id: int
     new_password: str = Field(..., min_length=6)
+
+
+class UserIdRequest(BaseModel):
+    user_id: int
+
+
+class UserListRequest(BaseModel):
+    search: str = ""
+    role_code: str = ""
+    status: int | None = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
 
 
 # ── 工具函数 ───────────────────────────────────────────────────────────
@@ -73,19 +94,19 @@ def _log(user_id: int, action: str, request: Request, target_type: str = "", tar
 
 # ── 权限目录 ───────────────────────────────────────────────────────────
 
-@router.get("/catalog")
+@router.post("/catalog")
 def get_catalog(current_user: CurrentUser = Depends(require_permission("permission.role.view"))):
     return ps.get_permission_catalog()
 
 
 # ── 角色管理 ───────────────────────────────────────────────────────────
 
-@router.get("/roles")
+@router.post("/roles/list")
 def list_roles(current_user: CurrentUser = Depends(require_permission("permission.role.view"))):
     return ps.list_roles()
 
 
-@router.post("/roles")
+@router.post("/roles/create")
 def create_role_endpoint(req: RoleCreate, request: Request,
                          current_user: CurrentUser = Depends(require_permission("permission.role.create"))):
     role = ps.create_role(code=req.code, name=req.name, description=req.description)
@@ -94,39 +115,39 @@ def create_role_endpoint(req: RoleCreate, request: Request,
     return role
 
 
-@router.get("/roles/{role_id}")
-def get_role_endpoint(role_id: int, current_user: CurrentUser = Depends(require_permission("permission.role.view"))):
-    role = ps.get_role(role_id)
+@router.post("/roles/get")
+def get_role_endpoint(req: RoleIdRequest, current_user: CurrentUser = Depends(require_permission("permission.role.view"))):
+    role = ps.get_role(req.role_id)
     if role is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "角色不存在"})
     return role
 
 
-@router.put("/roles/{role_id}")
-def update_role_endpoint(role_id: int, req: RoleUpdate, request: Request,
+@router.post("/roles/update")
+def update_role_endpoint(req: RoleUpdate, request: Request,
                          current_user: CurrentUser = Depends(require_permission("permission.role.update"))):
-    role = ps.get_role(role_id)
+    role = ps.get_role(req.role_id)
     if role is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "角色不存在"})
 
-    updated = ps.update_role(role_id, name=req.name, description=req.description, status=req.status)
+    updated = ps.update_role(req.role_id, name=req.name, description=req.description, status=req.status)
     if req.status is not None and req.status != 1:
-        ps.delete_sessions_by_role(role_id)
-    _log(current_user.id, "ROLE_UPDATE", request, target_type="role", target_id=str(role_id),
-         detail={"changes": req.model_dump(exclude_none=True)})
+        ps.delete_sessions_by_role(req.role_id)
+    _log(current_user.id, "ROLE_UPDATE", request, target_type="role", target_id=str(req.role_id),
+         detail={"changes": req.model_dump(exclude_none=True, exclude={"role_id"})})
     return updated
 
 
-@router.delete("/roles/{role_id}")
-def delete_role_endpoint(role_id: int, request: Request,
+@router.post("/roles/delete")
+def delete_role_endpoint(req: RoleIdRequest, request: Request,
                          current_user: CurrentUser = Depends(require_permission("permission.role.delete"))):
-    role = ps.get_role(role_id)
+    role = ps.get_role(req.role_id)
     if role is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "角色不存在"})
     if role["system_builtin"]:
         raise HTTPException(status_code=400, detail={"code": "BUILTIN", "message": "内置角色不可删除"})
 
-    user_ids = ps.get_role_user_ids(role_id)
+    user_ids = ps.get_role_user_ids(req.role_id)
     if user_ids:
         admins = [
             uid for uid in user_ids
@@ -135,54 +156,50 @@ def delete_role_endpoint(role_id: int, request: Request,
         if admins:
             raise HTTPException(status_code=400, detail={"code": "LAST_ADMIN", "message": "不能移除系统中最后一个管理员"})
 
-    ps.delete_role(role_id)
-    ps.delete_sessions_by_role(role_id)
-    _log(current_user.id, "ROLE_DELETE", request, target_type="role", target_id=str(role_id),
+    ps.delete_role(req.role_id)
+    ps.delete_sessions_by_role(req.role_id)
+    _log(current_user.id, "ROLE_DELETE", request, target_type="role", target_id=str(req.role_id),
          detail={"code": role["code"], "name": role["name"]})
     return {"success": True}
 
 
-@router.put("/roles/{role_id}/permissions")
-def set_role_permissions_endpoint(role_id: int, req: PermissionCodes, request: Request,
+@router.post("/roles/permissions")
+def set_role_permissions_endpoint(req: PermissionCodes, request: Request,
                                   current_user: CurrentUser = Depends(require_permission("permission.role.assign"))):
-    role = ps.get_role(role_id)
+    role = ps.get_role(req.role_id)
     if role is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "角色不存在"})
-    ps.set_role_permissions(role_id, req.codes)
-    ps.delete_sessions_by_role(role_id)
-    _log(current_user.id, "ROLE_ASSIGN_PERMISSION", request, target_type="role", target_id=str(role_id),
+    ps.set_role_permissions(req.role_id, req.codes)
+    ps.delete_sessions_by_role(req.role_id)
+    _log(current_user.id, "ROLE_ASSIGN_PERMISSION", request, target_type="role", target_id=str(req.role_id),
          detail={"codes": req.codes})
     return {"success": True}
 
 
-@router.put("/roles/{role_id}/rag-scopes")
-def set_role_rag_scopes_endpoint(role_id: int, req: PermissionCodes, request: Request,
+@router.post("/roles/rag-scopes")
+def set_role_rag_scopes_endpoint(req: PermissionCodes, request: Request,
                                  current_user: CurrentUser = Depends(require_permission("permission.role.assign"))):
-    role = ps.get_role(role_id)
+    role = ps.get_role(req.role_id)
     if role is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "角色不存在"})
-    ps.set_role_rag_scopes(role_id, req.codes)
-    ps.delete_sessions_by_role(role_id)
-    _log(current_user.id, "ROLE_ASSIGN_RAG_SCOPE", request, target_type="role", target_id=str(role_id),
+    ps.set_role_rag_scopes(req.role_id, req.codes)
+    ps.delete_sessions_by_role(req.role_id)
+    _log(current_user.id, "ROLE_ASSIGN_RAG_SCOPE", request, target_type="role", target_id=str(req.role_id),
          detail={"codes": req.codes})
     return {"success": True}
 
 
 # ── 用户管理 ───────────────────────────────────────────────────────────
 
-@router.get("/users")
+@router.post("/users/list")
 def list_users_endpoint(
-    search: str = Query(""),
-    role_code: str = Query(""),
-    status: int | None = Query(None),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    req: UserListRequest,
     current_user: CurrentUser = Depends(require_permission("permission.user.view")),
 ):
-    return ps.list_users(search=search, role_code=role_code, status=status, page=page, page_size=page_size)
+    return ps.list_users(search=req.search, role_code=req.role_code, status=req.status, page=req.page, page_size=req.page_size)
 
 
-@router.post("/users")
+@router.post("/users/create")
 def create_user_endpoint(req: UserCreate, request: Request,
                          current_user: CurrentUser = Depends(require_permission("permission.user.create"))):
     try:
@@ -207,54 +224,54 @@ def create_user_endpoint(req: UserCreate, request: Request,
     return {"id": account_id, "full_name": req.full_name}
 
 
-@router.get("/users/{user_id}")
-def get_user_endpoint(user_id: int, current_user: CurrentUser = Depends(require_permission("permission.user.view"))):
-    user = ps.get_user_detail(user_id)
+@router.post("/users/get")
+def get_user_endpoint(req: UserIdRequest, current_user: CurrentUser = Depends(require_permission("permission.user.view"))):
+    user = ps.get_user_detail(req.user_id)
     if user is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "用户不存在"})
     return user
 
 
-@router.put("/users/{user_id}")
-def update_user_endpoint(user_id: int, req: UserUpdate, request: Request,
+@router.post("/users/update")
+def update_user_endpoint(req: UserUpdate, request: Request,
                          current_user: CurrentUser = Depends(require_permission("permission.user.update"))):
-    user = ps.get_user_detail(user_id)
+    user = ps.get_user_detail(req.user_id)
     if user is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "用户不存在"})
     # 第一阶段 personal_info 表只有 full_name 可更新
     if req.full_name is not None:
         from quest_rag.auth.store import get_conn as auth_get_conn, get_account_by_id
         with auth_get_conn() as conn:
-            account = get_account_by_id(user_id)
+            account = get_account_by_id(req.user_id)
             if account:
                 conn.execute(
                     "UPDATE personal_info SET full_name = %s, updated_at = now() WHERE id = %s",
                     (req.full_name, account["personal_info_id"]),
                 )
-    _log(current_user.id, "USER_UPDATE", request, target_type="user", target_id=str(user_id),
-         detail=req.model_dump(exclude_none=True))
-    return ps.get_user_detail(user_id)
+    _log(current_user.id, "USER_UPDATE", request, target_type="user", target_id=str(req.user_id),
+         detail=req.model_dump(exclude_none=True, exclude={"user_id"}))
+    return ps.get_user_detail(req.user_id)
 
 
-@router.put("/users/{user_id}/roles")
-def update_user_roles_endpoint(user_id: int, req: UserRoleUpdate, request: Request,
+@router.post("/users/roles")
+def update_user_roles_endpoint(req: UserRoleUpdate, request: Request,
                                current_user: CurrentUser = Depends(require_permission("permission.user.assign_role"))):
-    if user_id == current_user.id:
-        current_roles = ps.get_user_roles(user_id)
+    if req.user_id == current_user.id:
+        current_roles = ps.get_user_roles(req.user_id)
         if "ADMIN" in current_roles and "ADMIN" not in req.role_codes:
             raise HTTPException(status_code=400, detail={"code": "SELF_DEMOTE", "message": "不能移除自己的管理员角色"})
 
-    ps.set_user_roles(user_id, req.role_codes)
-    ps.delete_all_user_sessions(user_id)
-    _log(current_user.id, "USER_ASSIGN_ROLE", request, target_type="user", target_id=str(user_id),
+    ps.set_user_roles(req.user_id, req.role_codes)
+    ps.delete_all_user_sessions(req.user_id)
+    _log(current_user.id, "USER_ASSIGN_ROLE", request, target_type="user", target_id=str(req.user_id),
          detail={"role_codes": req.role_codes})
     return {"success": True}
 
 
-@router.post("/users/{user_id}/reset-password")
-def reset_password_endpoint(user_id: int, req: ResetPasswordBody, request: Request,
+@router.post("/users/reset-password")
+def reset_password_endpoint(req: ResetPasswordBody, request: Request,
                             current_user: CurrentUser = Depends(require_permission("permission.user.reset_password"))):
-    user = ps.get_user_detail(user_id)
+    user = ps.get_user_detail(req.user_id)
     if user is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "用户不存在"})
 
@@ -263,55 +280,55 @@ def reset_password_endpoint(user_id: int, req: ResetPasswordBody, request: Reque
         raise HTTPException(status_code=400, detail={"code": "WEAK_PASSWORD", "message": policy_error})
 
     new_hash = hash_password(req.new_password)
-    ps.reset_user_password(user_id, new_hash)
-    ps.delete_all_user_sessions(user_id)
-    _log(current_user.id, "USER_RESET_PASSWORD", request, target_type="user", target_id=str(user_id))
+    ps.reset_user_password(req.user_id, new_hash)
+    ps.delete_all_user_sessions(req.user_id)
+    _log(current_user.id, "USER_RESET_PASSWORD", request, target_type="user", target_id=str(req.user_id))
     return {"success": True, "message": "密码已重置，用户需重新登录"}
 
 
-@router.post("/users/{user_id}/lock")
-def lock_user_endpoint(user_id: int, request: Request,
+@router.post("/users/lock")
+def lock_user_endpoint(req: UserIdRequest, request: Request,
                        current_user: CurrentUser = Depends(require_permission("permission.user.lock"))):
-    if user_id == current_user.id:
+    if req.user_id == current_user.id:
         raise HTTPException(status_code=400, detail={"code": "SELF_LOCK", "message": "不能锁定自己"})
 
-    ps.lock_user(user_id)
-    ps.delete_all_user_sessions(user_id)
-    _log(current_user.id, "USER_LOCK", request, target_type="user", target_id=str(user_id))
+    ps.lock_user(req.user_id)
+    ps.delete_all_user_sessions(req.user_id)
+    _log(current_user.id, "USER_LOCK", request, target_type="user", target_id=str(req.user_id))
     return {"success": True}
 
 
-@router.post("/users/{user_id}/unlock")
-def unlock_user_endpoint(user_id: int, request: Request,
+@router.post("/users/unlock")
+def unlock_user_endpoint(req: UserIdRequest, request: Request,
                          current_user: CurrentUser = Depends(require_permission("permission.user.unlock"))):
-    ps.unlock_user(user_id)
-    _log(current_user.id, "USER_UNLOCK", request, target_type="user", target_id=str(user_id))
+    ps.unlock_user(req.user_id)
+    _log(current_user.id, "USER_UNLOCK", request, target_type="user", target_id=str(req.user_id))
     return {"success": True}
 
 
-@router.post("/users/{user_id}/enable")
-def enable_user_endpoint(user_id: int, request: Request,
+@router.post("/users/enable")
+def enable_user_endpoint(req: UserIdRequest, request: Request,
                          current_user: CurrentUser = Depends(require_permission("permission.user.unlock"))):
-    ps.update_user_status(user_id, 1)
-    _log(current_user.id, "USER_ENABLE", request, target_type="user", target_id=str(user_id))
+    ps.update_user_status(req.user_id, 1)
+    _log(current_user.id, "USER_ENABLE", request, target_type="user", target_id=str(req.user_id))
     return {"success": True}
 
 
-@router.post("/users/{user_id}/disable")
-def disable_user_endpoint(user_id: int, request: Request,
+@router.post("/users/disable")
+def disable_user_endpoint(req: UserIdRequest, request: Request,
                           current_user: CurrentUser = Depends(require_permission("permission.user.lock"))):
-    if user_id == current_user.id:
+    if req.user_id == current_user.id:
         raise HTTPException(status_code=400, detail={"code": "SELF_DISABLE", "message": "不能禁用自己"})
 
-    ps.update_user_status(user_id, 0)
-    ps.delete_all_user_sessions(user_id)
-    _log(current_user.id, "USER_DISABLE", request, target_type="user", target_id=str(user_id))
+    ps.update_user_status(req.user_id, 0)
+    ps.delete_all_user_sessions(req.user_id)
+    _log(current_user.id, "USER_DISABLE", request, target_type="user", target_id=str(req.user_id))
     return {"success": True}
 
 
-@router.post("/users/{user_id}/kick")
-def kick_user_endpoint(user_id: int, request: Request,
+@router.post("/users/kick")
+def kick_user_endpoint(req: UserIdRequest, request: Request,
                        current_user: CurrentUser = Depends(require_permission("permission.user.kick"))):
-    ps.delete_all_user_sessions(user_id)
-    _log(current_user.id, "USER_KICK", request, target_type="user", target_id=str(user_id))
+    ps.delete_all_user_sessions(req.user_id)
+    _log(current_user.id, "USER_KICK", request, target_type="user", target_id=str(req.user_id))
     return {"success": True, "message": "用户已被强制下线"}

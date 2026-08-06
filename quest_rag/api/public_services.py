@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from quest_rag.auth.dependencies import require_permission
+from quest_rag.auth.dependencies import require_permission, require_rag_scope
 from quest_rag.auth.schemas import CurrentUser
 from quest_rag.social_security.schemas import SocialSecurityPaymentRecord, SocialSecuritySummary
 from quest_rag.social_security.service import get_my_social_security_summary, list_my_payment_records
@@ -19,6 +19,7 @@ class SocialSecurityPaymentsRequest(BaseModel):
 @router.post("/social-security/summary", response_model=SocialSecuritySummary)
 def social_security_summary(
     current_user: CurrentUser = Depends(require_permission("public_services.social_security.view")),
+    _: CurrentUser = Depends(require_rag_scope("social_security_mock")),
 ):
     return get_my_social_security_summary(current_user)
 
@@ -27,6 +28,7 @@ def social_security_summary(
 def social_security_payments(
     req: SocialSecurityPaymentsRequest,
     current_user: CurrentUser = Depends(require_permission("public_services.social_security.view")),
+    _: CurrentUser = Depends(require_rag_scope("social_security_mock")),
 ):
     return list_my_payment_records(
         current_user,

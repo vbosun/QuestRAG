@@ -34,6 +34,18 @@ def require_permission(permission_code: str):
     return dependency
 
 
+def require_rag_scope(scope_code: str):
+    def dependency(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if scope_code not in current_user.rag_scopes:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "FORBIDDEN", "message": "无权访问该数据范围"},
+            )
+        return current_user
+
+    return dependency
+
+
 def require_any_permission(*codes: str):
     def dependency(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
         if not any(c in current_user.permissions for c in codes):
