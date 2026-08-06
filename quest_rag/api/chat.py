@@ -20,6 +20,7 @@ from quest_rag.chat_memory.store import (
     load_memory_context,
     rename_conversation,
 )
+from quest_rag.core.config import get_generation_config
 from quest_rag.rag.generator import generate, generate_stream, history
 from quest_rag.schemas.schemas import ChatRequest, ChatResponse
 
@@ -58,6 +59,7 @@ def chat(req: ChatRequest, current_user: CurrentUser = Depends(require_permissio
             thread_id=session_id,
             current_user=current_user,
             memory_context=memory_context,
+            generation_options=get_generation_config(),
         )
         insert_message(current_user.id, session_id, "assistant", result, raw=result, parts=parse_message_parts(result))
     except Exception as e:
@@ -143,6 +145,7 @@ def call_generate_stream(question: str, session_id: str, current_user: CurrentUs
             thread_id=session_id,
             current_user=current_user,
             memory_context=memory_context,
+            generation_options=get_generation_config(),
         )
     return generate_stream(question=question, thread_id=session_id, current_user=current_user)
 

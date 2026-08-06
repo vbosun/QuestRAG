@@ -54,12 +54,13 @@ def generate(
     thread_id: str = "1",
     current_user: CurrentUser | None = None,
     memory_context: str | None = None,
+    generation_options: dict | None = None,
 ) -> str:
     reset_citations()
     token = current_user_ctx.set(current_user)
     conversation_token = current_conversation_ctx.set(thread_id)
     try:
-        agent = _make_agent(current_user)
+        agent = _make_agent(current_user, generation_options)
         result = agent.invoke(
             {"messages": [{"role": "user", "content": build_question_with_memory(question, memory_context)}]},
             {"configurable": {"thread_id": thread_id}},
@@ -110,9 +111,10 @@ def generate_stream(
     thread_id: str = "1",
     current_user: CurrentUser | None = None,
     memory_context: str | None = None,
+    generation_options: dict | None = None,
 ):
     context = copy_context()
-    iterator = context.run(_generate_stream_items, question, thread_id, current_user, memory_context)
+    iterator = context.run(_generate_stream_items, question, thread_id, current_user, memory_context, generation_options)
     try:
         while True:
             try:
@@ -128,12 +130,13 @@ def _generate_stream_items(
     thread_id: str,
     current_user: CurrentUser | None,
     memory_context: str | None,
+    generation_options: dict | None,
 ):
     reset_citations()
     token = current_user_ctx.set(current_user)
     conversation_token = current_conversation_ctx.set(thread_id)
     try:
-        agent = _make_agent(current_user)
+        agent = _make_agent(current_user, generation_options)
         querying = False
         for chunk in agent.stream(
             {"messages": [{"role": "user", "content": build_question_with_memory(question, memory_context)}]},

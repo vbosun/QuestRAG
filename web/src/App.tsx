@@ -111,7 +111,6 @@ function buildMenuItems(navigate: ReturnType<typeof useNavigate>) {
         { key: "/app/evaluation/datasets", label: "评测集" },
       ],
     },
-    { key: "/app/retrieval-config", icon: <SettingOutlined />, label: "检索配置", permission: "system.retrieval_config.view" },
     {
       key: "public-services",
       icon: <ClusterOutlined />,
@@ -129,6 +128,20 @@ function buildMenuItems(navigate: ReturnType<typeof useNavigate>) {
       children: [
         { key: "/app/permissions/users", label: "用户管理", permission: "permission.user.view" },
         { key: "/app/permissions/roles", label: "角色管理", permission: "permission.role.view" },
+      ],
+    },
+  ];
+}
+
+function buildSettingsMenuItems() {
+  return [
+    {
+      key: "settings",
+      icon: <SettingOutlined />,
+      label: "设置",
+      permission: "system.retrieval_config.view",
+      children: [
+        { key: "/app/retrieval-config", label: "检索配置", permission: "system.retrieval_config.view" },
       ],
     },
   ];
@@ -156,9 +169,14 @@ function WorkspaceLayout() {
   const { message } = App.useApp();
 
   const allMenuItems = useMemo(() => buildMenuItems(navigate), [navigate]);
+  const allSettingsMenuItems = useMemo(() => buildSettingsMenuItems(), []);
   const visibleMenuItems = useMemo(
     () => filterMenuByPermissions(allMenuItems, permissions),
     [allMenuItems, permissions],
+  );
+  const visibleSettingsMenuItems = useMemo(
+    () => filterMenuByPermissions(allSettingsMenuItems, permissions),
+    [allSettingsMenuItems, permissions],
   );
 
   const selectedKey = (() => {
@@ -204,6 +222,7 @@ function WorkspaceLayout() {
           </div>
         </div>
         <Menu
+          className="sider-main-menu"
           defaultOpenKeys={["evaluation", "public-services", "permissions"]}
           mode="inline"
           selectedKeys={[selectedKey]}
@@ -216,6 +235,16 @@ function WorkspaceLayout() {
             }
           }}
         />
+        {visibleSettingsMenuItems.length > 0 && (
+          <Menu
+            className="sider-settings-menu"
+            defaultOpenKeys={["settings"]}
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            items={visibleSettingsMenuItems}
+            onClick={({ key }) => navigate(key)}
+          />
+        )}
         <div className="sider-summary">
           <Text type="secondary">{user?.full_name || ""}</Text>
         </div>

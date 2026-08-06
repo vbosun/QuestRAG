@@ -63,6 +63,11 @@ export interface RetrievalOptions {
   rrf_k: number;
 }
 
+export interface GenerationConfig {
+  temperature: number;
+  top_p: number;
+}
+
 export interface GenerationOptions {
   model?: string | null;
   temperature: number;

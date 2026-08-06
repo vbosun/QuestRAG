@@ -161,8 +161,8 @@ export function EvaluationView({
   const [evaluationMode, setEvaluationMode] = useState<"retrieval" | "generation" | "both">("both");
   const [generationOptions, setGenerationOptions] = useState<GenerationOptions>({
     model: "",
-    temperature: 0.1,
-    top_p: 1,
+    temperature: 0.3,
+    top_p: 0.9,
     max_tokens: 4000,
     system_prompt_version: "default",
     tool_policy: "current_user",
@@ -754,7 +754,7 @@ export function EvaluationView({
                   </label>
                   <label>
                     <Text strong>Top P</Text>
-                    <InputNumber min={0.01} max={1} step={0.05} value={generationOptions.top_p} onChange={(value) => setGenerationOptions({ ...generationOptions, top_p: Number(value ?? 1) })} />
+                    <InputNumber min={0} max={1} step={0.05} value={generationOptions.top_p} onChange={(value) => setGenerationOptions({ ...generationOptions, top_p: Number(value ?? 0.9) })} />
                   </label>
                   <label>
                     <Text strong>最大生成 Token</Text>

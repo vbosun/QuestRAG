@@ -38,6 +38,11 @@ DEFAULT_RETRIEVAL_CONFIG = {
     "rrf_k": 60,
 }
 
+DEFAULT_GENERATION_CONFIG = {
+    "temperature": 0.3,
+    "top_p": 0.9,
+}
+
 _config_cache: dict = {}
 
 
@@ -59,6 +64,15 @@ def get_retrieval_config() -> dict:
     if isinstance(value, dict):
         return {**DEFAULT_RETRIEVAL_CONFIG, **value}
     return dict(DEFAULT_RETRIEVAL_CONFIG)
+
+
+def get_generation_config() -> dict:
+    """Return generation config dict with defaults for missing keys."""
+    entry = _config_cache.get("generation")
+    value = entry["value"] if entry else None
+    if isinstance(value, dict):
+        return {**DEFAULT_GENERATION_CONFIG, **value}
+    return dict(DEFAULT_GENERATION_CONFIG)
 
 
 def set_config_cache(key: str, value):

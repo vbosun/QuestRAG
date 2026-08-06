@@ -95,11 +95,42 @@ body {
   background: transparent;
 }
 
-.app-sider .ant-menu-item {
+.sider-main-menu {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.sider-settings-menu {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.app-sider .ant-menu-item,
+.app-sider .ant-menu-submenu-title {
   min-height: 44px;
   border-radius: 8px;
   margin-inline: 0;
   width: 100%;
+}
+
+.app-sider .ant-menu-inline > .ant-menu-item,
+.app-sider .ant-menu-inline > .ant-menu-submenu > .ant-menu-submenu-title {
+  padding-left: 10px !important;
+  padding-right: 28px !important;
+}
+
+.app-sider .ant-menu-item .ant-menu-item-icon,
+.app-sider .ant-menu-submenu-title .ant-menu-item-icon {
+  width: 18px;
+  min-width: 18px;
+  margin-inline-end: 12px;
+  text-align: center;
+}
+
+.app-sider .ant-menu-title-content {
+  margin-inline-start: 0 !important;
 }
 
 /* --- Navigation visual improvements --- */

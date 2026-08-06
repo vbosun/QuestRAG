@@ -155,10 +155,15 @@ class RetrievalOptions(BaseModel):
     rrf_k: int = Field(default=60, ge=1, le=120)
 
 
+class GenerationConfig(BaseModel):
+    temperature: float = Field(default=0.3, ge=0, le=2)
+    top_p: float = Field(default=0.9, ge=0, le=1)
+
+
 class GenerationOptions(BaseModel):
     model: str | None = Field(default=None, max_length=80)
-    temperature: float = Field(default=0.1, ge=0, le=2)
-    top_p: float = Field(default=1.0, ge=0.01, le=1)
+    temperature: float = Field(default=0.3, ge=0, le=2)
+    top_p: float = Field(default=0.9, ge=0, le=1)
     max_tokens: int = Field(default=4000, ge=256, le=25000)
     system_prompt_version: str = Field(default="default", max_length=80)
     tool_policy: Literal["current_user"] = "current_user"

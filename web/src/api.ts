@@ -13,6 +13,7 @@ import type {
   EvaluationDocument,
   EvaluationDocumentRun,
   EvaluationRun,
+  GenerationConfig,
   GenerationOptions,
   RagasOptions,
   RetrievalOptions,
@@ -290,6 +291,14 @@ export async function getRetrievalConfig(): Promise<RetrievalOptions> {
 
 export async function updateRetrievalConfig(params: RetrievalOptions) {
   return putJson("/system/config", { key: "retrieval", value: params });
+}
+
+export async function getGenerationConfig(): Promise<GenerationConfig> {
+  return getJson<GenerationConfig>("/system/config/generation");
+}
+
+export async function updateGenerationConfig(params: GenerationConfig) {
+  return putJson("/system/config", { key: "generation", value: params });
 }
 
 export async function syncRetrievalConfig(runId: string) {

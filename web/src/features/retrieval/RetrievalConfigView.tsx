@@ -1,8 +1,15 @@
 import { ReloadOutlined, SaveOutlined, SyncOutlined } from "@ant-design/icons";
 import { App, Breadcrumb, Button, Descriptions, InputNumber, Select, Space, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
-import { getRetrievalConfig, listEvaluations, syncRetrievalConfig, updateRetrievalConfig } from "../../api";
-import type { EvaluationRun, RetrievalOptions } from "../../types";
+import {
+  getGenerationConfig,
+  getRetrievalConfig,
+  listEvaluations,
+  syncRetrievalConfig,
+  updateGenerationConfig,
+  updateRetrievalConfig,
+} from "../../api";
+import type { EvaluationRun, GenerationConfig, RetrievalOptions } from "../../types";
 import { formatDate } from "../../utils";
 
 const { Title, Text } = Typography;
@@ -10,6 +17,7 @@ const { Title, Text } = Typography;
 export function RetrievalConfigView() {
   const { message } = App.useApp();
   const [config, setConfig] = useState<RetrievalOptions>({ top_k: 5, recall_k: 15, mode: "hybrid", rrf_k: 60 });
+  const [generationConfig, setGenerationConfig] = useState<GenerationConfig>({ temperature: 0.3, top_p: 0.9 });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -24,8 +32,9 @@ export function RetrievalConfigView() {
   async function loadConfig() {
     setLoading(true);
     try {
-      const cfg = await getRetrievalConfig();
+      const [cfg, generationCfg] = await Promise.all([getRetrievalConfig(), getGenerationConfig()]);
       setConfig(cfg);
+      setGenerationConfig(generationCfg);
     } catch (err) {
       message.error(err instanceof Error ? err.message : "读取检索配置失败");
     } finally {
@@ -44,8 +53,11 @@ export function RetrievalConfigView() {
   async function handleSave() {
     setSaving(true);
     try {
-      await updateRetrievalConfig(config);
-      message.success("检索参数已保存，正式检索即时生效");
+      await Promise.all([
+        updateRetrievalConfig(config),
+        updateGenerationConfig(generationConfig),
+      ]);
+      message.success("全部设置已保存，正式问答即时生效");
     } catch (err) {
       message.error(err instanceof Error ? err.message : "保存失败");
     } finally {
@@ -61,7 +73,7 @@ export function RetrievalConfigView() {
     setSyncing(true);
     try {
       await syncRetrievalConfig(syncRunId);
-      message.success("已从评测记录同步检索参数");
+      message.success("已从评测记录同步检索参数与生成参数");
       await loadConfig();
     } catch (err) {
       message.error(err instanceof Error ? err.message : "同步失败");
@@ -77,16 +89,19 @@ export function RetrievalConfigView() {
       <header className="panel-header">
         <div>
           <div className="page-nav-row">
-            <Breadcrumb className="page-breadcrumb" items={[{ title: "检索配置" }]} />
+            <Breadcrumb className="page-breadcrumb" items={[{ title: "设置" }, { title: "检索配置" }]} />
           </div>
           <div className="page-title-block">
             <Title level={3}>检索配置</Title>
-            <Text type="secondary" className="page-subtitle">调整正式环境的检索参数，保存后即时生效，无需重启。</Text>
+            <Text type="secondary" className="page-subtitle">调整正式环境的检索与生成参数，保存后即时生效，无需重启。</Text>
           </div>
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={loadConfig} loading={loading}>
             刷新
+          </Button>
+          <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave} type="primary">
+            保存全部设置
           </Button>
         </Space>
       </header>
@@ -95,9 +110,7 @@ export function RetrievalConfigView() {
         <section className="eval-detail-card">
           <div className="ingest-card-header">
             <Title level={4}>当前参数</Title>
-            <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave} type="primary">
-              保存
-            </Button>
+            <Text type="secondary">修改后点击页面右上角“保存全部设置”统一生效。</Text>
           </div>
 
           <div className="eval-option-grid">
@@ -151,8 +164,38 @@ export function RetrievalConfigView() {
         </section>
 
         <section className="eval-detail-card">
+          <Title level={4}>生成参数</Title>
+          <div className="eval-option-grid">
+            <label>
+              <Text strong>温度（Temperature）</Text>
+              <InputNumber
+                min={0}
+                max={2}
+                step={0.1}
+                value={generationConfig.temperature}
+                onChange={(value) => setGenerationConfig({ ...generationConfig, temperature: Number(value ?? 0.3) })}
+              />
+            </label>
+            <label>
+              <Text strong>Top-P</Text>
+              <InputNumber
+                min={0}
+                max={1}
+                step={0.05}
+                value={generationConfig.top_p}
+                onChange={(value) => setGenerationConfig({ ...generationConfig, top_p: Number(value ?? 0.9) })}
+              />
+            </label>
+          </div>
+          <Descriptions bordered column={2} size="small" style={{ marginTop: 24 }}>
+            <Descriptions.Item label="温度">{generationConfig.temperature}</Descriptions.Item>
+            <Descriptions.Item label="Top-P">{generationConfig.top_p}</Descriptions.Item>
+          </Descriptions>
+        </section>
+
+        <section className="eval-detail-card">
           <Title level={4}>从评测记录同步</Title>
-          <Text type="secondary">选择一条已完成评测的记录，将其检索参数一键应用到正式环境。</Text>
+          <Text type="secondary">选择一条已完成评测的记录，将其检索参数和生成参数一键应用到正式环境。</Text>
           <Space style={{ marginTop: 16 }}>
             <Select
               allowClear
