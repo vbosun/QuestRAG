@@ -61,7 +61,7 @@ TOOL_REGISTRY: dict[str, dict] = {
         "mode": "read",
     },
     "get_application_form": {
-        "permission": "llm.tool.application_workflow_read",
+        "permission": "llm.tool.application_form_read",
         "risk_level": "LOW",
         "mode": "read",
     },

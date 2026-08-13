@@ -329,7 +329,7 @@ def get_application_form(case_id: str) -> str:
     user = current_user_ctx.get()
     if user is None:
         return "读取申请页面需要登录用户上下文。"
-    assert_tool_permission(user, "get_application_status")
+    assert_tool_permission(user, "get_application_form")
     detail = get_application_detail(user, case_id)
     payload = {
         "case_id": str(detail["id"]),
