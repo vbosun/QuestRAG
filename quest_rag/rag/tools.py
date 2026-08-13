@@ -373,7 +373,7 @@ def analyze_business_page(url: str) -> str:
     """分析管理员提供的业务网页地址，识别表单字段和是否需要人工确认映射。"""
     user = current_user_ctx.get()
     if user is not None:
-        assert_tool_permission(user, "configure_business_page")
+        assert_tool_permission(user, "analyze_business_page")
     try:
         return json.dumps(analyze_page(url), ensure_ascii=False)
     except Exception as exc:
@@ -385,7 +385,7 @@ def save_business_page_config(business_code: str, name: str, entry_url: str, fie
     """保存管理员确认后的业务页面接入配置，供 Agent 后续识别和办理。"""
     user = current_user_ctx.get()
     if user is not None:
-        assert_tool_permission(user, "configure_business_page")
+        assert_tool_permission(user, "save_business_page_config")
     analysis = analyze_page(entry_url)
     if field_mapping:
         analysis["fields"] = field_mapping
@@ -397,7 +397,7 @@ def list_business_page_configs() -> str:
     """查询已接入的外部业务页面配置。"""
     user = current_user_ctx.get()
     if user is not None:
-        assert_tool_permission(user, "configure_business_page")
+        assert_tool_permission(user, "list_business_page_configs")
     return json.dumps(list_connectors(), ensure_ascii=False)
 
 
