@@ -28,6 +28,7 @@ from quest_rag.applications.service import (
     agent_application_summary,
     assess_application_eligibility as assess_eligibility,
     create_application,
+    get_application_detail,
     get_application_guidance as get_guidance,
     list_available_applications as list_available,
 )
@@ -323,6 +324,29 @@ def get_application_status(case_id: str) -> str:
 
 
 @tool
+def get_application_form(case_id: str) -> str:
+    """读取当前已接入申请页面的结构化字段、填写值和下一步，不读取用户其他屏幕内容。"""
+    user = current_user_ctx.get()
+    if user is None:
+        return "读取申请页面需要登录用户上下文。"
+    assert_tool_permission(user, "get_application_status")
+    detail = get_application_detail(user, case_id)
+    payload = {
+        "case_id": str(detail["id"]),
+        "title": detail["definition"]["name"],
+        "status": detail["status"],
+        "current_step": detail["current_step"],
+        "fields": [
+            {key: field.get(key) for key in ("key", "label", "value", "required", "editable", "source", "sync_state")}
+            for field in detail["fields"]
+        ],
+        "materials": detail["materials"],
+        "next_action": detail["next_action"],
+    }
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+@tool
 def list_available_applications() -> str:
     """查询当前 Agent 可以介绍和发起的办事事项、地区及基础申请条件。"""
     user = current_user_ctx.get()
@@ -420,6 +444,7 @@ tools = [
     subsidy_match,
     subsidy_calculate,
     get_application_status,
+    get_application_form,
     list_available_applications,
     get_application_guidance,
     assess_application_eligibility,
