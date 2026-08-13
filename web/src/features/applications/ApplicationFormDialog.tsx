@@ -45,6 +45,18 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   }, [message]);
 
   useEffect(() => {
+    if (!open || !pinned) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    document.body.style.overflow = "auto";
+    document.body.style.paddingRight = "";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
+    };
+  }, [open, pinned]);
+
+  useEffect(() => {
     function move(event: PointerEvent) {
       if (!dragState.current) return;
       setPosition({
