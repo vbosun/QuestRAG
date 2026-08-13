@@ -364,6 +364,17 @@ def update_application_form_field(case_id: str, field_key: str, value: str) -> s
     # common Chinese/date formats the model may receive before validation.
     if field_key.endswith("date") or "日期" in field_key:
         value = _normalize_form_date(value)
+    # Select controls submit their stable option value, while users commonly
+    # dictate the visible Chinese label. Resolve the label against the current
+    # business definition before persisting/syncing it.
+    detail = get_application_detail(user, case_id)
+    field = next((item for item in detail["fields"] if item["key"] == field_key), None)
+    if field and field.get("type") == "select":
+        options = field.get("options") or []
+        match = next((option for option in options if str(option.get("label")) == str(value) or str(option.get("value")) == str(value)), None)
+        if not match:
+            return json.dumps({"updated": False, "code": "INVALID_OPTION", "message": f"{field['label']}没有这个选项，请从页面选项中选择。"}, ensure_ascii=False)
+        value = match["value"]
     result = update_draft_field(user, case_id, field_key, value)
     return json.dumps({"updated": True, **result}, ensure_ascii=False, default=str)
 
