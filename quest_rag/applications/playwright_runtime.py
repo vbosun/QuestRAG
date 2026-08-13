@@ -112,6 +112,12 @@ class PlaywrightRuntime:
         if await locator.count():
             if await locator.get_attribute("readonly") is not None or await locator.get_attribute("disabled") is not None:
                 return {"key": key, "status": "skipped", "reason": "readonly_or_disabled"}
+            if (await locator.get_attribute("type") or "").lower() == "select" or await locator.evaluate("el => el.tagName.toLowerCase() === 'select'"):
+                try:
+                    await locator.select_option(value=str(value))
+                except Exception:
+                    await locator.select_option(label=str(value))
+                return {"key": key, "status": "selected"}
             await locator.fill(str(value)[:10] if await locator.get_attribute("type") == "date" else str(value))
             return {"key": key, "status": "filled"}
         return {"key": key, "status": "not_found"}
