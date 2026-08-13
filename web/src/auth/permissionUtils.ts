@@ -38,13 +38,14 @@ export function filterMenuByPermissions<T extends MenuItemLike>(
       return true;
     })
     .map((item) => {
+      const { ragScope: _ragScope, ...safeItem } = item;
       if (item.children && item.children.length > 0) {
         return {
-          ...item,
+          ...safeItem,
           children: filterMenuByPermissions(item.children, permissions, ragScopes),
-        };
+        } as T;
       }
-      return item;
+      return safeItem as T;
     })
     .filter((item) => {
       if (item.children && item.children.length === 0) {

@@ -53,7 +53,7 @@ async def connect_application_browser(req: BrowserConnectRequest, current_user: 
     detail = service.get_application_detail(current_user, req.case_id)
     if detail.get("execution_mode") == "playwright":
         values = {field["key"]: field["value"] for field in detail["fields"] if field.get("value") is not None}
-        observed = await runtime.start(req.case_id, result["entry_url"], values)
+        observed = await runtime.start(req.case_id, result["entry_url"], values, owner_id=current_user.id)
         result = {**result, "runtime": {"url": observed["url"], "title": observed["title"]}}
     return result
 

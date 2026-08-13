@@ -26,7 +26,7 @@ class PlaywrightRuntime:
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(headless=True)
 
-    async def start(self, case_id: str, url: str, fields: dict[str, Any] | None = None) -> dict:
+    async def start(self, case_id: str, url: str, fields: dict[str, Any] | None = None, owner_id: int | None = None) -> dict:
         parsed = urlparse(url)
         origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -36,6 +36,8 @@ class PlaywrightRuntime:
         await self._ensure_browser()
         context = self._contexts.get(case_id) or await self._browser.new_context(viewport={"width": 1280, "height": 900})
         self._contexts[case_id] = context
+        if owner_id is not None:
+            self._owners[case_id] = owner_id
         page = self._pages.get(case_id) or await context.new_page()
         self._pages[case_id] = page
         if page.url != url:
