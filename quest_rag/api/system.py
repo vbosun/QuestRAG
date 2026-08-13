@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
-from quest_rag.core.config import get_generation_config, get_retrieval_config, set_config_cache
+from quest_rag.core.config import get_application_execution_config, get_generation_config, get_retrieval_config, set_config_cache
 from quest_rag.rag.pg_store import (
     get_evaluation_run,
     init_db,
@@ -33,7 +33,11 @@ def update_config(payload: dict, current_user: CurrentUser = Depends(require_per
             value = RetrievalOptions(**value).model_dump()
         elif key == "generation":
             value = GenerationConfig(**value).model_dump()
-    except (TypeError, ValidationError) as exc:
+        elif key == "application_execution":
+            if not isinstance(value, dict) or value.get("mode") not in {"embedded", "playwright"}:
+                raise ValueError("invalid application execution mode")
+            value = {"mode": value["mode"]}
+    except (TypeError, ValueError, ValidationError) as exc:
         raise HTTPException(status_code=400, detail="配置参数不符合范围要求") from exc
     description = payload.get("description", "")
     result = set_system_config(key, value, description)
@@ -82,3 +86,9 @@ def get_retrieval(current_user: CurrentUser = Depends(require_permission("system
 def get_generation(current_user: CurrentUser = Depends(require_permission("system.retrieval_config.view"))):
     init_db()
     return get_generation_config()
+
+
+@router.get("/config/application-execution")
+def get_application_execution(current_user: CurrentUser = Depends(require_permission("system.retrieval_config.view"))):
+    init_db()
+    return get_application_execution_config()

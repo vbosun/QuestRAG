@@ -372,6 +372,14 @@ export async function getGenerationConfig(): Promise<GenerationConfig> {
   return getJson<GenerationConfig>("/system/config/generation");
 }
 
+export function getApplicationExecutionConfig(): Promise<{ mode: "embedded" | "playwright" }> {
+  return getJson<{ mode: "embedded" | "playwright" }>("/system/config/application-execution");
+}
+
+export function updateApplicationExecutionConfig(mode: "embedded" | "playwright") {
+  return putJson("/system/config", { key: "application_execution", value: { mode } });
+}
+
 export async function updateGenerationConfig(params: GenerationConfig) {
   return putJson("/system/config", { key: "generation", value: params });
 }

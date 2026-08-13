@@ -109,7 +109,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
       <Alert type={fillStage === "reading" ? "info" : "success"} showIcon message={fillStage === "reading" ? "Agent 正在带入个人档案信息…" : "Agent 已完成可用信息带入，请直接在业务页面核对、修改或提交。"} />
       <Steps size="small" current={currentStep} items={detail.definition.steps.map((step) => ({ title: step.name }))} />
       <div className="embedded-business-page">
-        <div className="embedded-business-toolbar"><Tag color="green">外部业务系统页面</Tag><Text type="secondary">页面已嵌入当前对话，Agent 和您都在这里操作，不会跳转</Text></div>
+        <div className="embedded-business-toolbar"><Tag color={detail.execution_mode === "playwright" ? "blue" : "green"}>{detail.execution_mode === "playwright" ? "Playwright 实时浏览器页面" : "外部业务系统页面"}</Tag><Text type="secondary">{detail.execution_mode === "playwright" ? "Agent 通过受控浏览器观察并操作，过程实时展示" : "页面已嵌入当前对话，Agent 和您都在这里操作，不会跳转"}</Text></div>
         <iframe ref={iframeRef} title={`${title}业务页面`} src={externalPageUrl} onLoad={() => sendFieldsToEmbeddedPage(detail, iframeRef.current)} />
       </div>
     </div>}

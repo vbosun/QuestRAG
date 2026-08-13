@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from quest_rag.applications import definitions, store
 from quest_rag.auth.schemas import CurrentUser
+from quest_rag.core.config import get_application_execution_config
 
 
 USER_MANUAL = "user_manual"
@@ -115,7 +116,8 @@ def get_application_detail(user: CurrentUser, case_id: str) -> dict:
     return {
         **case, "definition": _public_definition(definition), "fields": fields,
         "materials": materials,
-        "browser": browser, "next_action": _next_action(case, browser, fields, material_complete),
+        "browser": browser, "execution_mode": get_application_execution_config()["mode"],
+        "next_action": _next_action(case, browser, fields, material_complete),
     }
 
 

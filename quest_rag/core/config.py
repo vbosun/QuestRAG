@@ -43,6 +43,10 @@ DEFAULT_GENERATION_CONFIG = {
     "top_p": 0.9,
 }
 
+DEFAULT_APPLICATION_EXECUTION_CONFIG = {
+    "mode": "embedded",
+}
+
 _config_cache: dict = {}
 
 
@@ -73,6 +77,16 @@ def get_generation_config() -> dict:
     if isinstance(value, dict):
         return {**DEFAULT_GENERATION_CONFIG, **value}
     return dict(DEFAULT_GENERATION_CONFIG)
+
+
+def get_application_execution_config() -> dict:
+    entry = _config_cache.get("application_execution")
+    value = entry["value"] if entry else None
+    if isinstance(value, dict):
+        mode = value.get("mode", DEFAULT_APPLICATION_EXECUTION_CONFIG["mode"])
+        if mode in {"embedded", "playwright"}:
+            return {"mode": mode}
+    return dict(DEFAULT_APPLICATION_EXECUTION_CONFIG)
 
 
 def set_config_cache(key: str, value):

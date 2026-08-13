@@ -3,10 +3,12 @@ import { App, Breadcrumb, Button, Descriptions, InputNumber, Select, Space, Tag,
 import { useEffect, useState } from "react";
 import {
   getGenerationConfig,
+  getApplicationExecutionConfig,
   getRetrievalConfig,
   listEvaluations,
   syncRetrievalConfig,
   updateGenerationConfig,
+  updateApplicationExecutionConfig,
   updateRetrievalConfig,
 } from "../../api";
 import type { EvaluationRun, GenerationConfig, RetrievalOptions } from "../../types";
@@ -18,6 +20,7 @@ export function RetrievalConfigView() {
   const { message } = App.useApp();
   const [config, setConfig] = useState<RetrievalOptions>({ top_k: 5, recall_k: 15, mode: "hybrid", rrf_k: 60 });
   const [generationConfig, setGenerationConfig] = useState<GenerationConfig>({ temperature: 0.3, top_p: 0.9 });
+  const [applicationMode, setApplicationMode] = useState<"embedded" | "playwright">("embedded");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -32,9 +35,10 @@ export function RetrievalConfigView() {
   async function loadConfig() {
     setLoading(true);
     try {
-      const [cfg, generationCfg] = await Promise.all([getRetrievalConfig(), getGenerationConfig()]);
+      const [cfg, generationCfg, applicationCfg] = await Promise.all([getRetrievalConfig(), getGenerationConfig(), getApplicationExecutionConfig()]);
       setConfig(cfg);
       setGenerationConfig(generationCfg);
+      setApplicationMode(applicationCfg.mode);
     } catch (err) {
       message.error(err instanceof Error ? err.message : "读取检索配置失败");
     } finally {
@@ -56,6 +60,7 @@ export function RetrievalConfigView() {
       await Promise.all([
         updateRetrievalConfig(config),
         updateGenerationConfig(generationConfig),
+        updateApplicationExecutionConfig(applicationMode),
       ]);
       message.success("全部设置已保存，正式问答即时生效");
     } catch (err) {
@@ -160,6 +165,27 @@ export function RetrievalConfigView() {
             <Descriptions.Item label="模式"><Tag>{modeLabel[config.mode] || config.mode}</Tag></Descriptions.Item>
             <Descriptions.Item label="召回数">{config.recall_k}</Descriptions.Item>
             <Descriptions.Item label="RRF k">{config.rrf_k}</Descriptions.Item>
+          </Descriptions>
+        </section>
+
+        <section className="eval-detail-card">
+          <Title level={4}>业务页面执行方式</Title>
+          <Text type="secondary">这是系统级开关，保存后新打开的申请页面统一采用该模式；不需要用户在每次会话中选择。</Text>
+          <div className="eval-option-grid" style={{ marginTop: 16 }}>
+            <label>
+              <Text strong>默认执行模式</Text>
+              <Select
+                value={applicationMode}
+                options={[
+                  { value: "embedded", label: "嵌入业务页面（兼容模式）" },
+                  { value: "playwright", label: "Playwright 受控浏览器（Agent 模式）" },
+                ]}
+                onChange={(value) => setApplicationMode(value)}
+              />
+            </label>
+          </div>
+          <Descriptions bordered column={1} size="small" style={{ marginTop: 24 }}>
+            <Descriptions.Item label="当前模式">{applicationMode === "playwright" ? "Playwright 受控浏览器" : "嵌入业务页面"}</Descriptions.Item>
           </Descriptions>
         </section>
 
