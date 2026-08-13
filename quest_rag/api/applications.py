@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+import asyncio
+from fastapi import APIRouter, Depends, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 
 from quest_rag.applications import definitions, service
 from quest_rag.applications.schemas import BrowserActionRequest, BrowserConnectRequest, CaseCreateRequest, CaseIdRequest, DraftFieldUpdateRequest, SyncRequest, SubmitRequest, WorkflowActionRequest
@@ -6,6 +7,7 @@ from quest_rag.applications.playwright_runtime import runtime
 from quest_rag.applications import workflow_service
 from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
+from quest_rag.auth.service import get_current_user_from_token, AuthError
 
 router = APIRouter(prefix="/applications", tags=["APPLICATIONS"])
 
@@ -66,6 +68,32 @@ async def observe_application_browser(req: CaseIdRequest, current_user: CurrentU
 async def act_application_browser(req: BrowserActionRequest, current_user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
     service._require_case(current_user, req.case_id)
     return await runtime.act(req.case_id, req.action, req.target, req.value)
+
+
+@router.websocket("/browser/live/{case_id}")
+async def live_application_browser(websocket: WebSocket, case_id: str):
+    """Authenticated live stream for a Playwright case; actions are JSON messages."""
+    try:
+        user = get_current_user_from_token(f"Bearer {websocket.query_params.get('token', '')}")
+        if "application.browser.connect" not in user.permissions:
+            await websocket.close(code=4403); return
+        service._require_case(user, case_id)
+    except (AuthError, HTTPException):
+        await websocket.close(code=4401); return
+    await websocket.accept()
+    try:
+        while True:
+            observed = await runtime.observe(case_id)
+            await websocket.send_json(observed)
+            try:
+                message = await asyncio.wait_for(websocket.receive_json(), timeout=0.8)
+                if message.get("action"):
+                    observed = await runtime.act(case_id, message["action"], message.get("target", ""), message.get("value"))
+                    await websocket.send_json(observed)
+            except asyncio.TimeoutError:
+                continue
+    except (WebSocketDisconnect, RuntimeError):
+        return
 
 
 @router.post("/sync/plan")

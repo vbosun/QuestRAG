@@ -2,7 +2,7 @@ import { Alert, App, Button, Input, Modal, Spin, Space, Steps, Tag, Typography }
 import { PushpinOutlined } from "@ant-design/icons";
 import React from "react";
 import { useEffect, useRef, useState } from "react";
-import { actApplicationBrowser, connectApplicationBrowser, getApplicationCase, observeApplicationBrowser } from "../../api";
+import { connectApplicationBrowser, getApplicationCase, observeApplicationBrowser } from "../../api";
 import type { ApplicationDetail } from "./types";
 
 const { Text } = Typography;
@@ -15,6 +15,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   const [pinned, setPinned] = useState(false);
   const [runtimeScreenshot, setRuntimeScreenshot] = useState<string | null>(null);
   const [runtimeInput, setRuntimeInput] = useState("");
+  const liveSocket = useRef<WebSocket | null>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const dragState = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
@@ -31,6 +32,15 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
             await connectApplicationBrowser(caseId);
             const observed = await observeApplicationBrowser(caseId);
             if (active) setRuntimeScreenshot(`data:image/png;base64,${observed.screenshot}`);
+            const token = sessionStorage.getItem("access_token");
+            if (token) {
+              const socket = new WebSocket(`${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/applications/browser/live/${caseId}?token=${encodeURIComponent(token)}`);
+              liveSocket.current = socket;
+              socket.onmessage = (event) => {
+                const next = JSON.parse(event.data) as { screenshot?: string };
+                if (next.screenshot) setRuntimeScreenshot(`data:image/png;base64,${next.screenshot}`);
+              };
+            }
           } catch (error) {
             if (active) message.warning(error instanceof Error ? error.message : "Playwright 浏览器连接失败");
           }
@@ -43,7 +53,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
       }
     }
     void load();
-    return () => { active = false; };
+    return () => { active = false; liveSocket.current?.close(); liveSocket.current = null; };
   }, [caseId, message]);
 
   useEffect(() => {
@@ -125,14 +135,15 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
           <div className="playwright-page-preview">
             {runtimeScreenshot ? <img src={runtimeScreenshot} alt="Playwright 受控业务页面" onClick={(event) => {
               const image = event.currentTarget;
-              void actApplicationBrowser(caseId, "click_point", "", { x: event.nativeEvent.offsetX * image.naturalWidth / image.clientWidth, y: event.nativeEvent.offsetY * image.naturalHeight / image.clientHeight }).then((next) => setRuntimeScreenshot(`data:image/png;base64,${next.screenshot}`));
+              const point = { x: event.nativeEvent.offsetX * image.naturalWidth / image.clientWidth, y: event.nativeEvent.offsetY * image.naturalHeight / image.clientHeight };
+              if (liveSocket.current?.readyState === WebSocket.OPEN) liveSocket.current.send(JSON.stringify({ action: "click_point", value: point }));
             }} /> : <Spin />}
             <Space.Compact style={{ width: "100%" }}>
               <Input value={runtimeInput} onChange={(event) => setRuntimeInput(event.target.value)} onPressEnter={() => {
                 if (!runtimeInput) return;
-                void actApplicationBrowser(caseId, "type", "", runtimeInput).then((next) => { setRuntimeScreenshot(`data:image/png;base64,${next.screenshot}`); setRuntimeInput(""); });
+                if (liveSocket.current?.readyState === WebSocket.OPEN) liveSocket.current.send(JSON.stringify({ action: "type", value: runtimeInput })); setRuntimeInput("");
               }} placeholder="点击页面控件后，在这里输入内容并回车" />
-              <Button onClick={() => { if (!runtimeInput) return; void actApplicationBrowser(caseId, "type", "", runtimeInput).then((next) => { setRuntimeScreenshot(`data:image/png;base64,${next.screenshot}`); setRuntimeInput(""); }); }}>输入</Button>
+              <Button onClick={() => { if (!runtimeInput) return; if (liveSocket.current?.readyState === WebSocket.OPEN) liveSocket.current.send(JSON.stringify({ action: "type", value: runtimeInput })); setRuntimeInput(""); }}>输入</Button>
             </Space.Compact>
             <Text type="secondary">这是后端 Playwright 会话的实时页面快照。Agent 的结构化操作会在此会话中执行，用户确认仍在当前对话内完成。</Text>
           </div>
