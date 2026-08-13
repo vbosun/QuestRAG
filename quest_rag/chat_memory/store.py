@@ -1,4 +1,6 @@
 import json
+from datetime import date, datetime
+from uuid import UUID
 import uuid
 from typing import Any
 
@@ -238,15 +240,26 @@ def get_conversation_detail(user_id: int, conversation_id: str) -> dict | None:
                ORDER BY sequence ASC""",
             (conversation_id, user_id),
         ).fetchall()
-    conversation["messages"] = [_normalize_message_row(dict(row)) for row in messages]
-    conversation["tool_memories"] = [dict(row) for row in memories]
-    return conversation
+    conversation["messages"] = [_json_safe(_normalize_message_row(dict(row))) for row in messages]
+    conversation["tool_memories"] = [_json_safe(dict(row)) for row in memories]
+    return _json_safe(conversation)
 
 
 def _normalize_message_row(row: dict) -> dict:
     if row.get("role") == "assistant":
         row["parts"] = normalize_message_parts(row.get("raw") or row.get("content") or "", row.get("parts"))
     return row
+
+
+def _json_safe(value):
+    """Normalize PostgreSQL UUID/timestamp values before returning chat history JSON."""
+    if isinstance(value, (UUID, datetime, date)):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def load_memory_context(user_id: int, conversation_id: str, message_limit: int = 10, memory_limit: int = 8) -> str:
