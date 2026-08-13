@@ -101,6 +101,10 @@ export function closeBrowserSession(sessionId: string) {
   return requestJson(`/browser/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
 }
 
+export function createBrowserWebRtcOffer(sessionId: string, offer: RTCSessionDescriptionInit) {
+  return postJson<RTCSessionDescriptionInit>(`/browser/sessions/${encodeURIComponent(sessionId)}/webrtc/offer`, offer);
+}
+
 export function syncApplicationDraft(caseId: string, approved: boolean) {
   return postJson<{ requires_approval: boolean; sensitive_fields?: string[]; message: string }>("/applications/sync/plan", { case_id: caseId, approved });
 }

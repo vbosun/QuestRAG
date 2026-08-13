@@ -1,8 +1,9 @@
-import { Alert, App, Button, Input, Modal, Spin, Space, Steps, Tag, Typography } from "antd";
+import { Alert, App, Button, Modal, Spin, Space, Steps, Tag, Typography } from "antd";
 import { PushpinOutlined } from "@ant-design/icons";
 import React from "react";
 import { useEffect, useRef, useState } from "react";
-import { connectApplicationBrowser, getApplicationCase, observeApplicationBrowser } from "../../api";
+import { connectApplicationBrowser, getApplicationCase } from "../../api";
+import { BrowserVideoSurface } from "./BrowserVideoSurface";
 import type { ApplicationDetail } from "./types";
 
 const { Text } = Typography;
@@ -13,9 +14,6 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   const [loading, setLoading] = useState(true);
   const [fillStage, setFillStage] = useState<"reading" | "filled">("reading");
   const [pinned, setPinned] = useState(false);
-  const [runtimeScreenshot, setRuntimeScreenshot] = useState<string | null>(null);
-  const [runtimeInput, setRuntimeInput] = useState("");
-  const liveSocket = useRef<WebSocket | null>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const dragState = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
@@ -30,17 +28,6 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
         if (result.execution_mode === "playwright") {
           try {
             await connectApplicationBrowser(caseId);
-            const observed = await observeApplicationBrowser(caseId);
-            if (active) setRuntimeScreenshot(`data:image/png;base64,${observed.screenshot}`);
-            const token = sessionStorage.getItem("access_token");
-            if (token) {
-              const socket = new WebSocket(`${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/applications/browser/live/${caseId}?token=${encodeURIComponent(token)}`);
-              liveSocket.current = socket;
-              socket.onmessage = (event) => {
-                const next = JSON.parse(event.data) as { screenshot?: string };
-                if (next.screenshot) setRuntimeScreenshot(`data:image/png;base64,${next.screenshot}`);
-              };
-            }
           } catch (error) {
             if (active) message.warning(error instanceof Error ? error.message : "Playwright 浏览器连接失败");
           }
@@ -53,7 +40,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
       }
     }
     void load();
-    return () => { active = false; liveSocket.current?.close(); liveSocket.current = null; };
+    return () => { active = false; };
   }, [caseId, message]);
 
   useEffect(() => {
@@ -133,19 +120,8 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
         <div className="embedded-business-toolbar"><Tag color={detail.execution_mode === "playwright" ? "blue" : "green"}>{detail.execution_mode === "playwright" ? "Playwright 实时浏览器页面" : "外部业务系统页面"}</Tag><Text type="secondary">{detail.execution_mode === "playwright" ? "Agent 通过受控浏览器观察并操作，过程实时展示" : "页面已嵌入当前对话，Agent 和您都在这里操作，不会跳转"}</Text></div>
         {detail.execution_mode === "playwright" ? (
           <div className="playwright-page-preview">
-            {runtimeScreenshot ? <img src={runtimeScreenshot} alt="Playwright 受控业务页面" onClick={(event) => {
-              const image = event.currentTarget;
-              const point = { x: event.nativeEvent.offsetX * image.naturalWidth / image.clientWidth, y: event.nativeEvent.offsetY * image.naturalHeight / image.clientHeight };
-              if (liveSocket.current?.readyState === WebSocket.OPEN) liveSocket.current.send(JSON.stringify({ action: "click_point", value: point }));
-            }} /> : <Spin />}
-            <Space.Compact style={{ width: "100%" }}>
-              <Input value={runtimeInput} onChange={(event) => setRuntimeInput(event.target.value)} onPressEnter={() => {
-                if (!runtimeInput) return;
-                if (liveSocket.current?.readyState === WebSocket.OPEN) liveSocket.current.send(JSON.stringify({ action: "type", value: runtimeInput })); setRuntimeInput("");
-              }} placeholder="点击页面控件后，在这里输入内容并回车" />
-              <Button onClick={() => { if (!runtimeInput) return; if (liveSocket.current?.readyState === WebSocket.OPEN) liveSocket.current.send(JSON.stringify({ action: "type", value: runtimeInput })); setRuntimeInput(""); }}>输入</Button>
-            </Space.Compact>
-            <Text type="secondary">这是后端 Playwright 会话的实时页面快照。Agent 的结构化操作会在此会话中执行，用户确认仍在当前对话内完成。</Text>
+            <BrowserVideoSurface sessionId={caseId} />
+            <Text type="secondary">这是后端 Playwright 的连续视频画面。点击视频后可直接操作页面，键盘输入和滚轮事件会回传到同一浏览器会话。</Text>
           </div>
         ) : <iframe ref={iframeRef} title={`${title}业务页面`} src={externalPageUrl} onLoad={() => sendFieldsToEmbeddedPage(detail, iframeRef.current)} />}
       </div>

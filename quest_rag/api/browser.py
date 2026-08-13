@@ -1,12 +1,13 @@
 """Generic authorized browser-control API, independent of business applications."""
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from quest_rag.applications.playwright_runtime import runtime
 from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
 from quest_rag.auth.service import AuthError, get_current_user_from_token
+from quest_rag.applications.webrtc_runtime import webrtc_runtime
 
 router = APIRouter(prefix="/browser", tags=["BROWSER"])
 
@@ -19,6 +20,11 @@ class BrowserActionRequest(BaseModel):
     action: str
     target: str = ""
     value: object | None = None
+
+
+class WebRtcOffer(BaseModel):
+    sdp: str
+    type: str
 
 
 def _session_user(user: CurrentUser, session_id: str):
@@ -46,8 +52,15 @@ async def act_session(session_id: str, req: BrowserActionRequest, user: CurrentU
 @router.delete("/sessions/{session_id}")
 async def close_session(session_id: str, user: CurrentUser = Depends(require_permission("application.browser.connect"))):
     _session_user(user, session_id)
+    await webrtc_runtime.close(session_id)
     await runtime.close_session(session_id)
     return {"closed": True, "session_id": session_id}
+
+
+@router.post("/sessions/{session_id}/webrtc/offer")
+async def webrtc_offer(session_id: str, offer: WebRtcOffer, user: CurrentUser = Depends(require_permission("application.browser.connect"))):
+    _session_user(user, session_id)
+    return await webrtc_runtime.offer(session_id, offer.model_dump())
 
 
 @router.websocket("/sessions/{session_id}/live")
