@@ -35,8 +35,6 @@ import { EvaluationView } from "./features/evaluation/EvaluationView";
 import { KnowledgeView } from "./features/knowledge/KnowledgeView";
 import { RoleManagementView } from "./features/permissions/RoleManagementView";
 import { SocialSecurityView } from "./features/publicServices/SocialSecurityView";
-import { ApplicationWorkspace } from "./features/applications/ApplicationWorkspace";
-import { WorkflowCenter } from "./features/applications/WorkflowCenter";
 import { UserManagementView } from "./features/permissions/UserManagementView";
 import { RetrievalConfigView } from "./features/retrieval/RetrievalConfigView";
 import { clearTokens } from "./request";
@@ -85,8 +83,6 @@ export function QuestRagApp() {
               <Route path="profile" element={<ProtectedRoute permission="profile.view"><ProfileView /></ProtectedRoute>} />
               <Route path="profile/password" element={<ProtectedRoute permission="profile.view"><ChangePasswordView /></ProtectedRoute>} />
               <Route path="public-services/social-security" element={<ProtectedRoute permission="public_services.social_security.view" ragScope="social_security_mock"><SocialSecurityView /></ProtectedRoute>} />
-              <Route path="applications" element={<ProtectedRoute permission="application.workspace.view"><ApplicationWorkspace /></ProtectedRoute>} />
-              <Route path="workflows" element={<ProtectedRoute permission="application.workspace.view"><WorkflowCenter /></ProtectedRoute>} />
               <Route path="permissions/users" element={<ProtectedRoute permission="permission.user.view"><UserManagementView /></ProtectedRoute>} />
               <Route path="permissions/roles" element={<ProtectedRoute permission="permission.role.view"><RoleManagementView /></ProtectedRoute>} />
             </Route>
@@ -122,8 +118,6 @@ function buildMenuItems(navigate: ReturnType<typeof useNavigate>) {
       permission: "public_services.view",
       children: [
         { key: "/app/public-services/social-security", label: "社保查询", permission: "public_services.social_security.view", ragScope: "social_security_mock" },
-        { key: "/app/applications", label: "智能办事", permission: "application.workspace.view" },
-        { key: "/app/workflows", label: "流程办理中心", permission: "application.workspace.view" },
       ],
     },
     {

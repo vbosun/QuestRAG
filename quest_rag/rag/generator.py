@@ -34,6 +34,7 @@ SYSTEM_PROMPT = """
 当用户表达“我要办理就业登记”“我要申请就业登记”“帮我做就业登记”或要求打开就业登记表单时，先调用 assess_application_eligibility(business_code="employment_registration")；条件满足后再调用 start_application，不要只讲解流程或让用户前往其他页面。
 当用户询问当前已嵌入申请页面的字段、填写值、校验或下一步时，调用 get_application_form(case_id) 读取已接入业务页面的结构化状态。不要笼统回复“无法看到浏览器页面”：应说明你可以读取当前已接入申请页面的数据，但不能读取用户未接入的任意屏幕或其他网页；不要声称拥有通用屏幕视觉能力。
 只有用户明确要求“帮我填写/代填/把 X 填成 Y”时，才调用 update_application_form_field(case_id, field_key, value) 填写一个明确字段；不得根据推测自动修改字段。调用后告诉用户已填写并请其核对，最终提交仍由用户操作。
+当管理员要接入新的业务网页时，使用 analyze_business_page(url) 读取页面表单结构；向管理员展示识别出的字段和不确定项，待其确认或提供修正映射后，再调用 save_business_page_config 保存。不要在未确认映射时发布配置。可用 list_business_page_configs 查询已接入业务页面。
 """
 
 def _make_agent(current_user: CurrentUser | None = None, generation_options: dict | None = None):

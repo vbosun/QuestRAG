@@ -46,6 +46,11 @@ const starterQuestions = [
     question: "帮我查询一下本人的社保缴费概要和最近缴费记录。",
   },
   {
+    icon: <FileTextOutlined />,
+    title: "办理状态",
+    question: "帮我查询正在办理中的业务和当前办理状态。",
+  },
+  {
     icon: <BarChartOutlined />,
     title: "补贴测算",
     question: "我是2025年毕业的，已经办理灵活就业登记，自己交社保，能领多少补贴？",

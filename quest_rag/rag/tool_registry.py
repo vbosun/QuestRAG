@@ -70,6 +70,21 @@ TOOL_REGISTRY: dict[str, dict] = {
         "risk_level": "MEDIUM",
         "mode": "write_draft",
     },
+    "analyze_business_page": {
+        "permission": "llm.tool.business_page_configure",
+        "risk_level": "LOW",
+        "mode": "read",
+    },
+    "save_business_page_config": {
+        "permission": "llm.tool.business_page_configure",
+        "risk_level": "MEDIUM",
+        "mode": "write_draft",
+    },
+    "list_business_page_configs": {
+        "permission": "llm.tool.business_page_configure",
+        "risk_level": "LOW",
+        "mode": "read",
+    },
     "start_application": {
         "permission": "llm.tool.application_workflow_start",
         "risk_level": "LOW",

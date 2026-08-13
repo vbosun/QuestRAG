@@ -1,4 +1,5 @@
 import json
+from datetime import date, datetime
 import re
 import uuid
 
@@ -33,6 +34,7 @@ from quest_rag.applications.service import (
     update_draft_field,
     list_available_applications as list_available,
 )
+from quest_rag.applications.page_connectors import analyze_page, list_connectors, save_connector
 
 
 @tool
@@ -354,8 +356,62 @@ def update_application_form_field(case_id: str, field_key: str, value: str) -> s
     if user is None:
         return "填写申请页面需要登录用户上下文。"
     assert_tool_permission(user, "update_application_form_field")
+    try:
+        uuid.UUID(str(case_id))
+    except ValueError:
+        return json.dumps({"updated": False, "code": "INVALID_CASE_ID", "message": "当前申请编号无效，请从当前会话重新打开申请页面后再填写。"}, ensure_ascii=False)
+    # Date inputs in browser forms require ISO ``YYYY-MM-DD``. Normalize the
+    # common Chinese/date formats the model may receive before validation.
+    if field_key.endswith("date") or "日期" in field_key:
+        value = _normalize_form_date(value)
     result = update_draft_field(user, case_id, field_key, value)
     return json.dumps({"updated": True, **result}, ensure_ascii=False, default=str)
+
+
+@tool
+def analyze_business_page(url: str) -> str:
+    """分析管理员提供的业务网页地址，识别表单字段和是否需要人工确认映射。"""
+    user = current_user_ctx.get()
+    if user is not None:
+        assert_tool_permission(user, "configure_business_page")
+    try:
+        return json.dumps(analyze_page(url), ensure_ascii=False)
+    except Exception as exc:
+        return json.dumps({"status": "failed", "message": f"无法读取业务页面：{exc}"}, ensure_ascii=False)
+
+
+@tool
+def save_business_page_config(business_code: str, name: str, entry_url: str, field_mapping: dict | None = None) -> str:
+    """保存管理员确认后的业务页面接入配置，供 Agent 后续识别和办理。"""
+    user = current_user_ctx.get()
+    if user is not None:
+        assert_tool_permission(user, "configure_business_page")
+    analysis = analyze_page(entry_url)
+    if field_mapping:
+        analysis["fields"] = field_mapping
+    return json.dumps(save_connector(business_code, name, analysis), ensure_ascii=False)
+
+
+@tool
+def list_business_page_configs() -> str:
+    """查询已接入的外部业务页面配置。"""
+    user = current_user_ctx.get()
+    if user is not None:
+        assert_tool_permission(user, "configure_business_page")
+    return json.dumps(list_connectors(), ensure_ascii=False)
+
+
+def _normalize_form_date(value: str) -> str:
+    raw = str(value).strip().replace("年", "-").replace("月", "-").replace("日", "")
+    for pattern in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(raw, pattern).date().isoformat()
+        except ValueError:
+            continue
+    try:
+        return date.fromisoformat(raw).isoformat()
+    except ValueError:
+        return value
 
 
 @tool
@@ -458,6 +514,9 @@ tools = [
     get_application_status,
     get_application_form,
     update_application_form_field,
+    analyze_business_page,
+    save_business_page_config,
+    list_business_page_configs,
     list_available_applications,
     get_application_guidance,
     assess_application_eligibility,

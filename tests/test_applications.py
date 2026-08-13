@@ -10,6 +10,11 @@ from quest_rag.rag import tools as rag_tools
 from quest_rag.chat_memory.artifacts import parse_message_parts
 
 
+def test_agent_date_input_is_normalized_for_browser_form():
+    assert rag_tools._normalize_form_date("2026年8月13日") == "2026-08-13"
+    assert rag_tools._normalize_form_date("2026/08/13") == "2026-08-13"
+
+
 def make_user() -> CurrentUser:
     return CurrentUser(
         id=7, sid="application-test", role="USER", roles=["USER"], status=1, token_version=1,

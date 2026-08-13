@@ -6,6 +6,7 @@ envelope-encryption implementation can be introduced without changing workflow r
 
 import json
 import uuid
+from psycopg.errors import InvalidTextRepresentation
 
 from quest_rag.auth.store import get_conn
 
@@ -101,7 +102,12 @@ def create_case(user_id: int, business_code: str, version: str, status: str, ste
 
 def get_case(user_id: int, case_id: str) -> dict | None:
     with get_conn() as conn:
-        return conn.execute("SELECT * FROM application_case WHERE id = %s AND user_id = %s", (case_id, user_id)).fetchone()
+        try:
+            return conn.execute("SELECT * FROM application_case WHERE id = %s AND user_id = %s", (case_id, user_id)).fetchone()
+        except InvalidTextRepresentation:
+            # A stale/hallucinated artifact id must become a normal not-found
+            # result, never an unhandled 500 from PostgreSQL.
+            return None
 
 
 def list_cases(user_id: int) -> list[dict]:

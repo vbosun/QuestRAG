@@ -10,7 +10,7 @@ router = APIRouter(prefix="/applications", tags=["APPLICATIONS"])
 
 
 @router.post("/definitions/list")
-def list_application_definitions(current_user: CurrentUser = Depends(require_permission("application.case.create"))):
+def list_application_definitions(current_user: CurrentUser = Depends(require_permission("application.case.read_self"))):
     return definitions.list_definitions()
 
 
@@ -60,7 +60,7 @@ def submit_application(req: SubmitRequest, current_user: CurrentUser = Depends(r
 
 
 @router.post("/workflows/definitions/list")
-def list_workflow_definitions(current_user: CurrentUser = Depends(require_permission("application.workspace.view"))):
+def list_workflow_definitions(current_user: CurrentUser = Depends(require_permission("application.case.read_self"))):
     return workflow_service.list_definitions()
 
 
