@@ -41,7 +41,14 @@
     const form = document.querySelector('#applicationForm');
     const params = new URLSearchParams(location.search);
     const values = { full_name: params.get('full_name') || '', phone: params.get('phone') || '', employment_type: params.get('employment_type') || '' };
-    Object.entries(values).forEach(([key, value]) => { if (value) document.querySelector('#' + key).value = value; });
+    const agentStatus = document.querySelector('#agentStatus');
+    Object.entries(values).filter(([, value]) => value).forEach(([key, value], index) => {
+      window.setTimeout(() => {
+        document.querySelector('#' + key).value = value;
+        agentStatus.textContent = 'Agent 已带入：' + document.querySelector('label:has(#' + key + ')').textContent.replace('*', '').trim();
+      }, 480 * (index + 1));
+    });
+    if (Object.values(values).some(Boolean)) window.setTimeout(() => { agentStatus.textContent = 'Agent 已完成已知信息带入，请您核对、修改并提交。'; }, 480 * (Object.values(values).filter(Boolean).length + 1));
     form.addEventListener('submit', async (event) => {
       event.preventDefault(); const status = document.querySelector('#agentStatus');
       if (!form.reportValidity()) return; status.textContent = '正在提交到模拟业务系统…';

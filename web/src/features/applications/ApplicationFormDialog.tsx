@@ -67,8 +67,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
       if (!detail.browser) {
         const browser = await connectApplicationBrowser(detail.id);
         setDetail((current) => current ? { ...current, browser } : current);
-        window.open(browser.entry_url, "_blank", "noopener,noreferrer");
-        message.success("Agent 已打开独立业务系统的真实网页，并带入已确认信息。");
+        message.success("Agent 已连接独立业务系统，页面继续显示在当前对话中。");
         return;
       }
       let result = await syncApplicationDraft(detail.id, false);
@@ -109,10 +108,15 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   }
 
   const currentStep = detail ? Math.max(0, detail.definition.steps.findIndex((step) => step.code === detail.current_step)) : 0;
+  const externalPageUrl = detail ? buildMockBusinessPageUrl(detail) : "";
   return <Modal open={open} onCancel={onClose} footer={null} width={900} destroyOnClose title={<Space><span>{title}</span><Tag color="cyan">Agent 已发起</Tag></Space>}>
     {loading || !detail ? <div className="application-dialog-loading"><Spin tip="Agent 正在读取流程并带入可用信息…" /></div> : <div className="application-dialog">
       <Alert type={fillStage === "reading" ? "info" : "success"} showIcon message={fillStage === "reading" ? "Agent 正在带入个人档案信息…" : "已完成可用信息带入；其余字段请您核对或补充。"} />
       <Steps size="small" current={currentStep} items={detail.definition.steps.map((step) => ({ title: step.name }))} />
+      <div className="embedded-business-page">
+        <div className="embedded-business-toolbar"><Tag color="green">外部业务系统页面</Tag><Text type="secondary">Agent 正在当前对话中操作，页面不会跳转</Text></div>
+        <iframe title={`${title}业务页面`} src={externalPageUrl} />
+      </div>
       <div className="application-dialog-grid">
         <section>
           <Title level={4}>申请表单</Title>
@@ -139,6 +143,12 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
       </div>
     </div>}
   </Modal>;
+}
+
+function buildMockBusinessPageUrl(detail: ApplicationDetail): string {
+  const values = Object.fromEntries(detail.fields.filter((field) => field.value !== null && field.value !== undefined).map((field) => [field.key, String(field.value)]));
+  const query = new URLSearchParams(values).toString();
+  return `http://127.0.0.1:8020/employment-registration/apply${query ? `?${query}` : ""}`;
 }
 
 function DialogField({ field, working, onSave }: { field: ApplicationField; working: boolean; onSave: (field: ApplicationField, value: unknown) => Promise<void> }) {
