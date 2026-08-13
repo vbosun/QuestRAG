@@ -8,6 +8,7 @@ from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
 from quest_rag.auth.service import AuthError, get_current_user_from_token
 from quest_rag.applications.webrtc_runtime import webrtc_runtime
+from quest_rag.applications.browser_use_runtime import runtime as browser_use_runtime
 
 router = APIRouter(prefix="/browser", tags=["BROWSER"])
 
@@ -27,6 +28,12 @@ class WebRtcOffer(BaseModel):
     type: str
 
 
+class BrowserTaskRequest(BaseModel):
+    url: str
+    task: str
+    max_steps: int = 30
+
+
 def _session_user(user: CurrentUser, session_id: str):
     if not runtime.owns(session_id, user.id):
         raise HTTPException(status_code=404, detail="浏览器会话不存在")
@@ -35,6 +42,12 @@ def _session_user(user: CurrentUser, session_id: str):
 @router.post("/sessions/start")
 async def start_session(req: BrowserStartRequest, user: CurrentUser = Depends(require_permission("application.browser.connect"))):
     return await runtime.create_session(user.id, req.url)
+
+
+@router.post("/sessions/{session_id}/browser-use/run")
+async def run_browser_use(session_id: str, req: BrowserTaskRequest, user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
+    _session_user(user, session_id)
+    return await browser_use_runtime.run(session_id, req.url, req.task, req.max_steps)
 
 
 @router.post("/sessions/{session_id}/observe")

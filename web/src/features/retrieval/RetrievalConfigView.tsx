@@ -20,7 +20,7 @@ export function RetrievalConfigView() {
   const { message } = App.useApp();
   const [config, setConfig] = useState<RetrievalOptions>({ top_k: 5, recall_k: 15, mode: "hybrid", rrf_k: 60 });
   const [generationConfig, setGenerationConfig] = useState<GenerationConfig>({ temperature: 0.3, top_p: 0.9 });
-  const [applicationMode, setApplicationMode] = useState<"embedded" | "playwright">("embedded");
+  const [applicationMode, setApplicationMode] = useState<"embedded" | "playwright" | "browser_use">("embedded");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -178,14 +178,15 @@ export function RetrievalConfigView() {
                 value={applicationMode}
                 options={[
                   { value: "embedded", label: "嵌入业务页面（兼容模式）" },
-                  { value: "playwright", label: "Playwright 受控浏览器（Agent 模式）" },
+                  { value: "playwright", label: "Playwright 受控浏览器（结构化控制）" },
+                  { value: "browser_use", label: "Browser Use（自治浏览器 Agent）" },
                 ]}
                 onChange={(value) => setApplicationMode(value)}
               />
             </label>
           </div>
           <Descriptions bordered column={1} size="small" style={{ marginTop: 24 }}>
-            <Descriptions.Item label="当前模式">{applicationMode === "playwright" ? "Playwright 受控浏览器" : "嵌入业务页面"}</Descriptions.Item>
+            <Descriptions.Item label="当前模式">{applicationMode === "playwright" ? "Playwright 受控浏览器" : applicationMode === "browser_use" ? "Browser Use 自治 Agent" : "嵌入业务页面"}</Descriptions.Item>
           </Descriptions>
         </section>
 

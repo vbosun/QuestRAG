@@ -101,6 +101,10 @@ export function closeBrowserSession(sessionId: string) {
   return requestJson(`/browser/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
 }
 
+export function runBrowserUseTask(sessionId: string, url: string, task: string, maxSteps = 30) {
+  return postJson(`/browser/sessions/${encodeURIComponent(sessionId)}/browser-use/run`, { url, task, max_steps: maxSteps });
+}
+
 export function createBrowserWebRtcOffer(sessionId: string, offer: RTCSessionDescriptionInit) {
   return postJson<RTCSessionDescriptionInit>(`/browser/sessions/${encodeURIComponent(sessionId)}/webrtc/offer`, offer);
 }
@@ -400,11 +404,11 @@ export async function getGenerationConfig(): Promise<GenerationConfig> {
   return getJson<GenerationConfig>("/system/config/generation");
 }
 
-export function getApplicationExecutionConfig(): Promise<{ mode: "embedded" | "playwright" }> {
-  return getJson<{ mode: "embedded" | "playwright" }>("/system/config/application-execution");
+export function getApplicationExecutionConfig(): Promise<{ mode: "embedded" | "playwright" | "browser_use" }> {
+  return getJson<{ mode: "embedded" | "playwright" | "browser_use" }>("/system/config/application-execution");
 }
 
-export function updateApplicationExecutionConfig(mode: "embedded" | "playwright") {
+export function updateApplicationExecutionConfig(mode: "embedded" | "playwright" | "browser_use") {
   return putJson("/system/config", { key: "application_execution", value: { mode } });
 }
 

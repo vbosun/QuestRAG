@@ -34,7 +34,7 @@ def update_config(payload: dict, current_user: CurrentUser = Depends(require_per
         elif key == "generation":
             value = GenerationConfig(**value).model_dump()
         elif key == "application_execution":
-            if not isinstance(value, dict) or value.get("mode") not in {"embedded", "playwright"}:
+            if not isinstance(value, dict) or value.get("mode") not in {"embedded", "playwright", "browser_use"}:
                 raise ValueError("invalid application execution mode")
             value = {"mode": value["mode"]}
     except (TypeError, ValueError, ValidationError) as exc:

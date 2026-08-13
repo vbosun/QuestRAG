@@ -20,6 +20,7 @@ ELASTICSEARCH_INDEX = os.environ.get("ELASTICSEARCH_INDEX", "questrag_chunks")
 ELASTICSEARCH_JOBS_INDEX = os.environ.get("ELASTICSEARCH_JOBS_INDEX", "questrag_jobs")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 BROWSER_ALLOWED_ORIGINS = tuple(item.strip().rstrip("/") for item in os.environ.get("BROWSER_ALLOWED_ORIGINS", "http://127.0.0.1:8020,http://localhost:8020").split(",") if item.strip())
+BROWSER_USE_WORKER_URL = os.environ.get("BROWSER_USE_WORKER_URL", "").rstrip("/")
 
 # Auth
 REDIS_URL = os.environ.get("REDIS_URL", "")
@@ -85,7 +86,7 @@ def get_application_execution_config() -> dict:
     value = entry["value"] if entry else None
     if isinstance(value, dict):
         mode = value.get("mode", DEFAULT_APPLICATION_EXECUTION_CONFIG["mode"])
-        if mode in {"embedded", "playwright"}:
+        if mode in {"embedded", "playwright", "browser_use"}:
             return {"mode": mode}
     return dict(DEFAULT_APPLICATION_EXECUTION_CONFIG)
 
