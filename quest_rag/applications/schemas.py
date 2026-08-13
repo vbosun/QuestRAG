@@ -22,6 +22,12 @@ class BrowserConnectRequest(CaseIdRequest):
     device_name: str = Field(default="本机演示浏览器", max_length=100)
 
 
+class BrowserActionRequest(CaseIdRequest):
+    action: str
+    target: str
+    value: Any = None
+
+
 class SyncRequest(CaseIdRequest):
     approved: bool = False
 

@@ -77,6 +77,10 @@ export function connectApplicationBrowser(caseId: string) {
   return postJson<NonNullable<ApplicationDetail["browser"]>>("/applications/browser/connect", { case_id: caseId });
 }
 
+export function observeApplicationBrowser(caseId: string): Promise<{ url: string; title: string; fields: unknown[]; screenshot: string }> {
+  return postJson("/applications/browser/observe", { case_id: caseId });
+}
+
 export function syncApplicationDraft(caseId: string, approved: boolean) {
   return postJson<{ requires_approval: boolean; sensitive_fields?: string[]; message: string }>("/applications/sync/plan", { case_id: caseId, approved });
 }

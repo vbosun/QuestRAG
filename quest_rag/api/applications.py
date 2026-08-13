@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from quest_rag.applications import definitions, service
-from quest_rag.applications.schemas import BrowserConnectRequest, CaseCreateRequest, CaseIdRequest, DraftFieldUpdateRequest, SyncRequest, SubmitRequest, WorkflowActionRequest
+from quest_rag.applications.schemas import BrowserActionRequest, BrowserConnectRequest, CaseCreateRequest, CaseIdRequest, DraftFieldUpdateRequest, SyncRequest, SubmitRequest, WorkflowActionRequest
+from quest_rag.applications.playwright_runtime import runtime
 from quest_rag.applications import workflow_service
 from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
@@ -45,8 +46,26 @@ async def upload_application_material(
 
 
 @router.post("/browser/connect")
-def connect_application_browser(req: BrowserConnectRequest, current_user: CurrentUser = Depends(require_permission("application.browser.connect"))):
-    return service.connect_browser(current_user, req.case_id, req.device_name)
+async def connect_application_browser(req: BrowserConnectRequest, current_user: CurrentUser = Depends(require_permission("application.browser.connect"))):
+    result = service.connect_browser(current_user, req.case_id, req.device_name)
+    detail = service.get_application_detail(current_user, req.case_id)
+    if detail.get("execution_mode") == "playwright":
+        values = {field["key"]: field["value"] for field in detail["fields"] if field.get("value") is not None}
+        observed = await runtime.start(req.case_id, result["entry_url"], values)
+        result = {**result, "runtime": {"url": observed["url"], "title": observed["title"]}}
+    return result
+
+
+@router.post("/browser/observe")
+async def observe_application_browser(req: CaseIdRequest, current_user: CurrentUser = Depends(require_permission("application.browser.connect"))):
+    service._require_case(current_user, req.case_id)
+    return await runtime.observe(req.case_id)
+
+
+@router.post("/browser/action")
+async def act_application_browser(req: BrowserActionRequest, current_user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
+    service._require_case(current_user, req.case_id)
+    return await runtime.act(req.case_id, req.action, req.target, req.value)
 
 
 @router.post("/sync/plan")
