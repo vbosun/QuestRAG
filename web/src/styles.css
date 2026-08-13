@@ -1896,12 +1896,14 @@ body {
   right: 24px;
   left: 24px;
   z-index: 1100;
+  pointer-events: none;
 }
 
 .application-modal-pinned .ant-modal {
   top: 0;
   max-width: none;
   margin: 0 auto;
+  pointer-events: auto;
 }
 
 .application-modal-pinned .ant-modal-mask {
