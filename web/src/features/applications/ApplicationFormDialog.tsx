@@ -1,8 +1,8 @@
-import { Alert, App, Button, Modal, Spin, Space, Steps, Tag, Typography } from "antd";
+import { Alert, App, Button, Input, Modal, Spin, Space, Steps, Tag, Typography } from "antd";
 import { PushpinOutlined } from "@ant-design/icons";
 import React from "react";
 import { useEffect, useRef, useState } from "react";
-import { connectApplicationBrowser, getApplicationCase, observeApplicationBrowser } from "../../api";
+import { actApplicationBrowser, connectApplicationBrowser, getApplicationCase, observeApplicationBrowser } from "../../api";
 import type { ApplicationDetail } from "./types";
 
 const { Text } = Typography;
@@ -14,6 +14,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   const [fillStage, setFillStage] = useState<"reading" | "filled">("reading");
   const [pinned, setPinned] = useState(false);
   const [runtimeScreenshot, setRuntimeScreenshot] = useState<string | null>(null);
+  const [runtimeInput, setRuntimeInput] = useState("");
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const dragState = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
@@ -122,7 +123,17 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
         <div className="embedded-business-toolbar"><Tag color={detail.execution_mode === "playwright" ? "blue" : "green"}>{detail.execution_mode === "playwright" ? "Playwright 实时浏览器页面" : "外部业务系统页面"}</Tag><Text type="secondary">{detail.execution_mode === "playwright" ? "Agent 通过受控浏览器观察并操作，过程实时展示" : "页面已嵌入当前对话，Agent 和您都在这里操作，不会跳转"}</Text></div>
         {detail.execution_mode === "playwright" ? (
           <div className="playwright-page-preview">
-            {runtimeScreenshot ? <img src={runtimeScreenshot} alt="Playwright 受控业务页面" /> : <Spin />}
+            {runtimeScreenshot ? <img src={runtimeScreenshot} alt="Playwright 受控业务页面" onClick={(event) => {
+              const image = event.currentTarget;
+              void actApplicationBrowser(caseId, "click_point", "", { x: event.nativeEvent.offsetX * image.naturalWidth / image.clientWidth, y: event.nativeEvent.offsetY * image.naturalHeight / image.clientHeight }).then((next) => setRuntimeScreenshot(`data:image/png;base64,${next.screenshot}`));
+            }} /> : <Spin />}
+            <Space.Compact style={{ width: "100%" }}>
+              <Input value={runtimeInput} onChange={(event) => setRuntimeInput(event.target.value)} onPressEnter={() => {
+                if (!runtimeInput) return;
+                void actApplicationBrowser(caseId, "type", "", runtimeInput).then((next) => { setRuntimeScreenshot(`data:image/png;base64,${next.screenshot}`); setRuntimeInput(""); });
+              }} placeholder="点击页面控件后，在这里输入内容并回车" />
+              <Button onClick={() => { if (!runtimeInput) return; void actApplicationBrowser(caseId, "type", "", runtimeInput).then((next) => { setRuntimeScreenshot(`data:image/png;base64,${next.screenshot}`); setRuntimeInput(""); }); }}>输入</Button>
+            </Space.Compact>
             <Text type="secondary">这是后端 Playwright 会话的实时页面快照。Agent 的结构化操作会在此会话中执行，用户确认仍在当前对话内完成。</Text>
           </div>
         ) : <iframe ref={iframeRef} title={`${title}业务页面`} src={externalPageUrl} onLoad={() => sendFieldsToEmbeddedPage(detail, iframeRef.current)} />}

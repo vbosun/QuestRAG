@@ -81,6 +81,10 @@ export function observeApplicationBrowser(caseId: string): Promise<{ url: string
   return postJson("/applications/browser/observe", { case_id: caseId });
 }
 
+export function actApplicationBrowser(caseId: string, action: string, target = "", value?: unknown) {
+  return postJson<{ url: string; title: string; fields: unknown[]; screenshot: string }>("/applications/browser/action", { case_id: caseId, action, target, value });
+}
+
 export function syncApplicationDraft(caseId: string, approved: boolean) {
   return postJson<{ requires_approval: boolean; sensitive_fields?: string[]; message: string }>("/applications/sync/plan", { case_id: caseId, approved });
 }

@@ -53,6 +53,11 @@ class PlaywrightRuntime:
             await page.get_by_label(target, exact=True).check()
         elif action == "click":
             await page.get_by_role("button", name=target, exact=True).click()
+        elif action == "click_point":
+            point = value or {}
+            await page.mouse.click(float(point.get("x", 0)), float(point.get("y", 0)))
+        elif action == "type":
+            await page.keyboard.insert_text(str(value or ""))
         else:
             raise HTTPException(status_code=422, detail="不支持的浏览器操作")
         return await self.observe(case_id)
