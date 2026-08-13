@@ -171,3 +171,11 @@ def test_registration_guidance_and_eligibility_are_structured_for_agent():
 
     eligible = service.assess_application_eligibility(user, "employment_registration", True)
     assert eligible["status"] == "eligible"
+
+
+def test_unemployment_registration_eligibility_uses_unemployed_condition():
+    user = make_user()
+    eligible = service.assess_application_eligibility(user, "unemployment_registration", is_unemployed=True)
+    assert eligible["status"] == "eligible"
+    rejected = service.assess_application_eligibility(user, "unemployment_registration", is_unemployed=False)
+    assert rejected["status"] == "not_eligible"

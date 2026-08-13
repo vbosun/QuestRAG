@@ -63,6 +63,7 @@ def assess_application_eligibility(
     business_code: str,
     has_started_employment: bool | None = None,
     phone: str | None = None,
+    is_unemployed: bool | None = None,
 ) -> dict:
     definition = definitions.get_definition(business_code)
     if not definition:
@@ -72,10 +73,17 @@ def assess_application_eligibility(
         missing.append("姓名")
     if not (phone or user.phone):
         missing.append("联系电话")
-    if has_started_employment is None:
+    if business_code == "unemployment_registration":
+        if is_unemployed is None:
+            missing.append("当前是否处于失业状态")
+    elif has_started_employment is None:
         missing.append("是否已经开始就业、灵活就业或自主创业")
     if missing:
         return {"business_code": business_code, "status": "needs_information", "missing": missing, "message": f"暂不能判断是否可发起申请，请补充：{'、'.join(missing)}。"}
+    if business_code == "unemployment_registration":
+        if not is_unemployed:
+            return {"business_code": business_code, "status": "not_eligible", "missing": [], "message": "失业登记适用于当前处于失业状态的情形；当前不满足模拟申请条件。"}
+        return {"business_code": business_code, "status": "eligible", "missing": [], "message": "基础条件已满足，可以发起失业登记申请；后续仍需以官方审核结果为准。"}
     if not has_started_employment:
         return {"business_code": business_code, "status": "not_eligible", "missing": [], "message": "就业登记用于已开始单位就业、灵活就业或自主创业的情形；当前不满足模拟申请条件。"}
     return {"business_code": business_code, "status": "eligible", "missing": [], "message": "基础条件已满足，可以发起就业登记申请；后续仍需以官方审核结果为准。"}

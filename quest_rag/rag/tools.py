@@ -437,6 +437,7 @@ def assess_application_eligibility(
     business_code: str,
     has_started_employment: bool | None = None,
     phone: str | None = None,
+    is_unemployed: bool | None = None,
 ) -> str:
     """核验当前登录用户是否满足某一办事事项的基础发起条件。
 
@@ -446,7 +447,7 @@ def assess_application_eligibility(
     if user is None:
         return "资格核验需要登录用户上下文。"
     assert_tool_permission(user, "assess_application_eligibility")
-    return json.dumps(assess_eligibility(user, business_code, has_started_employment, phone), ensure_ascii=False)
+    return json.dumps(assess_eligibility(user, business_code, has_started_employment, phone, is_unemployed), ensure_ascii=False)
 
 
 @tool
