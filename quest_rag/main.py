@@ -2,7 +2,7 @@ import uvicorn
 from fastapi import FastAPI
 from quest_rag.logger import logger
 
-from quest_rag.api import applications, auth, chat, document, evaluation, permission, public_services, system
+from quest_rag.api import applications, auth, browser, chat, document, evaluation, permission, public_services, system
 from quest_rag.core.config import load_system_config
 from quest_rag.rag.pg_store import init_db
 from quest_rag.auth.store import init_auth_db
@@ -22,6 +22,7 @@ app.include_router(auth.router)
 app.include_router(permission.router)
 app.include_router(public_services.router)
 app.include_router(applications.router)
+app.include_router(browser.router)
 
 
 @app.on_event("startup")

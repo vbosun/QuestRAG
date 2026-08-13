@@ -85,6 +85,22 @@ export function actApplicationBrowser(caseId: string, action: string, target = "
   return postJson<{ url: string; title: string; fields: unknown[]; screenshot: string }>("/applications/browser/action", { case_id: caseId, action, target, value });
 }
 
+export function startBrowserSession(url: string) {
+  return postJson<{ session_id: string; mode: "playwright"; page: { url: string; title: string; fields: unknown[]; controls: unknown[]; frames: unknown[]; screenshot: string } }>("/browser/sessions/start", { url });
+}
+
+export function observeBrowserSession(sessionId: string) {
+  return postJson(`/browser/sessions/${encodeURIComponent(sessionId)}/observe`);
+}
+
+export function actBrowserSession(sessionId: string, action: string, target = "", value?: unknown) {
+  return postJson(`/browser/sessions/${encodeURIComponent(sessionId)}/action`, { action, target, value });
+}
+
+export function closeBrowserSession(sessionId: string) {
+  return requestJson(`/browser/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+}
+
 export function syncApplicationDraft(caseId: string, approved: boolean) {
   return postJson<{ requires_approval: boolean; sensitive_fields?: string[]; message: string }>("/applications/sync/plan", { case_id: caseId, approved });
 }
