@@ -30,6 +30,7 @@ from quest_rag.applications.service import (
     create_application,
     get_application_detail,
     get_application_guidance as get_guidance,
+    update_draft_field,
     list_available_applications as list_available,
 )
 
@@ -347,6 +348,17 @@ def get_application_form(case_id: str) -> str:
 
 
 @tool
+def update_application_form_field(case_id: str, field_key: str, value: str) -> str:
+    """按用户明确要求填写当前申请页面的一个字段，并同步到申请草稿。"""
+    user = current_user_ctx.get()
+    if user is None:
+        return "填写申请页面需要登录用户上下文。"
+    assert_tool_permission(user, "update_application_form_field")
+    result = update_draft_field(user, case_id, field_key, value)
+    return json.dumps({"updated": True, **result}, ensure_ascii=False, default=str)
+
+
+@tool
 def list_available_applications() -> str:
     """查询当前 Agent 可以介绍和发起的办事事项、地区及基础申请条件。"""
     user = current_user_ctx.get()
@@ -445,6 +457,7 @@ tools = [
     subsidy_calculate,
     get_application_status,
     get_application_form,
+    update_application_form_field,
     list_available_applications,
     get_application_guidance,
     assess_application_eligibility,

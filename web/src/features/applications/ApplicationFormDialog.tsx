@@ -14,6 +14,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   const [fillStage, setFillStage] = useState<"reading" | "filled">("reading");
   const [pinned, setPinned] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const dragState = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
 
   useEffect(() => {
@@ -43,6 +44,20 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
     window.addEventListener("message", onEmbeddedSubmit);
     return () => window.removeEventListener("message", onEmbeddedSubmit);
   }, [message]);
+
+  useEffect(() => {
+    if (!open || !detail) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const latest = await getApplicationCase(caseId);
+        setDetail(latest);
+        sendFieldsToEmbeddedPage(latest, iframeRef.current);
+      } catch {
+        // The embedded business system may be temporarily unavailable; keep the chat usable.
+      }
+    }, 1800);
+    return () => window.clearInterval(timer);
+  }, [caseId, detail?.id, open]);
 
   useEffect(() => {
     if (!open || !pinned) return;
@@ -95,10 +110,16 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
       <Steps size="small" current={currentStep} items={detail.definition.steps.map((step) => ({ title: step.name }))} />
       <div className="embedded-business-page">
         <div className="embedded-business-toolbar"><Tag color="green">外部业务系统页面</Tag><Text type="secondary">页面已嵌入当前对话，Agent 和您都在这里操作，不会跳转</Text></div>
-        <iframe title={`${title}业务页面`} src={externalPageUrl} />
+        <iframe ref={iframeRef} title={`${title}业务页面`} src={externalPageUrl} onLoad={() => sendFieldsToEmbeddedPage(detail, iframeRef.current)} />
       </div>
     </div>}
   </Modal>;
+}
+
+function sendFieldsToEmbeddedPage(detail: ApplicationDetail | null, frame: HTMLIFrameElement | null) {
+  if (!detail || !frame?.contentWindow) return;
+  const fields = Object.fromEntries(detail.fields.filter((field) => field.value !== null && field.value !== undefined).map((field) => [field.key, field.value]));
+  frame.contentWindow.postMessage({ type: "agent-form-state", fields }, "http://127.0.0.1:8020");
 }
 
 function buildMockBusinessPageUrl(detail: ApplicationDetail): string {

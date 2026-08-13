@@ -49,6 +49,18 @@
       }, 480 * (index + 1));
     });
     if (Object.values(values).some(Boolean)) window.setTimeout(() => { agentStatus.textContent = 'Agent 已完成已知信息带入，请您核对、修改并提交。'; }, 480 * (Object.values(values).filter(Boolean).length + 1));
+    window.addEventListener('message', (event) => {
+      if (event.origin !== 'http://localhost:5173' && event.origin !== 'http://127.0.0.1:5173') return;
+      if (event.data?.type !== 'agent-form-state') return;
+      Object.entries(event.data.fields || {}).forEach(([key, value]) => {
+        const input = document.querySelector('#' + key);
+        if (!input || input.value === String(value ?? '')) return;
+        input.value = value;
+        input.style.outline = '2px solid #1a8f83';
+        window.setTimeout(() => { input.style.outline = ''; }, 1400);
+        agentStatus.textContent = 'Agent 已填写：' + key + '，请您核对。';
+      });
+    });
     form.addEventListener('submit', async (event) => {
       event.preventDefault(); const status = document.querySelector('#agentStatus');
       if (!form.reportValidity()) return; status.textContent = '正在提交到模拟业务系统…';
