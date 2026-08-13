@@ -1889,6 +1889,25 @@ body {
   background: #f3f6f8;
 }
 
+/* A pinned application remains above the conversation without splitting the chat into two columns. */
+.application-modal-pinned {
+  position: fixed;
+  top: 76px;
+  right: 24px;
+  left: 24px;
+  z-index: 1100;
+}
+
+.application-modal-pinned .ant-modal {
+  top: 0;
+  max-width: none;
+  margin: 0 auto;
+}
+
+.application-modal-pinned .ant-modal-mask {
+  display: none;
+}
+
 .application-dialog-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 285px;

@@ -1,4 +1,5 @@
-import { Alert, App, Modal, Spin, Space, Steps, Tag, Typography } from "antd";
+import { Alert, App, Button, Modal, Spin, Space, Steps, Tag, Typography } from "antd";
+import { PushpinOutlined } from "@ant-design/icons";
 import { useEffect, useState } from "react";
 import { getApplicationCase } from "../../api";
 import type { ApplicationDetail } from "./types";
@@ -10,6 +11,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [fillStage, setFillStage] = useState<"reading" | "filled">("reading");
+  const [pinned, setPinned] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -41,7 +43,15 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
 
   const currentStep = detail ? Math.max(0, detail.definition.steps.findIndex((step) => step.code === detail.current_step)) : 0;
   const externalPageUrl = detail ? buildMockBusinessPageUrl(detail) : "";
-  return <Modal open={open} onCancel={onClose} footer={null} width={1000} destroyOnHidden title={<Space><span>{title}</span><Tag color="cyan">Agent 已发起</Tag></Space>}>
+  return <Modal
+    rootClassName={pinned ? "application-modal-pinned" : ""}
+    open={open}
+    onCancel={onClose}
+    footer={null}
+    width={1000}
+    destroyOnHidden
+    title={<Space><span>{title}</span><Tag color="cyan">Agent 已发起</Tag><Button size="small" type={pinned ? "primary" : "text"} icon={<PushpinOutlined />} onClick={() => setPinned((value) => !value)}>{pinned ? "取消固定" : "固定在对话上方"}</Button></Space>}
+  >
     {loading || !detail ? <div className="application-dialog-loading"><Spin /></div> : <div className="application-dialog">
       <Alert type={fillStage === "reading" ? "info" : "success"} showIcon message={fillStage === "reading" ? "Agent 正在带入个人档案信息…" : "Agent 已完成可用信息带入，请直接在业务页面核对、修改或提交。"} />
       <Steps size="small" current={currentStep} items={detail.definition.steps.map((step) => ({ title: step.name }))} />
