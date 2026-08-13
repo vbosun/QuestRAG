@@ -42,9 +42,12 @@ class PlaywrightRuntime:
         self._pages[case_id] = page
         if page.url != url:
             await page.goto(url, wait_until="domcontentloaded")
+        prefill_results = []
         for key, value in (fields or {}).items():
-            await self._fill(page, key, value)
-        return await self.observe(case_id)
+            prefill_results.append(await self._fill(page, key, value))
+        observed = await self.observe(case_id)
+        observed["prefill"] = prefill_results
+        return observed
 
     async def create_session(self, owner_id: int, url: str) -> dict:
         session_id = str(uuid.uuid4())
@@ -107,7 +110,11 @@ class PlaywrightRuntime:
         if await locator.count() == 0:
             locator = page.locator(f"[name='{key}'], #{key}").first
         if await locator.count():
+            if await locator.get_attribute("readonly") is not None or await locator.get_attribute("disabled") is not None:
+                return {"key": key, "status": "skipped", "reason": "readonly_or_disabled"}
             await locator.fill(str(value)[:10] if await locator.get_attribute("type") == "date" else str(value))
+            return {"key": key, "status": "filled"}
+        return {"key": key, "status": "not_found"}
 
 
 runtime = PlaywrightRuntime()
