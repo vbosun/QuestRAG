@@ -67,7 +67,8 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
       if (!detail.browser) {
         const browser = await connectApplicationBrowser(detail.id);
         setDetail((current) => current ? { ...current, browser } : current);
-        message.success("Agent 已打开已登记的官方表单入口。");
+        window.open(browser.entry_url, "_blank", "noopener,noreferrer");
+        message.success("Agent 已打开独立业务系统的真实网页，并带入已确认信息。");
         return;
       }
       let result = await syncApplicationDraft(detail.id, false);

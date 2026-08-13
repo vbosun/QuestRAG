@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>人社公共服务平台 · 就业登记</title>
+  <style>
+    :root { color-scheme: light; font-family: "Microsoft YaHei", system-ui, sans-serif; background:#f3f6f8; color:#20343b; }
+    body { margin:0; } header { background:#0e5a62; color:white; padding:18px calc((100% - 980px)/2); }
+    main { max-width:980px; margin:24px auto; } .crumb { color:#e2f4f4; font-size:13px; }
+    .card { background:#fff; border:1px solid #dce7e9; border-radius:10px; padding:24px 30px; box-shadow:0 5px 18px #173d4212; }
+    h1 { margin:8px 0 0; font-size:25px; } h2 { font-size:18px; border-left:4px solid #0e7b82; padding-left:10px; }
+    .steps { display:flex; gap:8px; margin:0 0 24px; } .step { flex:1; padding:10px; border-radius:6px; background:#e8eff0; color:#587176; font-size:13px; }
+    .step.active { background:#d5eff0; color:#075e65; font-weight:700; } .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px 22px; }
+    label { display:flex; flex-direction:column; gap:6px; font-size:14px; font-weight:600; } input,select { border:1px solid #bfd0d3; border-radius:6px; padding:10px; font:inherit; }
+    input[readonly] { background:#f4f7f7; } .required { color:#c23b3b; } .actions { margin-top:26px; display:flex; align-items:center; justify-content:space-between; }
+    button { background:#0e6b72; color:#fff; border:0; border-radius:6px; padding:11px 24px; font-weight:700; cursor:pointer; } button:disabled { opacity:.55; cursor:not-allowed; }
+    #agentStatus { color:#176f69; min-height:20px; font-size:13px; } .notice { background:#fff7e6; border:1px solid #f3d39c; padding:12px; border-radius:6px; margin-bottom:18px; font-size:13px; }
+    @media (max-width:700px) { main { margin:12px; } .grid { grid-template-columns:1fr; } header { padding:16px; } }
+  </style>
+</head>
+<body>
+  <header><div class="crumb">人力资源和社会保障公共服务平台　/　就业服务　/　就业登记</div><h1>就业登记申请</h1></header>
+  <main><div class="card">
+    <div class="steps"><div class="step active">1 核对信息</div><div class="step">2 补充就业信息</div><div class="step">3 上传材料</div><div class="step">4 提交申请</div></div>
+    <div class="notice">这是独立的模拟业务系统页面。Agent 仅协助填写；提交前请由您核对全部信息。</div>
+    <form id="applicationForm">
+      <h2>申请人信息</h2><div class="grid">
+        <label>姓名 <span class="required">*</span><input name="full_name" id="full_name" readonly></label>
+        <label>联系电话 <span class="required">*</span><input name="phone" id="phone" inputmode="numeric"></label>
+        <label>就业类型 <span class="required">*</span><select name="employment_type" id="employment_type"><option value="">请选择</option><option value="employer">单位就业</option><option value="flexible">灵活就业</option><option value="self_employed">自主创业</option></select></label>
+        <label>用人单位或经营主体名称 <span class="required">*</span><input name="employer_name" id="employer_name"></label>
+        <label>岗位或从事职业 <span class="required">*</span><input name="occupation" id="occupation"></label>
+        <label>就业起始日期 <span class="required">*</span><input type="date" name="employment_start_date" id="employment_start_date"></label>
+        <label>现居住地址 <span class="required">*</span><input name="current_address" id="current_address"></label>
+      </div>
+      <h2>材料</h2><label>劳动合同、营业执照或灵活就业证明 <span class="required">*</span><input type="file" id="employment_proof"></label>
+      <div class="actions"><span id="agentStatus">等待 Agent 或您填写信息</span><button type="submit">提交申请</button></div>
+    </form>
+  </div></main>
+  <script>
+    const form = document.querySelector('#applicationForm');
+    const params = new URLSearchParams(location.search);
+    const values = { full_name: params.get('full_name') || '', phone: params.get('phone') || '', employment_type: params.get('employment_type') || '' };
+    Object.entries(values).forEach(([key, value]) => { if (value) document.querySelector('#' + key).value = value; });
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault(); const status = document.querySelector('#agentStatus');
+      if (!form.reportValidity()) return; status.textContent = '正在提交到模拟业务系统…';
+      const response = await fetch('/api/employment-registration/submit', { method:'POST', body:new FormData(form) });
+      const result = await response.json(); status.textContent = result.message + ' 申请编号：' + result.application_no;
+    });
+  </script>
+</body></html>

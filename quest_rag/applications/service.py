@@ -1,6 +1,7 @@
 import hashlib
 from datetime import date
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import HTTPException
 
@@ -132,7 +133,10 @@ def connect_browser(user: CurrentUser, case_id: str, device_name: str) -> dict:
     case = _require_case(user, case_id)
     definition = definitions.get_definition(case["business_code"])
     adapter = definition["adapter"]
-    entry_url = f"{adapter['allowed_origins'][0]}{adapter['entry_path']}"
+    values = {field["key"]: field["value"] for field in get_application_detail(user, case_id)["fields"] if field.get("value") is not None}
+    prefill = {key: values[key] for key in ("full_name", "phone", "employment_type") if values.get(key)}
+    query = f"?{urlencode(prefill)}" if prefill else ""
+    entry_url = f"{adapter['allowed_origins'][0]}{adapter['entry_path']}{query}"
     browser = store.upsert_browser_connection(case_id, user.id, device_name, definition["adapter_id"], entry_url)
     store.log_action(case_id, user.id, "BROWSER_CONNECTED", {"adapter_id": definition["adapter_id"], "entry_url": entry_url})
     return _browser_public(browser)

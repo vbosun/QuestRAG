@@ -35,7 +35,7 @@
     ]
   },
   "adapter": {
-    "allowed_origins": ["https://mock.hrss.local"],
+    "allowed_origins": ["http://127.0.0.1:8020"],
     "entry_path": "/employment-registration/apply",
     "expected_page": "employment_registration_application",
     "adapter_version": "1.0.0"

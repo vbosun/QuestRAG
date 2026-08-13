@@ -84,6 +84,7 @@ export function ApplicationWorkspace() {
     try {
       const browser = await connectApplicationBrowser(detail.id);
       setDetail((current) => current ? { ...current, browser, next_action: { code: "SYNC_DRAFT", message: "已连接演示浏览器，请确认同步表单。" } } : current);
+      window.open(browser.entry_url, "_blank", "noopener,noreferrer");
       message.success("Agent 已打开已登记的演示官方申请入口。");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "浏览器连接失败");
