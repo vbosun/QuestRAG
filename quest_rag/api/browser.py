@@ -35,7 +35,7 @@ class BrowserTaskRequest(BaseModel):
 
 
 def _session_user(user: CurrentUser, session_id: str):
-    if not runtime.owns(session_id, user.id):
+    if not runtime.owns(session_id, user.id) and not browser_use_runtime.owns(session_id, user.id):
         raise HTTPException(status_code=404, detail="浏览器会话不存在")
 
 
@@ -46,8 +46,22 @@ async def start_session(req: BrowserStartRequest, user: CurrentUser = Depends(re
 
 @router.post("/sessions/{session_id}/browser-use/run")
 async def run_browser_use(session_id: str, req: BrowserTaskRequest, user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
+    if not runtime.owns(session_id, user.id):
+        browser_use_runtime.register_session(session_id, user.id)
     _session_user(user, session_id)
     return await browser_use_runtime.run(session_id, req.url, req.task, req.max_steps)
+
+
+@router.get("/sessions/{session_id}/browser-use/status")
+async def browser_use_status(session_id: str, user: CurrentUser = Depends(require_permission("application.case.read_self"))):
+    _session_user(user, session_id)
+    return await browser_use_runtime.status(session_id)
+
+
+@router.delete("/sessions/{session_id}/browser-use")
+async def cancel_browser_use(session_id: str, user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
+    _session_user(user, session_id)
+    return await browser_use_runtime.cancel(session_id)
 
 
 @router.post("/sessions/{session_id}/observe")

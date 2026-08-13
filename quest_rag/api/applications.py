@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile, WebSocket, WebSo
 from quest_rag.applications import definitions, service
 from quest_rag.applications.schemas import BrowserActionRequest, BrowserConnectRequest, CaseCreateRequest, CaseIdRequest, DraftFieldUpdateRequest, SyncRequest, SubmitRequest, WorkflowActionRequest
 from quest_rag.applications.playwright_runtime import runtime
+from quest_rag.applications.browser_use_runtime import runtime as browser_use_runtime
 from quest_rag.applications import workflow_service
 from quest_rag.auth.dependencies import require_permission
 from quest_rag.auth.schemas import CurrentUser
@@ -61,7 +62,37 @@ async def connect_application_browser(req: BrowserConnectRequest, current_user: 
                 raise
             raise HTTPException(status_code=503, detail={"code": "BROWSER_START_FAILED", "message": f"受控浏览器启动失败：{exc}"}) from exc
         result = {**result, "runtime": {"url": observed["url"], "title": observed["title"]}}
+    elif detail.get("execution_mode") == "browser_use":
+        browser_use_runtime.register_session(req.case_id, current_user.id)
+        result = {**result, "runtime": {"mode": "browser_use", "url": result["entry_url"]}}
     return result
+
+
+@router.post("/browser/use/start")
+async def start_application_browser_use(req: BrowserConnectRequest, current_user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
+    detail = service.get_application_detail(current_user, req.case_id)
+    if detail.get("execution_mode") != "browser_use":
+        from fastapi import HTTPException
+        raise HTTPException(status_code=409, detail="当前系统未启用 Browser Use 执行模式")
+    connection = service.connect_browser(current_user, req.case_id, req.device_name)
+    browser_use_runtime.register_session(req.case_id, current_user.id)
+    supplied = ", ".join(f"{field['label']}={field['value']}" for field in detail["fields"] if field.get("value") not in (None, "")) or "暂无已知字段值"
+    task = f"识别申请表单。将以下已确认信息填写到对应字段：{supplied}。仅填写和校验，不要点击提交、确认、下一步或产生任何不可逆操作。"
+    return await browser_use_runtime.run(req.case_id, connection["entry_url"], task)
+
+
+@router.post("/browser/use/status")
+async def get_application_browser_use_status(req: CaseIdRequest, current_user: CurrentUser = Depends(require_permission("application.case.read_self"))):
+    service._require_case(current_user, req.case_id)
+    if not browser_use_runtime.owns(req.case_id, current_user.id):
+        browser_use_runtime.register_session(req.case_id, current_user.id)
+    return await browser_use_runtime.status(req.case_id)
+
+
+@router.post("/browser/use/cancel")
+async def cancel_application_browser_use(req: CaseIdRequest, current_user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
+    service._require_case(current_user, req.case_id)
+    return await browser_use_runtime.cancel(req.case_id)
 
 
 @router.post("/browser/observe")

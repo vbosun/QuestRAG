@@ -105,6 +105,26 @@ export function runBrowserUseTask(sessionId: string, url: string, task: string, 
   return postJson(`/browser/sessions/${encodeURIComponent(sessionId)}/browser-use/run`, { url, task, max_steps: maxSteps });
 }
 
+export function getBrowserUseTaskStatus(sessionId: string) {
+  return getJson<{ status: string; events: Array<{ kind: string; message: string; at: string }>; result?: string | null; error?: string | null }>(`/browser/sessions/${encodeURIComponent(sessionId)}/browser-use/status`);
+}
+
+export function cancelBrowserUseTask(sessionId: string) {
+  return requestJson(`/browser/sessions/${encodeURIComponent(sessionId)}/browser-use`, { method: "DELETE" });
+}
+
+export function startApplicationBrowserUse(caseId: string) {
+  return postJson<{ task_id: string; status: string; events: Array<{ kind: string; message: string; at: string }> }>("/applications/browser/use/start", { case_id: caseId });
+}
+
+export function getApplicationBrowserUseStatus(caseId: string) {
+  return postJson<{ status: string; events: Array<{ kind: string; message: string; at: string }>; result?: string | null; error?: string | null }>("/applications/browser/use/status", { case_id: caseId });
+}
+
+export function cancelApplicationBrowserUse(caseId: string) {
+  return postJson("/applications/browser/use/cancel", { case_id: caseId });
+}
+
 export function createBrowserWebRtcOffer(sessionId: string, offer: RTCSessionDescriptionInit) {
   return postJson<RTCSessionDescriptionInit>(`/browser/sessions/${encodeURIComponent(sessionId)}/webrtc/offer`, offer);
 }

@@ -1911,6 +1911,22 @@ body {
   cursor: crosshair;
 }
 
+.browser-use-task-status {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e3e8f0;
+  border-radius: 8px;
+  background: #fafcff;
+}
+
+.browser-use-events {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  color: #667085;
+  font-size: 12px;
+}
+
 /* A pinned application remains above the conversation without splitting the chat into two columns. */
 .application-modal-pinned {
   position: fixed;
