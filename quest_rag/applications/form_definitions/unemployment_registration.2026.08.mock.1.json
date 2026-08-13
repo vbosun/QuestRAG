@@ -1,0 +1,42 @@
+{
+  "business_code": "unemployment_registration",
+  "version": "2026.08.mock.1",
+  "name": "失业登记申请",
+  "region": "试点演示地区",
+  "official_service_name": "人社就业服务平台（演示）",
+  "adapter_id": "mock_hrss_unemployment_registration_v1",
+  "eligibility": {
+    "summary": "适用于当前处于失业状态、需要办理失业登记的申请人。",
+    "checks": [
+      {"key": "is_unemployed", "label": "当前是否处于失业状态", "required": true, "expected": true},
+      {"key": "full_name", "label": "姓名", "required": true, "source": "profile"},
+      {"key": "phone", "label": "联系电话", "required": true, "source": "profile"}
+    ]
+  },
+  "steps": [
+    {"code": "basic_info", "name": "核对个人信息", "state": "DRAFT"},
+    {"code": "unemployment_info", "name": "填写失业信息", "state": "UNEMPLOYMENT_INFO"},
+    {"code": "materials", "name": "补充证明材料", "state": "MATERIALS"},
+    {"code": "review", "name": "核对并同步", "state": "REVIEW"},
+    {"code": "user_confirmation", "name": "用户确认提交", "state": "WAITING_USER"}
+  ],
+  "form": {
+    "fields": [
+      {"key": "full_name", "label": "姓名", "type": "text", "required": true, "editable": false, "source": "profile_prefill", "official_mapping": "applicantName"},
+      {"key": "phone", "label": "联系电话", "type": "phone", "required": true, "editable": true, "official_mapping": "phone"},
+      {"key": "unemployment_date", "label": "失业日期", "type": "date", "required": true, "editable": true, "validator": "date_not_future", "official_mapping": "unemploymentDate"},
+      {"key": "unemployment_reason", "label": "失业原因", "type": "select", "required": true, "editable": true, "options": [{"label": "劳动合同终止", "value": "contract_ended"}, {"label": "单位裁员", "value": "layoff"}, {"label": "主动离职", "value": "resignation"}, {"label": "其他", "value": "other"}], "official_mapping": "unemploymentReason"},
+      {"key": "last_employer", "label": "上次工作单位", "type": "text", "required": true, "editable": true, "official_mapping": "lastEmployer"},
+      {"key": "current_address", "label": "现居住地址", "type": "text", "required": true, "editable": true, "official_mapping": "currentAddress"}
+    ],
+    "materials": [
+      {"key": "unemployment_proof", "label": "解除或终止劳动关系证明", "required": true}
+    ]
+  },
+  "adapter": {
+    "allowed_origins": ["http://127.0.0.1:8020"],
+    "entry_path": "/unemployment-registration/apply",
+    "expected_page": "unemployment_registration_application",
+    "adapter_version": "1.0.0"
+  }
+}

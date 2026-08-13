@@ -125,5 +125,6 @@ function sendFieldsToEmbeddedPage(detail: ApplicationDetail | null, frame: HTMLI
 function buildMockBusinessPageUrl(detail: ApplicationDetail): string {
   const values = Object.fromEntries(detail.fields.filter((field) => field.value !== null && field.value !== undefined).map((field) => [field.key, String(field.value)]));
   const query = new URLSearchParams(values).toString();
-  return `http://127.0.0.1:8020/employment-registration/apply${query ? `?${query}` : ""}`;
+  const path = detail.business_code === "unemployment_registration" ? "unemployment-registration" : "employment-registration";
+  return `http://127.0.0.1:8020/${path}/apply${query ? `?${query}` : ""}`;
 }

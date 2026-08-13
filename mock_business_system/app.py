@@ -18,6 +18,11 @@ def employment_registration_page() -> HTMLResponse:
     return HTMLResponse(HTML_PATH.read_text(encoding="utf-8"))
 
 
+@app.get("/unemployment-registration/apply", response_class=HTMLResponse)
+def unemployment_registration_page() -> HTMLResponse:
+    return HTMLResponse((HTML_PATH.parent / "unemployment_registration.html").read_text(encoding="utf-8"))
+
+
 @app.post("/api/employment-registration/submit")
 def submit_employment_registration(
     full_name: str = Form(...), phone: str = Form(...), employment_type: str = Form(...),
@@ -32,3 +37,11 @@ def submit_employment_registration(
                  "employer_name": employer_name, "occupation": occupation,
                  "employment_start_date": employment_start_date, "current_address": current_address},
     }
+
+
+@app.post("/api/unemployment-registration/submit")
+def submit_unemployment_registration(
+    full_name: str = Form(...), phone: str = Form(...), unemployment_date: str = Form(...),
+    unemployment_reason: str = Form(...), last_employer: str = Form(...), current_address: str = Form(...),
+) -> dict:
+    return {"status": "SUBMITTED", "application_no": f"MOCK-UNEMPLOYED-{date.today().strftime('%Y%m%d')}-0001", "message": "模拟失业登记业务系统已收到提交，进入审批流程。", "data": {"full_name": full_name, "phone": phone, "unemployment_date": unemployment_date, "unemployment_reason": unemployment_reason, "last_employer": last_employer, "current_address": current_address}}
