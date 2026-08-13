@@ -11,6 +11,7 @@ const { Text } = Typography;
 export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId: string; title: string; open: boolean; onClose: () => void }) {
   const { message } = App.useApp();
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
+  const [browserReady, setBrowserReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [fillStage, setFillStage] = useState<"reading" | "filled">("reading");
   const [pinned, setPinned] = useState(false);
@@ -28,6 +29,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
         if (result.execution_mode === "playwright") {
           try {
             await connectApplicationBrowser(caseId);
+            if (active) setBrowserReady(true);
           } catch (error) {
             if (active) message.warning(error instanceof Error ? error.message : "Playwright 浏览器连接失败");
           }
@@ -120,7 +122,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
         <div className="embedded-business-toolbar"><Tag color={detail.execution_mode === "playwright" ? "blue" : "green"}>{detail.execution_mode === "playwright" ? "Playwright 实时浏览器页面" : "外部业务系统页面"}</Tag><Text type="secondary">{detail.execution_mode === "playwright" ? "Agent 通过受控浏览器观察并操作，过程实时展示" : "页面已嵌入当前对话，Agent 和您都在这里操作，不会跳转"}</Text></div>
         {detail.execution_mode === "playwright" ? (
           <div className="playwright-page-preview">
-            <BrowserVideoSurface sessionId={caseId} />
+            {browserReady ? <BrowserVideoSurface sessionId={caseId} /> : <Spin />}
             <Text type="secondary">这是后端 Playwright 的连续视频画面。点击视频后可直接操作页面，键盘输入和滚轮事件会回传到同一浏览器会话。</Text>
           </div>
         ) : <iframe ref={iframeRef} title={`${title}业务页面`} src={externalPageUrl} onLoad={() => sendFieldsToEmbeddedPage(detail, iframeRef.current)} />}

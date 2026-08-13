@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 const backendPrefixes = [
   "auth",
   "applications",
+  "browser",
   "chat",
   "documents",
   "evaluations",
