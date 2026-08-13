@@ -36,6 +36,16 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
     return () => { active = false; };
   }, [caseId, message]);
 
+  useEffect(() => {
+    function onEmbeddedSubmit(event: MessageEvent) {
+      if (event.data?.type !== "mock-business-submitted" || !detail) return;
+      setDetail((current) => current ? { ...current, status: "SUBMITTED", current_step: "user_confirmation", next_action: { code: "SUBMITTED", message: event.data.message || "独立业务系统已收到提交。" } } : current);
+      message.success(event.data.message || "独立业务系统已收到提交。");
+    }
+    window.addEventListener("message", onEmbeddedSubmit);
+    return () => window.removeEventListener("message", onEmbeddedSubmit);
+  }, [detail, message]);
+
   async function updateField(field: ApplicationField, value: unknown) {
     if (!detail) return;
     setWorking(true);

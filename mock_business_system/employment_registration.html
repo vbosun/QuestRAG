@@ -54,6 +54,7 @@
       if (!form.reportValidity()) return; status.textContent = '正在提交到模拟业务系统…';
       const response = await fetch('/api/employment-registration/submit', { method:'POST', body:new FormData(form) });
       const result = await response.json(); status.textContent = result.message + ' 申请编号：' + result.application_no;
+      window.parent.postMessage({ type: 'mock-business-submitted', message: result.message + ' 申请编号：' + result.application_no }, '*');
     });
   </script>
 </body></html>
