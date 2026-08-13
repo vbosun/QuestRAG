@@ -13,13 +13,14 @@ import {
   WalletOutlined
 } from "@ant-design/icons";
 import { Avatar, Breadcrumb, Button, Drawer, Empty, List, Popconfirm, Space, Tag, Tooltip, Typography } from "antd";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { downloadText, messagePartsToMarkdown } from "../../download";
-import type { ChartArtifact, ChatMessage, CitationSource, DocumentInfo, MessagePart, Session } from "../../types";
+import type { ApplicationArtifact, ChartArtifact, ChatMessage, CitationSource, DocumentInfo, MessagePart, Session } from "../../types";
 import { buildChartOption, chartTypeLabel } from "../../utils";
+import { ApplicationFormDialog } from "../applications/ApplicationFormDialog";
 
 const { Text, Title } = Typography;
 
@@ -33,6 +34,11 @@ const starterQuestions = [
     icon: <FormOutlined />,
     title: "办理流程",
     question: "灵活就业社保补贴的办理流程和申请材料有哪些？",
+  },
+  {
+    icon: <GoldOutlined />,
+    title: "办理就业登记",
+    question: "我要办理就业登记，请帮我发起申请并直接弹出表单，带入我的已有信息。",
   },
   {
     icon: <WalletOutlined />,
@@ -67,6 +73,13 @@ interface ChatViewProps {
 
 export function ChatView(props: ChatViewProps) {
   const messages = props.activeSession?.messages || [];
+  const application = [...messages].reverse().flatMap((message) => message.parts || []).find((part) => part.type === "application") as
+    | { type: "application"; artifact: ApplicationArtifact }
+    | undefined;
+  const [applicationOpen, setApplicationOpen] = useState(false);
+  useEffect(() => {
+    if (application) setApplicationOpen(true);
+  }, [props.activeSession?.id, application?.artifact.case_id]);
   return (
     <section className="view-shell chat-view">
       <aside className="session-panel">
@@ -122,6 +135,7 @@ export function ChatView(props: ChatViewProps) {
             rows={1}
             value={props.inputValue}
           />
+          {application && <Button onClick={() => setApplicationOpen(true)}>查看申请页面</Button>}
           <Button
             disabled={!props.inputValue.trim()}
             icon={<SendOutlined />}
@@ -132,6 +146,14 @@ export function ChatView(props: ChatViewProps) {
             发送
           </Button>
         </footer>
+        {application && (
+          <ApplicationFormDialog
+            caseId={application.artifact.case_id}
+            onClose={() => setApplicationOpen(false)}
+            open={applicationOpen}
+            title={application.artifact.title}
+          />
+        )}
       </main>
     </section>
   );
@@ -301,6 +323,7 @@ function MessagePartView({
 }) {
   if (part.type === "chart") return <ChartCard artifact={part.artifact} />;
   if (part.type === "report") return <ReportCard artifact={part.artifact} />;
+  if (part.type === "application") return <Tag color="cyan">已发起申请，可通过下方“查看申请页面”继续办理</Tag>;
   const citationMap = new Map(citations.map((citation) => [citation.label, citation]));
   return (
     <div className="markdown-body">

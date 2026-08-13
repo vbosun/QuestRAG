@@ -24,6 +24,7 @@ import type {
   StreamEvent,
 } from "./types";
 import type { PermissionCatalog, RoleDetail, RoleInfo, UserListResponse } from "./features/permissions/types";
+import type { ApplicationDefinitionSummary, ApplicationDetail } from "./features/applications/types";
 
 function postJson<T = unknown>(path: string, body?: unknown): Promise<T> {
   return requestJson<T>(path, {
@@ -48,6 +49,64 @@ function delJson<T = unknown>(path: string, body?: unknown): Promise<T> {
 
 function getJson<T = unknown>(path: string): Promise<T> {
   return requestJson<T>(path, { method: "GET" });
+}
+
+export async function listApplicationDefinitions(): Promise<ApplicationDefinitionSummary[]> {
+  const data = await postJson<ApplicationDefinitionSummary[]>("/applications/definitions/list");
+  return Array.isArray(data) ? data : [];
+}
+
+export function createApplicationCase(businessCode: string): Promise<ApplicationDetail> {
+  return postJson<ApplicationDetail>("/applications/cases/create", { business_code: businessCode });
+}
+
+export async function listApplicationCases(): Promise<Array<Pick<ApplicationDetail, "id" | "business_code" | "status" | "current_step">>> {
+  const data = await postJson<Array<Pick<ApplicationDetail, "id" | "business_code" | "status" | "current_step">>>("/applications/cases/list");
+  return Array.isArray(data) ? data : [];
+}
+
+export function getApplicationCase(caseId: string): Promise<ApplicationDetail> {
+  return postJson<ApplicationDetail>("/applications/cases/get", { case_id: caseId });
+}
+
+export function updateApplicationDraftField(caseId: string, fieldKey: string, value: unknown, expectedRevision: number) {
+  return postJson<{ field_key: string; value: unknown; source: string; revision: number; sync_state: "pending" | "synced" }>("/applications/drafts/update-field", { case_id: caseId, field_key: fieldKey, value, expected_revision: expectedRevision });
+}
+
+export function connectApplicationBrowser(caseId: string) {
+  return postJson<NonNullable<ApplicationDetail["browser"]>>("/applications/browser/connect", { case_id: caseId });
+}
+
+export function syncApplicationDraft(caseId: string, approved: boolean) {
+  return postJson<{ requires_approval: boolean; sensitive_fields?: string[]; message: string }>("/applications/sync/plan", { case_id: caseId, approved });
+}
+
+export function submitApplication(caseId: string) {
+  return postJson<{ status: string; current_step: string; message: string }>("/applications/cases/submit", { case_id: caseId });
+}
+
+export function listWorkflowDefinitions(): Promise<Array<{ business_code: string; name: string; version: string; nodes: Array<{ code: string; name: string; kind: string; role?: string | null }> }>> {
+  return postJson("/applications/workflows/definitions/list");
+}
+
+export function startWorkflow(businessCode: string) {
+  return postJson<any>("/applications/workflows/instances/start", { business_code: businessCode });
+}
+
+export function listWorkflowInstances() {
+  return postJson<any[]>("/applications/workflows/instances/list");
+}
+
+export function actWorkflow(caseId: string, action: string, comment?: string) {
+  return postJson<any>("/applications/workflows/instances/action", { case_id: caseId, action, comment });
+}
+
+export async function uploadApplicationMaterial(caseId: string, materialKey: string, file: File) {
+  const form = new FormData();
+  form.append("case_id", caseId);
+  form.append("material_key", materialKey);
+  form.append("file", file);
+  return requestJson("/applications/materials/upload", { method: "POST", body: form });
 }
 
 export async function listDocuments(): Promise<DocumentInfo[]> {
@@ -113,10 +172,26 @@ export async function listEvaluationDatasets(): Promise<EvaluationDataset[]> {
 export async function importEvaluationDataset(file: File): Promise<EvaluationDataset> {
   const formData = new FormData();
   formData.append("file", file);
-  return requestJson<EvaluationDataset>("/evaluations/datasets/import", {
+  const response = await request("/evaluations/datasets/import", {
     method: "POST",
     body: formData,
   });
+  const text = await response.text();
+  let data: any = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { detail: text };
+    }
+  }
+  if (!response.ok) {
+    const detail = data?.detail;
+    const error = new Error(typeof detail === "object" && detail?.message ? detail.message : typeof detail === "string" ? detail : "导入评测集失败");
+    Object.assign(error, { validationErrors: typeof detail === "object" ? detail?.errors || [] : [] });
+    throw error;
+  }
+  return data as EvaluationDataset;
 }
 
 export async function createEvaluationDataset(payload: { name: string; items: EvaluationDatasetItem[] }): Promise<EvaluationDataset> {

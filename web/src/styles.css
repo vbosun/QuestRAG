@@ -1233,17 +1233,17 @@ body {
 }
 
 .eval-detail-page {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
   padding: 22px;
 }
 
 .eval-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
 
@@ -1264,11 +1264,45 @@ body {
 
 .eval-detail-card {
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
   padding: 14px;
+}
+
+.eval-detail-actions-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 14px 16px;
+}
+
+.eval-detail-actions-card > div {
+  display: grid;
+  gap: 4px;
+}
+
+.eval-modal-scroll {
+  max-height: 72vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.eval-params-card .ant-descriptions-view {
+  overflow: auto;
+}
+
+.eval-params-card .ant-descriptions-item-content {
+  word-break: break-word;
+}
+
+.eval-results-card {
+  flex: 0 0 auto;
 }
 
 .eval-detail-card h4.ant-typography {
@@ -1421,6 +1455,24 @@ body {
   min-width: 0;
 }
 
+.required-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.required-mark {
+  color: #ff4d4f;
+  font-weight: 700;
+}
+
+.dataset-validation-errors {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
 .dataset-edit-grid .span-2 {
   grid-column: span 2;
 }
@@ -1430,6 +1482,11 @@ body {
 }
 
 @media (max-width: 960px) {
+  .eval-detail-actions-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .dataset-edit-grid {
     grid-template-columns: 1fr;
   }
@@ -1707,4 +1764,145 @@ body {
   justify-content: flex-end;
   align-items: center;
   border-bottom: 1px solid var(--border);
+}
+
+.application-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow: auto;
+}
+
+.application-loading {
+  display: grid;
+  min-height: 320px;
+  place-items: center;
+}
+
+.application-hero {
+  max-width: 760px;
+  padding: 32px 0 12px;
+}
+
+.application-hero .ant-typography {
+  margin-bottom: 8px;
+}
+
+.application-definition-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
+  gap: 18px;
+}
+
+.application-definition-card {
+  border-top: 3px solid #245b61;
+}
+
+.application-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.application-header .ant-typography {
+  margin: 4px 0;
+}
+
+.application-next-action {
+  margin-bottom: 2px;
+}
+
+.application-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  align-items: start;
+  gap: 20px;
+}
+
+.application-form-card {
+  min-width: 0;
+}
+
+.application-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.application-sidebar .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.application-material,
+.application-field-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.application-material {
+  justify-content: space-between;
+}
+
+.application-field-row .ant-input,
+.application-field-row .ant-select {
+  flex: 1;
+}
+
+.application-dialog-loading {
+  display: grid;
+  min-height: 320px;
+  place-items: center;
+}
+
+.application-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.application-dialog-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 285px;
+  gap: 24px;
+}
+
+.application-dialog-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0 4px 20px;
+  border-left: 1px solid var(--border);
+}
+
+.application-dialog-side .ant-timeline {
+  margin: 0;
+}
+
+.application-dialog-side .ant-timeline .ant-tag {
+  margin-left: 6px;
+}
+
+@media (max-width: 900px) {
+  .application-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .application-header {
+    flex-direction: column;
+  }
+
+  .application-dialog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .application-dialog-side {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
 }

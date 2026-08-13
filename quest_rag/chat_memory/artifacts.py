@@ -17,7 +17,7 @@ def parse_message_parts(raw: str) -> list[dict[str, Any]]:
             parts.append({"type": "markdown", "content": before})
 
         artifact = parse_artifact(match.group(1))
-        if artifact and artifact.get("type") in {"chart", "report"}:
+        if artifact and artifact.get("type") in {"chart", "report", "application"}:
             parts.append({"type": artifact["type"], "artifact": artifact})
         else:
             parts.append({"type": "markdown", "content": match.group(0)})
@@ -53,6 +53,12 @@ def parse_artifact(value: str) -> dict[str, Any] | None:
         except Exception:
             return None
     if parsed.get("type") == "report" and isinstance(parsed.get("content"), str):
+        return parsed
+    if (
+        parsed.get("type") == "application"
+        and isinstance(parsed.get("case_id"), str)
+        and isinstance(parsed.get("title"), str)
+    ):
         return parsed
     return None
 

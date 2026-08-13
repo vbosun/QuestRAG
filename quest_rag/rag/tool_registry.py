@@ -55,6 +55,31 @@ TOOL_REGISTRY: dict[str, dict] = {
         "risk_level": "LOW",
         "mode": "read",
     },
+    "get_application_status": {
+        "permission": "llm.tool.application_workflow_read",
+        "risk_level": "LOW",
+        "mode": "read",
+    },
+    "start_application": {
+        "permission": "llm.tool.application_workflow_start",
+        "risk_level": "LOW",
+        "mode": "write_draft",
+    },
+    "list_available_applications": {
+        "permission": "llm.tool.application_workflow_guide",
+        "risk_level": "LOW",
+        "mode": "read",
+    },
+    "get_application_guidance": {
+        "permission": "llm.tool.application_workflow_guide",
+        "risk_level": "LOW",
+        "mode": "read",
+    },
+    "assess_application_eligibility": {
+        "permission": "llm.tool.application_workflow_guide",
+        "risk_level": "LOW",
+        "mode": "read",
+    },
 }
 
 # 第一阶段不注册给 Agent 的高风险工具

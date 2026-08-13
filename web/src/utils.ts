@@ -4,6 +4,7 @@ const STORAGE_KEY = "questrag.chat.sessions.v2";
 
 export function artifactToPart(artifact: Artifact): MessagePart {
   if (artifact.type === "chart") return { type: "chart", artifact };
+  if (artifact.type === "application") return { type: "application", artifact };
   return { type: "report", artifact };
 }
 

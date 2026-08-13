@@ -19,6 +19,9 @@ export function messagePartsToMarkdown(parts: MessagePart[]) {
       if (part.type === "chart") {
         return `\n\n### ${part.artifact.title}\n\n${part.artifact.description || ""}\n\n`;
       }
+      if (part.type === "application") {
+        return `\n\n### ${part.artifact.title}\n\n申请编号：${part.artifact.case_id}\n\n`;
+      }
       return `\n\n### ${part.artifact.title}\n\n${part.artifact.content}\n\n`;
     })
     .join("")

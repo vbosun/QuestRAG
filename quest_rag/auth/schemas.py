@@ -51,6 +51,7 @@ class CurrentUser(BaseModel):
     rag_scopes: list[str] = []
     status: int
     full_name: str | None = None
+    phone: str | None = None
     id_number_masked: str | None = None
     token_version: int
 

@@ -64,13 +64,38 @@ DATASET_FIELDNAMES = [
     "禁止出现断言",
     "答案类型",
     "是否必须引用",
-    "期望来源文档ID",
+    "期望来源评测文档",
     "期望证据文本",
     "是否应拒答",
     "拒答原因",
     "评测重点",
     "备注",
 ]
+DATASET_REQUIRED_COLUMNS = [
+    "ID",
+    "用户问题",
+    "期望答案要点",
+    "答案类型",
+    "是否必须引用",
+    "期望来源评测文档",
+    "是否应拒答",
+]
+DATASET_REQUIRED_ITEM_FIELDS = {
+    "id": "ID",
+    "question": "用户问题",
+    "expected_answer": "期望答案要点",
+    "answer_type": "答案类型",
+}
+DATASET_ANSWER_TYPES = {
+    "policy_explain",
+    "material_list",
+    "process_steps",
+    "eligibility",
+    "amount_calculation",
+    "job_recommendation",
+    "refusal",
+    "comparison",
+}
 
 
 def _eval_backend(collection_name: str) -> MilvusVectorBackend:
@@ -209,6 +234,7 @@ async def import_dataset(file: UploadFile = File(...), current_user: CurrentUser
 @router.post("/datasets")
 def create_dataset(req: EvaluationDatasetInput, current_user: CurrentUser = Depends(require_permission("evaluation.dataset.manage"))):
     init_db()
+    validate_dataset_items([item.model_dump() for item in req.items], list_evaluation_documents())
     dataset_id = f"dataset_{uuid.uuid4().hex[:12]}"
     upsert_evaluation_dataset({"id": dataset_id, "name": req.name, "items": [item.model_dump() for item in req.items]})
     return get_evaluation_dataset(dataset_id)
@@ -232,6 +258,7 @@ def update_dataset(payload: dict, current_user: CurrentUser = Depends(require_pe
     items = payload.get("items", [])
     if not get_evaluation_dataset(dataset_id):
         raise HTTPException(status_code=404, detail="评测集不存在")
+    validate_dataset_items(items, list_evaluation_documents())
     upsert_evaluation_dataset({"id": dataset_id, "name": name, "items": items})
     return get_evaluation_dataset(dataset_id)
 
@@ -258,6 +285,7 @@ def export_dataset(payload: dict, current_user: CurrentUser = Depends(require_pe
         fieldnames=DATASET_FIELDNAMES,
     )
     writer.writeheader()
+    source_labels = build_source_label_map(list_evaluation_documents())
     for item in dataset.get("items", []):
         writer.writerow(
             {
@@ -268,7 +296,7 @@ def export_dataset(payload: dict, current_user: CurrentUser = Depends(require_pe
                 "禁止出现断言": ";".join(item.get("forbidden_claims", [])),
                 "答案类型": item.get("answer_type", ""),
                 "是否必须引用": "是" if item.get("expected_citation_required") else "否",
-                "期望来源文档ID": ";".join(item.get("expected_source_ids", [])),
+                "期望来源评测文档": ";".join(source_label(source_id, source_labels) for source_id in item.get("expected_source_ids", [])),
                 "期望证据文本": item.get("expected_evidence", ""),
                 "是否应拒答": "是" if item.get("should_refuse") else "否",
                 "拒答原因": item.get("refusal_reason", ""),
@@ -310,6 +338,7 @@ def run_evaluation(req: EvaluationRunRequest, current_user: CurrentUser = Depend
     dataset = get_evaluation_dataset(req.dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="请选择有效评测集")
+    validate_dataset_items(dataset.get("items", []), list_evaluation_documents())
 
     eval_id = f"eval_{uuid.uuid4().hex[:12]}"
     index_name = f"questrag_{eval_id}"
@@ -474,36 +503,74 @@ def doc_to_documents(doc: dict, clean_options: CleanOptions) -> list[Document]:
 
 
 def parse_dataset_csv(text: str, documents: list[dict] | None = None) -> list[dict]:
-    rows = list(csv.DictReader(io.StringIO(text)))
-    resolver = build_source_resolver(documents or [])
+    reader = csv.DictReader(io.StringIO(text))
+    fieldnames = reader.fieldnames or []
+    eval_documents = list(documents or [])
+    resolver = build_source_resolver(eval_documents)
+    source_ids = valid_source_ids(eval_documents)
+    errors: list[dict] = []
+    column_numbers = {name: index + 1 for index, name in enumerate(fieldnames)}
+    for column in DATASET_REQUIRED_COLUMNS:
+        if column not in fieldnames:
+            errors.append({"row": 1, "column": column_numbers.get(column), "field": column, "message": f"缺少必填列：{column}"})
+    if errors:
+        raise_dataset_validation_error(errors)
+
     items = []
-    for index, row in enumerate(rows, start=1):
-        question = get_first(row, ["用户问题", "question", "问题"]) or ""
-        row_id = get_first(row, ["ID", "id"]) or f"Q{index:04d}"
-        if row_id == "ID" and question in {"用户问题", "question", "问题"}:
+    for index, raw_row in enumerate(reader, start=2):
+        row = repair_dataset_csv_row(raw_row, fieldnames)
+        question = get_first(row, ["用户问题"]) or ""
+        row_id = get_first(row, ["ID"]) or ""
+        if row_id == "ID" and question == "用户问题":
             continue
         if not question:
+            errors.append({"row": index, "column": column_numbers.get("用户问题"), "field": "用户问题", "message": "用户问题不能为空"})
             continue
+        citation_required, citation_error = parse_bool_cell(get_first(row, ["是否必须引用"]) or "")
+        if citation_error:
+            errors.append({"row": index, "column": column_numbers.get("是否必须引用"), "field": "是否必须引用", "message": citation_error})
+        should_refuse, refuse_error = parse_bool_cell(get_first(row, ["是否应拒答"]) or "")
+        if refuse_error:
+            errors.append({"row": index, "column": column_numbers.get("是否应拒答"), "field": "是否应拒答", "message": refuse_error})
+        source_values = parse_refs(get_first(row, ["期望来源评测文档"]) or "")
+        expected_source_ids, source_errors = resolve_source_ids(source_values, resolver)
+        for value in source_errors:
+            errors.append(
+                {
+                    "row": index,
+                    "column": column_numbers.get("期望来源评测文档"),
+                    "field": "期望来源评测文档",
+                    "message": f"未找到评测文档：{value}。请先上传评测文档，或改为模板/界面中的合法来源。",
+                }
+            )
         items.append(
             {
                 "id": row_id,
                 "question": question,
-                "expected_answer": get_first(row, ["期望答案要点", "expected_answer", "answer"]) or "",
-                "required_points": parse_refs(get_first(row, ["必须覆盖要点", "required_points", "required_points_cn"]) or ""),
-                "forbidden_claims": parse_refs(get_first(row, ["禁止出现断言", "forbidden_claims", "forbidden_claims_cn"]) or ""),
-                "answer_type": get_first(row, ["答案类型", "answer_type", "type"]) or "",
-                "expected_citation_required": parse_bool(get_first(row, ["是否必须引用", "expected_citation_required", "citation_required"]) or ""),
-                "expected_source_ids": resolve_source_ids(
-                    parse_refs(get_first(row, ["期望来源文档ID", "期望来源/文档", "source_id", "sourceid"]) or ""),
-                    resolver,
-                ),
-                "expected_evidence": get_first(row, ["期望证据文本", "expected_evidence", "evidence"]) or "",
-                "should_refuse": parse_bool(get_first(row, ["是否应拒答", "should_refuse"]) or ""),
-                "refusal_reason": get_first(row, ["拒答原因", "refusal_reason"]) or "",
-                "focus": get_first(row, ["评测重点", "focus"]) or "",
-                "note": get_first(row, ["备注", "note"]) or "",
+                "expected_answer": get_first(row, ["期望答案要点"]) or "",
+                "required_points": parse_refs(get_first(row, ["必须覆盖要点"]) or ""),
+                "forbidden_claims": parse_refs(get_first(row, ["禁止出现断言"]) or ""),
+                "answer_type": get_first(row, ["答案类型"]) or "",
+                "expected_citation_required": citation_required,
+                "expected_source_ids": expected_source_ids,
+                "_source_parse_error": bool(source_errors),
+                "expected_evidence": get_first(row, ["期望证据文本"]) or "",
+                "should_refuse": should_refuse,
+                "refusal_reason": get_first(row, ["拒答原因"]) or "",
+                "focus": get_first(row, ["评测重点"]) or "",
+                "note": get_first(row, ["备注"]) or "",
             }
         )
+    validation_errors = validate_dataset_items(items, eval_documents, raise_on_error=False, row_offset=2, source_ids=source_ids)
+    for error in validation_errors:
+        field = error.get("field")
+        if field and "column" not in error:
+            error["column"] = column_numbers.get(str(field))
+    errors.extend(validation_errors)
+    if errors:
+        raise_dataset_validation_error(errors)
+    for item in items:
+        item.pop("_source_parse_error", None)
     return items
 
 
@@ -563,6 +630,11 @@ def evaluate_items(
                     reference=row.get("expected_answer"),
                     options=ragas_options or {},
                     generation_options=generation_options or {},
+                    metadata={
+                        "eval_id": eval_id,
+                        "question_id": row.get("id") or f"Q{index:04d}",
+                        "question_index": index,
+                    },
                 )
                 generation_metrics = calculate_generation_metrics(
                     generated_answer,
@@ -874,6 +946,16 @@ def build_summary(items: list[dict], chunk_count: int, document_count: int) -> d
         for item in generation_items
         if isinstance(item.get("generation_metrics", {}).get("ragas_average"), (int, float))
     ]
+    ragas_metric_values: dict[str, list[float]] = {}
+    for item in generation_items:
+        for key, value in (item.get("ragas_metrics") or {}).items():
+            if isinstance(value, (int, float)):
+                ragas_metric_values.setdefault(key, []).append(float(value))
+    ragas_metric_averages = {
+        key: round(sum(values) / len(values), 4)
+        for key, values in ragas_metric_values.items()
+        if values
+    }
     return {
         "question_count": total,
         "retrieval_question_count": retrieval_total,
@@ -888,6 +970,7 @@ def build_summary(items: list[dict], chunk_count: int, document_count: int) -> d
         "generation_pass_rate": round(generation_pass / generation_total, 4) if generation_total else None,
         "generation_error_count": generation_errors,
         "ragas_average": round(sum(ragas_scores) / len(ragas_scores), 4) if ragas_scores else None,
+        "ragas_metric_averages": ragas_metric_averages,
         "pass_rate": round(pass_count / len(retrieval_scored_items), 4) if retrieval_scored_items else None,
         "mrr": round(avg_mrr, 4),
         "miss_count": len(retrieval_scored_items) - pass_count if retrieval_scored_items else None,
@@ -906,6 +989,46 @@ def parse_refs(value: str) -> list[str]:
     return [token.strip() for token in re.split(r"[;；,\n]", value) if token.strip()]
 
 
+def repair_dataset_csv_row(row: dict, fieldnames: list[str]) -> dict:
+    row = dict(row)
+    extras = row.get(None)
+    if extras:
+        repaired_values = [row.get(field, "") for field in fieldnames]
+        evidence_index = fieldnames.index("期望证据文本") if "期望证据文本" in fieldnames else -1
+        if evidence_index < 0:
+            return row
+        evidence_parts = [repaired_values[evidence_index], *extras]
+        tail_count = len(fieldnames) - evidence_index - 1
+        if tail_count > 0:
+            evidence_parts = [repaired_values[evidence_index], *extras[:-tail_count]]
+            tail_values = extras[-tail_count:]
+            for offset, value in enumerate(tail_values, start=evidence_index + 1):
+                repaired_values[offset] = value
+        repaired_values[evidence_index] = ",".join(str(item or "").strip() for item in evidence_parts if str(item or "").strip())
+        row = {field: repaired_values[index] for index, field in enumerate(fieldnames)}
+    if not looks_like_shifted_job_evidence(row):
+        return row
+    evidence_fields = ["期望证据文本", "是否应拒答", "拒答原因", "评测重点", "备注"]
+    row["期望证据文本"] = ",".join(str(row.get(field) or "").strip() for field in evidence_fields if str(row.get(field) or "").strip())
+    row["是否应拒答"] = "否"
+    row["拒答原因"] = ""
+    row["评测重点"] = "岗位推荐"
+    row["备注"] = ""
+    return row
+
+
+def looks_like_shifted_job_evidence(row: dict) -> bool:
+    if str(row.get("答案类型") or "").strip() != "job_recommendation":
+        return False
+    should_refuse = str(row.get("是否应拒答") or "").strip()
+    if not should_refuse:
+        return False
+    if parse_bool_cell(should_refuse)[1] is None:
+        return False
+    evidence = " ".join(str(row.get(field) or "") for field in ["期望证据文本", "是否应拒答", "拒答原因", "评测重点", "备注"])
+    return any(marker in evidence for marker in ["title:", "company:", "address:", "salary:", "education:"])
+
+
 def build_source_resolver(documents: list[dict]) -> dict[str, str]:
     resolver = {
         JOB_SOURCE_ID: JOB_SOURCE_ID,
@@ -920,11 +1043,12 @@ def build_source_resolver(documents: list[dict]) -> dict[str, str]:
         doc_id = doc.get("id")
         if not doc_id:
             continue
+        filename = str(doc.get("filename") or "")
         candidates = {
             str(doc_id),
             str(doc.get("title") or ""),
-            str(doc.get("filename") or ""),
-            Path(str(doc.get("filename") or "")).stem,
+            filename,
+            Path(filename).stem,
         }
         for candidate in candidates:
             if candidate:
@@ -932,15 +1056,106 @@ def build_source_resolver(documents: list[dict]) -> dict[str, str]:
     return resolver
 
 
-def resolve_source_ids(values: list[str], resolver: dict[str, str]) -> list[str]:
+def resolve_source_ids(values: list[str], resolver: dict[str, str]) -> tuple[list[str], list[str]]:
     resolved = []
+    errors = []
     for value in normalize_source_ids(values):
-        resolved.append(resolver.get(value, value))
-    return resolved
+        source_id = resolver.get(value) or resolver.get(Path(value).stem)
+        if source_id:
+            resolved.append(source_id)
+        else:
+            errors.append(value)
+    return unique_values(resolved), errors
+
+
+def unique_values(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
+
+
+def valid_source_ids(documents: list[dict]) -> set[str]:
+    return {JOB_SOURCE_ID, *[str(doc["id"]) for doc in documents if doc.get("id")]}
+
+
+def validate_dataset_items(
+    items: list[dict],
+    documents: list[dict],
+    *,
+    raise_on_error: bool = True,
+    row_offset: int = 1,
+    source_ids: set[str] | None = None,
+) -> list[dict]:
+    valid_sources = source_ids or valid_source_ids(documents)
+    errors: list[dict] = []
+    seen_ids: set[str] = set()
+    for item_index, item in enumerate(items, start=row_offset):
+        for key, field in DATASET_REQUIRED_ITEM_FIELDS.items():
+            if not str(item.get(key) or "").strip():
+                errors.append({"row": item_index, "field": field, "message": f"{field}不能为空"})
+        row_id = str(item.get("id") or "").strip()
+        if row_id:
+            if row_id in seen_ids:
+                errors.append({"row": item_index, "field": "ID", "message": f"ID重复：{row_id}"})
+            seen_ids.add(row_id)
+        answer_type = str(item.get("answer_type") or "").strip()
+        if answer_type and answer_type not in DATASET_ANSWER_TYPES:
+            errors.append({"row": item_index, "field": "答案类型", "message": f"答案类型不合法：{answer_type}"})
+        should_refuse = bool(item.get("should_refuse")) or answer_type == "refusal"
+        if bool(item.get("should_refuse")) and answer_type != "refusal":
+            errors.append({"row": item_index, "field": "答案类型", "message": "是否应拒答为是时，答案类型应选择 refusal"})
+        if answer_type == "refusal" and not bool(item.get("should_refuse")):
+            errors.append({"row": item_index, "field": "是否应拒答", "message": "答案类型为 refusal 时，是否应拒答应填写是"})
+        if should_refuse and not str(item.get("refusal_reason") or "").strip():
+            errors.append({"row": item_index, "field": "拒答原因", "message": "拒答题必须填写拒答原因"})
+        item_sources = normalize_source_ids(item.get("expected_source_ids") or [])
+        invalid_sources = [source_id for source_id in item_sources if source_id not in valid_sources]
+        for source_id in invalid_sources:
+            errors.append({"row": item_index, "field": "期望来源评测文档", "message": f"来源不是当前评测文档选项：{source_id}"})
+        if not should_refuse and not item_sources and not item.get("_source_parse_error"):
+            errors.append({"row": item_index, "field": "期望来源评测文档", "message": "非拒答题必须选择期望来源评测文档"})
+    if errors and raise_on_error:
+        raise_dataset_validation_error(errors)
+    return errors
+
+
+def raise_dataset_validation_error(errors: list[dict]):
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "message": "评测集解析失败，请修正后重新导入",
+            "errors": errors,
+        },
+    )
+
+
+def build_source_label_map(documents: list[dict]) -> dict[str, str]:
+    labels = {
+        JOB_SOURCE_ID: "岗位库（PG）",
+        LEGACY_JOB_SOURCE_ID: "岗位库（PG）",
+    }
+    for doc in documents:
+        doc_id = doc.get("id")
+        if doc_id:
+            labels[str(doc_id)] = str(doc.get("filename") or doc.get("title") or doc_id)
+    return labels
+
+
+def source_label(source_id: str, labels: dict[str, str]) -> str:
+    return labels.get(source_id, source_id)
 
 
 def parse_bool(value: str) -> bool:
     return value.strip().lower() in {"是", "true", "1", "yes", "y"}
+
+
+def parse_bool_cell(value: str) -> tuple[bool, str | None]:
+    normalized = value.strip().lower()
+    if not normalized:
+        return False, "不能为空，请填写是或否"
+    if normalized in {"是", "true", "1", "yes", "y"}:
+        return True, None
+    if normalized in {"否", "false", "0", "no", "n"}:
+        return False, None
+    return False, f"布尔值不合法：{value}，请填写是或否"
 
 
 def normalize_source_ids(values: list[str]) -> list[str]:

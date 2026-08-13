@@ -114,7 +114,7 @@ def get_account_by_id_number_digest(digest: str) -> dict | None:
             """SELECT a.id, a.personal_info_id, a.id_number_digest, a.password_hash,
                       a.role, a.status, a.token_version, a.failed_login_count,
                       a.locked_until, a.password_changed_at, a.last_login_at, a.last_login_ip,
-                      p.full_name, p.id_number_ciphertext
+                      p.full_name, p.phone, p.id_number_ciphertext
                FROM auth_account a
                JOIN personal_info p ON a.personal_info_id = p.id
                WHERE a.id_number_digest = %s""",
@@ -129,7 +129,7 @@ def get_account_by_id(user_id: int) -> dict | None:
             """SELECT a.id, a.personal_info_id, a.id_number_digest, a.password_hash,
                       a.role, a.status, a.token_version, a.failed_login_count,
                       a.locked_until, a.password_changed_at, a.last_login_at, a.last_login_ip,
-                      p.full_name, p.id_number_ciphertext
+                      p.full_name, p.phone, p.id_number_ciphertext
                FROM auth_account a
                JOIN personal_info p ON a.personal_info_id = p.id
                WHERE a.id = %s""",

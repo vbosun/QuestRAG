@@ -253,7 +253,15 @@ export interface ReportArtifact {
   };
 }
 
-export type Artifact = ChartArtifact | ReportArtifact;
+export interface ApplicationArtifact {
+  type: "application";
+  version: string;
+  id: string;
+  case_id: string;
+  title: string;
+}
+
+export type Artifact = ChartArtifact | ReportArtifact | ApplicationArtifact;
 
 export interface CitationSource {
   label: string;
@@ -268,7 +276,8 @@ export interface CitationSource {
 export type MessagePart =
   | { type: "markdown"; content: string }
   | { type: "chart"; artifact: ChartArtifact }
-  | { type: "report"; artifact: ReportArtifact };
+  | { type: "report"; artifact: ReportArtifact }
+  | { type: "application"; artifact: ApplicationArtifact };
 
 export interface ChatMessage {
   id: string;

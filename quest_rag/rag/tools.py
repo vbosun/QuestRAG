@@ -24,6 +24,13 @@ from quest_rag.social_security.service import format_social_security_result
 from quest_rag.subsidy.schemas import SubsidyCalculateToolInput, SubsidyMatchToolInput
 from quest_rag.subsidy.service import calculate_for_user, match_for_user
 from quest_rag.chat_memory.store import insert_tool_memory
+from quest_rag.applications.service import (
+    agent_application_summary,
+    assess_application_eligibility as assess_eligibility,
+    create_application,
+    get_application_guidance as get_guidance,
+    list_available_applications as list_available,
+)
 
 
 @tool
@@ -305,6 +312,83 @@ def subsidy_calculate(policy_id: str, user_inputs: dict | None = None) -> str:
     return json.dumps(payload, ensure_ascii=False, default=str)
 
 
+@tool
+def get_application_status(case_id: str) -> str:
+    """查询当前登录用户自己的办事申请状态和下一步。只读取申请状态，不会打开网页、填写或提交。"""
+    user = current_user_ctx.get()
+    if user is None:
+        return "办事申请查询需要登录用户上下文。"
+    assert_tool_permission(user, "get_application_status")
+    return agent_application_summary(user, case_id)
+
+
+@tool
+def list_available_applications() -> str:
+    """查询当前 Agent 可以介绍和发起的办事事项、地区及基础申请条件。"""
+    user = current_user_ctx.get()
+    if user is not None:
+        assert_tool_permission(user, "list_available_applications")
+    return json.dumps(list_available(), ensure_ascii=False)
+
+
+@tool
+def get_application_guidance(business_code: str) -> str:
+    """查询某个已登记业务的申请条件、流程步骤、表单字段和材料清单。不会创建申请。"""
+    user = current_user_ctx.get()
+    if user is not None:
+        assert_tool_permission(user, "get_application_guidance")
+    return json.dumps(get_guidance(business_code), ensure_ascii=False)
+
+
+@tool
+def assess_application_eligibility(
+    business_code: str,
+    has_started_employment: bool | None = None,
+    phone: str | None = None,
+) -> str:
+    """核验当前登录用户是否满足某一办事事项的基础发起条件。
+
+就业登记需要确认用户是否已经开始单位就业、灵活就业或自主创业；未知时返回需补充的信息，不得猜测。
+"""
+    user = current_user_ctx.get()
+    if user is None:
+        return "资格核验需要登录用户上下文。"
+    assert_tool_permission(user, "assess_application_eligibility")
+    return json.dumps(assess_eligibility(user, business_code, has_started_employment, phone), ensure_ascii=False)
+
+
+@tool
+def start_application(
+    business_code: str,
+    phone: str | None = None,
+    employment_type: str | None = None,
+) -> str:
+    """为当前登录用户创建已登记业务的申请草稿。
+
+    目前仅支持 employment_registration（就业登记申请）。该工具只创建草稿，不会打开网站、填写字段或提交。
+    """
+    user = current_user_ctx.get()
+    if user is None:
+        return "发起办事申请需要登录用户上下文。"
+    assert_tool_permission(user, "start_application")
+    normalized_type = {"单位就业": "employer", "灵活就业": "flexible", "自主创业": "self_employed"}.get(employment_type or "", employment_type)
+    prefill = {key: value for key, value in {"phone": phone, "employment_type": normalized_type}.items() if value}
+    detail = create_application(user, business_code, prefill)
+    # PostgreSQL returns the case identifier as ``uuid.UUID``.  Tool results
+    # are streamed through JSON, so normalize it before building the artifact.
+    case_id = str(detail["id"])
+    artifact = {
+        "type": "application", "version": "1.0", "id": f"application_{case_id}",
+        "case_id": case_id, "title": detail["definition"]["name"],
+    }
+    return (
+        f"已为您发起 {detail['definition']['name']}，正在弹出表单并带入已知信息。\n\n"
+        "```questrag-artifact\n"
+        f"{json.dumps(artifact, ensure_ascii=False)}\n"
+        "```"
+    )
+
+
 def remember_tool_result(
     user_id: int,
     tool_name: str,
@@ -335,6 +419,11 @@ tools = [
     social_security_search,
     subsidy_match,
     subsidy_calculate,
+    get_application_status,
+    list_available_applications,
+    get_application_guidance,
+    assess_application_eligibility,
+    start_application,
 ]
 
 

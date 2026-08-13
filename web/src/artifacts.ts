@@ -20,6 +20,8 @@ export function parseMessageParts(raw: string): MessagePart[] {
       parts.push({ type: "chart", artifact });
     } else if (artifact?.type === "report") {
       parts.push({ type: "report", artifact });
+    } else if (artifact?.type === "application") {
+      parts.push({ type: "application", artifact });
     } else {
       parts.push({ type: "markdown", content: match[0] });
     }
@@ -91,6 +93,9 @@ function parseArtifact(value: string): Artifact | null {
       return parsed;
     }
     if (parsed?.type === "report" && typeof parsed.content === "string") {
+      return parsed;
+    }
+    if (parsed?.type === "application" && typeof parsed.case_id === "string" && typeof parsed.title === "string") {
       return parsed;
     }
   } catch {

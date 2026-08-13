@@ -235,6 +235,7 @@ def get_current_user_from_token(authorization: str | None) -> "CurrentUser":
         rag_scopes=session.get("rag_scopes", []),
         status=session["status"],
         full_name=account["full_name"],
+        phone=account.get("phone"),
         id_number_masked=id_number_masked,
         token_version=session["token_version"],
     )

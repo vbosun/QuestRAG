@@ -181,9 +181,6 @@ class RagasOptions(BaseModel):
     ]] = Field(default_factory=lambda: [
         "faithfulness",
         "factual_correctness",
-        "response_relevancy",
-        "context_precision",
-        "context_recall",
     ])
 
 

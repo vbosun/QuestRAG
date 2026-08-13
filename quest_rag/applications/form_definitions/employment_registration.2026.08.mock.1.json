@@ -1,0 +1,43 @@
+{
+  "business_code": "employment_registration",
+  "version": "2026.08.mock.1",
+  "name": "就业登记申请",
+  "region": "试点演示地区",
+  "official_service_name": "人社就业服务平台（演示）",
+  "adapter_id": "mock_hrss_employment_registration_v1",
+  "eligibility": {
+    "summary": "适用于已开始单位就业、灵活就业或自主创业，且需要办理就业登记的申请人。",
+    "checks": [
+      {"key": "has_started_employment", "label": "是否已经开始就业、灵活就业或自主创业", "required": true, "expected": true},
+      {"key": "full_name", "label": "姓名", "required": true, "source": "profile"},
+      {"key": "phone", "label": "联系电话", "required": true, "source": "profile"}
+    ]
+  },
+  "steps": [
+    {"code": "basic_info", "name": "核对个人信息", "state": "DRAFT"},
+    {"code": "employment_info", "name": "填写就业信息", "state": "EMPLOYMENT_INFO"},
+    {"code": "materials", "name": "补充就业证明", "state": "MATERIALS"},
+    {"code": "review", "name": "核对并同步", "state": "REVIEW"},
+    {"code": "user_confirmation", "name": "用户确认提交", "state": "WAITING_USER"}
+  ],
+  "form": {
+    "fields": [
+      {"key": "full_name", "label": "姓名", "type": "text", "required": true, "editable": false, "source": "profile_prefill", "official_mapping": "applicantName"},
+      {"key": "phone", "label": "联系电话", "type": "phone", "required": true, "editable": true, "official_mapping": "phone"},
+      {"key": "employment_type", "label": "就业类型", "type": "select", "required": true, "editable": true, "options": [{"label": "单位就业", "value": "employer"}, {"label": "灵活就业", "value": "flexible"}, {"label": "自主创业", "value": "self_employed"}], "official_mapping": "employmentType"},
+      {"key": "employer_name", "label": "用人单位或经营主体名称", "type": "text", "required": true, "editable": true, "official_mapping": "employerName"},
+      {"key": "occupation", "label": "岗位或从事职业", "type": "text", "required": true, "editable": true, "official_mapping": "occupation"},
+      {"key": "employment_start_date", "label": "就业起始日期", "type": "date", "required": true, "editable": true, "validator": "date_not_future", "official_mapping": "employmentStartDate"},
+      {"key": "current_address", "label": "现居住地址", "type": "text", "required": true, "editable": true, "official_mapping": "currentAddress"}
+    ],
+    "materials": [
+      {"key": "employment_proof", "label": "劳动合同、营业执照或灵活就业证明", "required": true}
+    ]
+  },
+  "adapter": {
+    "allowed_origins": ["https://mock.hrss.local"],
+    "entry_path": "/employment-registration/apply",
+    "expected_page": "employment_registration_application",
+    "adapter_version": "1.0.0"
+  }
+}

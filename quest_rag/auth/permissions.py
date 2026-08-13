@@ -43,6 +43,26 @@ PERMISSIONS: dict[str, dict] = {
         "name": "社保查询", "type": "ROUTE", "group_code": "workspace",
         "risk_level": "LOW",
     },
+    "application.workspace.view": {
+        "name": "智能办事", "type": "ROUTE", "group_code": "workspace",
+        "risk_level": "LOW",
+    },
+    "application.case.create": {
+        "name": "发起办事申请", "type": "API", "group_code": "application",
+        "risk_level": "LOW",
+    },
+    "application.case.read_self": {
+        "name": "查看本人申请", "type": "API", "group_code": "application",
+        "risk_level": "LOW",
+    },
+    "application.case.edit_self": {
+        "name": "编辑本人申请草稿", "type": "API", "group_code": "application",
+        "risk_level": "MEDIUM",
+    },
+    "application.browser.connect": {
+        "name": "连接本机办事浏览器", "type": "API", "group_code": "application",
+        "risk_level": "MEDIUM",
+    },
 
     # ── 知识库操作 ──
     "knowledge.document.read": {
@@ -165,6 +185,18 @@ PERMISSIONS: dict[str, dict] = {
         "name": "补贴测算工具", "type": "LLM_TOOL", "group_code": "llm_tool",
         "risk_level": "LOW",
     },
+    "llm.tool.application_workflow_read": {
+        "name": "办事流程查询工具", "type": "LLM_TOOL", "group_code": "llm_tool",
+        "risk_level": "LOW",
+    },
+    "llm.tool.application_workflow_start": {
+        "name": "发起办事申请工具", "type": "LLM_TOOL", "group_code": "llm_tool",
+        "risk_level": "LOW",
+    },
+    "llm.tool.application_workflow_guide": {
+        "name": "办事条件与表单查询工具", "type": "LLM_TOOL", "group_code": "llm_tool",
+        "risk_level": "LOW",
+    },
 }
 
 OBSOLETE_PERMISSION_CODES = {
@@ -214,6 +246,10 @@ PERMISSION_DEPENDENCIES: dict[str, str] = {
     "permission.user.reset_password": "permission.manage",
     "permission.user.kick": "permission.manage",
     "public_services.social_security.view": "public_services.view",
+    "application.case.create": "application.workspace.view",
+    "application.case.read_self": "application.workspace.view",
+    "application.case.edit_self": "application.workspace.view",
+    "application.browser.connect": "application.workspace.view",
 }
 
 RAG_SCOPE_DEPENDENCIES: dict[str, list[str]] = {
@@ -261,8 +297,13 @@ DEFAULT_ROLES: dict[str, dict] = {
             "permission.user.assign_role", "permission.user.lock", "permission.user.unlock",
             "permission.user.reset_password", "permission.user.kick",
             "public_services.view", "public_services.social_security.view",
+            "application.workspace.view", "application.case.create", "application.case.read_self",
+            "application.case.edit_self", "application.browser.connect",
             "llm.tool.knowledge_search", "llm.tool.job_search",
             "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
+            "llm.tool.application_workflow_read",
+            "llm.tool.application_workflow_start",
+            "llm.tool.application_workflow_guide",
         ],
         "rag_scopes": ["public_policy", "jobs", "evaluation_docs", "social_security_mock", "subsidy_policy"],
     },
@@ -278,8 +319,13 @@ DEFAULT_ROLES: dict[str, dict] = {
             "evaluation.document.manage", "evaluation.dataset.manage",
             "system.retrieval_config.view",
             "public_services.view", "public_services.social_security.view",
+            "application.workspace.view", "application.case.create", "application.case.read_self",
+            "application.case.edit_self", "application.browser.connect",
             "llm.tool.knowledge_search", "llm.tool.job_search",
             "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
+            "llm.tool.application_workflow_read",
+            "llm.tool.application_workflow_start",
+            "llm.tool.application_workflow_guide",
         ],
         "rag_scopes": ["public_policy", "jobs", "evaluation_docs", "social_security_mock", "subsidy_policy"],
     },
@@ -301,8 +347,13 @@ DEFAULT_ROLES: dict[str, dict] = {
         "permissions": [
             "chat.view", "profile.view",
             "public_services.view", "public_services.social_security.view",
+            "application.workspace.view", "application.case.create", "application.case.read_self",
+            "application.case.edit_self", "application.browser.connect",
             "llm.tool.knowledge_search", "llm.tool.job_search",
             "llm.tool.social_security_search", "llm.tool.subsidy_match", "llm.tool.subsidy_calculate",
+            "llm.tool.application_workflow_read",
+            "llm.tool.application_workflow_start",
+            "llm.tool.application_workflow_guide",
         ],
         "rag_scopes": ["public_policy", "jobs", "social_security_mock", "subsidy_policy"],
     },

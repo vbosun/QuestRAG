@@ -27,12 +27,35 @@ const { Text, Title } = Typography;
 const JOB_SOURCE_ID = "jobs::__pg_index__";
 const LEGACY_JOB_SOURCE_ID = "jobs::__es_index__";
 const JOB_SOURCE_OPTION = { value: JOB_SOURCE_ID, label: "岗位库（PG）" };
+const RAGAS_METRIC_LABELS: Record<string, string> = {
+  faithfulness: "忠实度",
+  factual_correctness: "事实正确性",
+  response_relevancy: "回答相关性",
+  context_precision: "上下文精确率",
+  context_recall: "上下文召回率",
+  error: "错误"
+};
+const GENERATION_METRIC_LABELS: Record<string, string> = {
+  answer_present: "有生成答案",
+  citation_valid: "引用合法",
+  citation_required: "要求引用",
+  citation_required_hit: "引用要求命中",
+  required_points_total: "必覆盖要点数",
+  required_points_hit: "必覆盖命中数",
+  required_points_detail: "必覆盖明细",
+  forbidden_hits: "禁用断言命中",
+  refused: "是否拒答",
+  should_refuse: "期望拒答",
+  refusal_hit: "拒答命中",
+  ragas_average: "Ragas 均分",
+  passed: "生成通过"
+};
 const RAGAS_METRIC_OPTIONS = [
-  { value: "faithfulness", label: "Faithfulness" },
-  { value: "factual_correctness", label: "Factual correctness" },
-  { value: "response_relevancy", label: "Response relevancy" },
-  { value: "context_precision", label: "Context precision" },
-  { value: "context_recall", label: "Context recall" }
+  { value: "faithfulness", label: RAGAS_METRIC_LABELS.faithfulness },
+  { value: "factual_correctness", label: RAGAS_METRIC_LABELS.factual_correctness },
+  { value: "response_relevancy", label: RAGAS_METRIC_LABELS.response_relevancy },
+  { value: "context_precision", label: RAGAS_METRIC_LABELS.context_precision },
+  { value: "context_recall", label: RAGAS_METRIC_LABELS.context_recall }
 ];
 const ANSWER_TYPE_OPTIONS = [
   { value: "policy_explain", label: "政策解释" },
@@ -83,11 +106,15 @@ export function EvaluationView({
     setStep(0);
     setActiveRun(null);
     setActiveRetrievedItem(null);
+    setParamsModalOpen(false);
+    setItemsModalOpen(false);
     setActiveEvalDocument(null);
     setActiveDataset(null);
   }, [initialMode, resetKey]);
   const [activeRun, setActiveRun] = useState<EvaluationRun | null>(null);
   const [activeRetrievedItem, setActiveRetrievedItem] = useState<EvaluationItem | null>(null);
+  const [paramsModalOpen, setParamsModalOpen] = useState(false);
+  const [itemsModalOpen, setItemsModalOpen] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [running, setRunning] = useState(false);
   const [name, setName] = useState(`检索评测 ${new Date().toLocaleString("zh-CN", { hour12: false })}`);
@@ -125,6 +152,8 @@ export function EvaluationView({
     setStep(0);
     setActiveRun(null);
     setActiveRetrievedItem(null);
+    setParamsModalOpen(false);
+    setItemsModalOpen(false);
     setActiveEvalDocument(null);
     setActiveEvalDocumentRuns([]);
     setActiveEvalDocumentRun(null);
@@ -170,7 +199,7 @@ export function EvaluationView({
   });
   const [ragasOptions, setRagasOptions] = useState<RagasOptions>({
     enabled: true,
-    metrics: ["faithfulness", "factual_correctness", "response_relevancy", "context_precision", "context_recall"]
+    metrics: ["faithfulness", "factual_correctness"]
   });
 
   function backToList() {
@@ -265,6 +294,13 @@ export function EvaluationView({
     }
     setRunning(true);
     try {
+      const dataset = activeDataset?.id === datasetId ? activeDataset : await getEvaluationDataset(datasetId);
+      const datasetErrors = validateDatasetItems(dataset.items || []);
+      if (datasetErrors.length) {
+        showDatasetValidationErrors("评测集校验未通过，请先编辑评测集", datasetErrors);
+        setRunning(false);
+        return;
+      }
       const result = await runEvaluation({
         name,
         dataset_id: datasetId,
@@ -336,27 +372,29 @@ export function EvaluationView({
 
   async function saveDatasetItem() {
     if (!activeDataset || !datasetItemDraft) return;
-    if (!datasetItemDraft.id.trim() || !datasetItemDraft.question.trim()) {
-      message.warning("请填写题目 ID 和用户问题");
+    const items = [...(activeDataset.items || [])];
+    if (editingDatasetItemIndex === null) {
+      items.push(datasetItemDraft);
+    } else {
+      items[editingDatasetItemIndex] = datasetItemDraft;
+    }
+    const errors = validateDatasetItems(items);
+    if (errors.length) {
+      showDatasetValidationErrors("问题记录不完整", errors);
       return;
     }
     setSavingDatasetItem(true);
     try {
-      const items = [...(activeDataset.items || [])];
-      if (editingDatasetItemIndex === null) {
-        items.push(datasetItemDraft);
-      } else {
-        items[editingDatasetItemIndex] = datasetItemDraft;
-      }
+      const normalizedItems = normalizeDatasetItems(items);
       if (isDraftDataset(activeDataset)) {
-        setActiveDataset({ ...activeDataset, items, item_count: items.length });
+        setActiveDataset({ ...activeDataset, items: normalizedItems, item_count: normalizedItems.length });
         setDatasetItemModalOpen(false);
         setDatasetItemDraft(null);
         setEditingDatasetItemIndex(null);
         message.success("问题记录已加入草稿");
         return;
       }
-      const saved = await updateEvaluationDataset(activeDataset.id, { name: activeDataset.name, items });
+      const saved = await updateEvaluationDataset(activeDataset.id, { name: activeDataset.name, items: normalizedItems });
       setActiveDataset(saved);
       setDatasetItemModalOpen(false);
       setDatasetItemDraft(null);
@@ -425,13 +463,222 @@ export function EvaluationView({
     ];
   }
 
+  function validDatasetSourceValues() {
+    return new Set(datasetSourceOptions().map((option) => option.value));
+  }
+
+  function normalizeExpectedSourceValues(values?: string[] | null) {
+    const validValues = validDatasetSourceValues();
+    return Array.from(new Set((values || []).filter((value) => validValues.has(value))));
+  }
+
+  function normalizeDatasetItem(item: EvaluationDatasetItem): EvaluationDatasetItem {
+    return {
+      ...item,
+      expected_source_ids: normalizeExpectedSourceValues(item.expected_source_ids)
+    };
+  }
+
+  function resolveSourceLabel(value: string) {
+    if (value === JOB_SOURCE_ID) return JOB_SOURCE_OPTION.label;
+    const doc = evalDocuments.find((item) => item.id === value);
+    return doc?.title || doc?.filename || value;
+  }
+
   function renderExpectedSources(value: string[] = []) {
-    if (!value.length) return "未设置";
-    const hasJobs = value.includes(JOB_SOURCE_ID) || value.includes(LEGACY_JOB_SOURCE_ID);
-    const docCount = value.filter((item) => item !== JOB_SOURCE_ID && item !== LEGACY_JOB_SOURCE_ID).length;
-    if (hasJobs && docCount) return `岗位库 + ${docCount} 个文档`;
-    if (hasJobs) return "岗位库（PG）";
-    return `${docCount} 个文档`;
+    const validValues = normalizeExpectedSourceValues(value);
+    const labels = validValues.map((item) => resolveSourceLabel(item));
+    const invalidCount = (value || []).filter((item) => !validDatasetSourceValues().has(item)).length;
+    if (!labels.length && invalidCount) return <Tag color="warning">来源需重新选择</Tag>;
+    if (!labels.length) return "未设置";
+    return (
+      <Space size={4} wrap>
+        {labels.slice(0, 2).map((label) => (
+          <Tag key={label}>{label}</Tag>
+        ))}
+        {labels.length > 2 && <Tag>+{labels.length - 2}</Tag>}
+        {invalidCount > 0 && <Tag color="warning">有无效来源</Tag>}
+      </Space>
+    );
+  }
+
+  function normalizeDatasetItems(items?: EvaluationDatasetItem[] | null) {
+    return (items || []).map((item) => normalizeDatasetItem(item));
+  }
+
+  function itemShouldRequireSources(item: EvaluationDatasetItem) {
+    return !item.should_refuse && item.answer_type !== "refusal";
+  }
+
+  function validateDatasetItems(items?: EvaluationDatasetItem[] | null) {
+    const errors: string[] = [];
+    const seenIds = new Set<string>();
+    const validSourceValues = validDatasetSourceValues();
+    (items || []).forEach((item, index) => {
+      const rowLabel = `第 ${index + 1} 条`;
+      if (!item.id?.trim()) errors.push(`${rowLabel}：ID 不能为空`);
+      if (item.id?.trim()) {
+        if (seenIds.has(item.id.trim())) errors.push(`${rowLabel}：ID 重复：${item.id.trim()}`);
+        seenIds.add(item.id.trim());
+      }
+      if (!item.question?.trim()) errors.push(`${rowLabel}：用户问题不能为空`);
+      if (!item.expected_answer?.trim()) errors.push(`${rowLabel}：期望答案要点不能为空`);
+      if (!item.answer_type?.trim()) errors.push(`${rowLabel}：答案类型不能为空`);
+      if (item.answer_type && !ANSWER_TYPE_OPTIONS.some((option) => option.value === item.answer_type)) {
+        errors.push(`${rowLabel}：答案类型不合法：${item.answer_type}`);
+      }
+      if (item.should_refuse && item.answer_type !== "refusal") {
+        errors.push(`${rowLabel}：是否应拒答为是时，答案类型应选择“应拒答”`);
+      }
+      if (item.answer_type === "refusal" && !item.should_refuse) {
+        errors.push(`${rowLabel}：答案类型为“应拒答”时，是否应拒答应勾选`);
+      }
+      if ((item.should_refuse || item.answer_type === "refusal") && !item.refusal_reason?.trim()) {
+        errors.push(`${rowLabel}：拒答题必须填写拒答原因`);
+      }
+      const rawSources = item.expected_source_ids || [];
+      const invalidCount = rawSources.filter((sourceId) => !validSourceValues.has(sourceId)).length;
+      if (invalidCount > 0) errors.push(`${rowLabel}：期望来源评测文档包含无效选项，请重新选择`);
+      if (itemShouldRequireSources(item) && normalizeExpectedSourceValues(rawSources).length === 0) {
+        errors.push(`${rowLabel}：非拒答题必须选择期望来源评测文档`);
+      }
+    });
+    return errors;
+  }
+
+  function showDatasetValidationErrors(title: string, errors: string[]) {
+    Modal.error({
+      title,
+      width: 720,
+      content: (
+        <div className="dataset-validation-errors">
+          {errors.slice(0, 20).map((error) => (
+            <div key={error}>{error}</div>
+          ))}
+          {errors.length > 20 && <Text type="secondary">还有 {errors.length - 20} 条错误未显示</Text>}
+        </div>
+      )
+    });
+  }
+
+  function showDatasetImportError(error: unknown) {
+    const messageText = error instanceof Error ? error.message : "导入评测集失败";
+    const validationErrors = (error as { validationErrors?: Array<{ row?: number; column?: number; field?: string; message?: string }> })?.validationErrors || [];
+    if (!validationErrors.length) {
+      message.error(messageText);
+      return;
+    }
+    Modal.error({
+      title: messageText,
+      width: 780,
+      content: (
+        <div className="dataset-validation-errors">
+          {validationErrors.slice(0, 30).map((item, index) => (
+            <div key={`${item.row || "-"}-${item.column || "-"}-${index}`}>
+              第 {item.row || "-"} 行，第 {item.column || "-"} 列{item.field ? `（${item.field}）` : ""}：{item.message || "格式不合法"}
+            </div>
+          ))}
+          {validationErrors.length > 30 && <Text type="secondary">还有 {validationErrors.length - 30} 条错误未显示</Text>}
+        </div>
+      )
+    });
+  }
+
+  function requiredLabel(label: string) {
+    return (
+      <span className="required-label">
+        <span className="required-mark">*</span>
+        {label}
+      </span>
+    );
+  }
+
+  function metricLabel(key: string, labels: Record<string, string>) {
+    return labels[key] || key;
+  }
+
+  function metricValue(value: unknown) {
+    if (typeof value === "boolean") return value ? "是" : "否";
+    if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(4);
+    if (value && typeof value === "object") return JSON.stringify(value);
+    return String(value ?? "-");
+  }
+
+  function summaryNumber(value: unknown) {
+    return typeof value === "number" ? metricValue(value) : "-";
+  }
+
+  function renderRunParams(run: EvaluationRun) {
+    return (
+      <Descriptions bordered column={2} size="small">
+        <Descriptions.Item label="评测集合">{run.retrieval_index_name || run.es_index_name}</Descriptions.Item>
+        <Descriptions.Item label="状态">{evalStatusLabel(run.status)}</Descriptions.Item>
+        <Descriptions.Item label="评测集">{run.dataset_path}</Descriptions.Item>
+        <Descriptions.Item label="文档范围">{JSON.stringify(run.document_scope)}</Descriptions.Item>
+        <Descriptions.Item label="清洗策略">{JSON.stringify(run.clean_options)}</Descriptions.Item>
+        <Descriptions.Item label="分块策略">
+          {(() => {
+            const opts = run.split_options || {};
+            const strategy = String(opts.strategy || "fixed");
+            const labels: Record<string, string> = { fixed: "固定长度", structure: "结构感知", recursive: "递归分块" };
+            return `${labels[strategy] || strategy} / 长度 ${opts.chunk_size ?? "-"} / 重叠 ${opts.chunk_overlap ?? "-"}${strategy === "recursive" ? ` / ${opts.separator_preset === "chinese" ? "中文" : opts.separator_preset === "english" ? "英文" : "通用"}` : ""}${opts.attach_title ? " / 附标题" : ""}`;
+          })()}
+        </Descriptions.Item>
+        <Descriptions.Item label="检索策略">{JSON.stringify(run.retrieval_options)}</Descriptions.Item>
+        <Descriptions.Item label="评测类型">{run.evaluation_mode === "both" ? "检索 + 生成" : run.evaluation_mode === "generation" ? "仅生成" : "仅检索"}</Descriptions.Item>
+        {run.generation_options && <Descriptions.Item label="生成参数">{JSON.stringify(run.generation_options)}</Descriptions.Item>}
+        {run.ragas_options && <Descriptions.Item label="Ragas">{JSON.stringify(run.ragas_options)}</Descriptions.Item>}
+        {run.error && <Descriptions.Item label="错误">{run.error}</Descriptions.Item>}
+      </Descriptions>
+    );
+  }
+
+  function renderRunItems(run: EvaluationRun) {
+    return (
+      <List
+        dataSource={run.items || []}
+        renderItem={(item) => (
+          <List.Item className="eval-result-item clickable" onClick={() => setActiveRetrievedItem(item)}>
+            <List.Item.Meta
+              title={
+                <Space wrap>
+                  <Text strong>{item.question_id || item.id}</Text>
+                  {item.metrics && Object.keys(item.metrics).length > 0 && (item.should_refuse || item.metrics?.should_refuse) ? (
+                    <Tag color={item.metrics?.refusal_hit ? "success" : "error"}>
+                      {item.metrics?.refusal_hit ? "拒答通过" : "拒答未通过"}
+                    </Tag>
+                  ) : item.metrics && Object.keys(item.metrics).length > 0 ? (
+                    <>
+                      <Tag color={item.metrics?.source_hit ? "success" : "error"}>
+                        {item.metrics?.source_hit ? "文档命中" : "文档未命中"}
+                      </Tag>
+                      <Tag color={item.metrics?.evidence_hit ? "success" : "default"}>
+                        {item.metrics?.evidence_hit ? "证据命中" : "证据未命中"}
+                      </Tag>
+                    </>
+                  ) : null}
+                  {item.generation_metrics && Object.keys(item.generation_metrics).length > 0 && (
+                    <Tag color={item.generation_metrics?.passed ? "success" : "error"}>
+                      {item.generation_metrics?.passed ? "生成通过" : "生成未通过"}
+                    </Tag>
+                  )}
+                  {item.generation_error && (
+                    <Tag color="error">生成错误</Tag>
+                  )}
+                </Space>
+              }
+              description={
+                <div className="eval-item-body">
+                  <Text>{item.question}</Text>
+                  <Text type="secondary">召回：{summarizeRetrieved(item.retrieved)}</Text>
+                  <Text type="secondary">点击查看检索、生成和 Ragas 结果</Text>
+                </div>
+              }
+            />
+          </List.Item>
+        )}
+      />
+    );
   }
 
   function parseListText(value: string) {
@@ -776,6 +1023,9 @@ export function EvaluationView({
                       options={RAGAS_METRIC_OPTIONS}
                       onChange={(value) => setRagasOptions({ ...ragasOptions, metrics: value })}
                     />
+                    <Text type="secondary">
+                      推荐默认使用忠实度和事实正确性，覆盖核心生成质量判断，速度更快、成本更低；需要完整分析时再手动增加回答相关性和上下文类指标。
+                    </Text>
                   </label>
                 </div>
               )}
@@ -798,7 +1048,9 @@ export function EvaluationView({
                     </Descriptions.Item>
                     <Descriptions.Item label="检索策略">{JSON.stringify(retrievalOptions)}</Descriptions.Item>
                     <Descriptions.Item label="生成参数">{JSON.stringify(generationOptions)}</Descriptions.Item>
-                    <Descriptions.Item label="Ragas">{ragasOptions.enabled ? ragasOptions.metrics.join(", ") : "未启用"}</Descriptions.Item>
+                    <Descriptions.Item label="Ragas">
+                      {ragasOptions.enabled ? ragasOptions.metrics.map((metric) => RAGAS_METRIC_LABELS[metric] || metric).join("，") : "未启用"}
+                    </Descriptions.Item>
                   </Descriptions>
                 </div>
               )}
@@ -1029,7 +1281,8 @@ export function EvaluationView({
                       await refreshEvalAssets();
                     })
                     .catch((error) => {
-                      message.error({ content: error instanceof Error ? error.message : "导入评测集失败", key: "dataset-import" });
+                      message.destroy("dataset-import");
+                      showDatasetImportError(error);
                       onError?.(error);
                     })
                     .finally(() => setImportingDataset(false));
@@ -1123,14 +1376,19 @@ export function EvaluationView({
                   </Button>
                   <Button
                     onClick={async () => {
+                      const datasetErrors = validateDatasetItems(activeDataset.items || []);
+                      if (datasetErrors.length) {
+                        showDatasetValidationErrors("评测集校验未通过", datasetErrors);
+                        return;
+                      }
                       const saved = isDraftDataset(activeDataset)
                         ? await createEvaluationDataset({
                             name: activeDataset.name,
-                            items: activeDataset.items || []
+                            items: normalizeDatasetItems(activeDataset.items)
                           })
                         : await updateEvaluationDataset(activeDataset.id, {
                             name: activeDataset.name,
-                            items: activeDataset.items || []
+                            items: normalizeDatasetItems(activeDataset.items)
                           });
                       setActiveDataset(saved);
                       message.success("评测集已保存");
@@ -1221,7 +1479,7 @@ export function EvaluationView({
                 {datasetItemDraft && (
                   <div className="dataset-edit-grid dataset-item-modal-grid">
                     <label>
-                      <Text type="secondary">ID</Text>
+                      <Text type="secondary">{requiredLabel("ID")}</Text>
                       <Input
                         value={datasetItemDraft.id}
                         placeholder="题目 ID"
@@ -1229,7 +1487,7 @@ export function EvaluationView({
                       />
                     </label>
                     <label className="span-2">
-                      <Text type="secondary">用户问题</Text>
+                      <Text type="secondary">{requiredLabel("用户问题")}</Text>
                       <Input
                         value={datasetItemDraft.question}
                         placeholder="用户会怎么问"
@@ -1237,7 +1495,7 @@ export function EvaluationView({
                       />
                     </label>
                     <label className="span-3">
-                      <Text type="secondary">期望答案要点</Text>
+                      <Text type="secondary">{requiredLabel("期望答案要点")}</Text>
                       <Input.TextArea
                         value={datasetItemDraft.expected_answer || ""}
                         placeholder="回答里应该覆盖的要点"
@@ -1264,7 +1522,7 @@ export function EvaluationView({
                       />
                     </label>
                     <label>
-                      <Text type="secondary">答案类型</Text>
+                      <Text type="secondary">{requiredLabel("答案类型")}</Text>
                       <Select
                         allowClear
                         value={datasetItemDraft.answer_type || undefined}
@@ -1281,15 +1539,16 @@ export function EvaluationView({
                       >
                         必须引用
                       </Checkbox>
+                      <Text type="secondary">生成答案需要带有效引用标号，如【1】</Text>
                     </label>
                     <label className="span-3">
-                      <Text type="secondary">期望来源评测文档</Text>
+                      <Text type="secondary">{itemShouldRequireSources(datasetItemDraft) ? requiredLabel("期望来源评测文档") : "期望来源评测文档"}</Text>
                       <Select
                         mode="multiple"
-                        value={datasetItemDraft.expected_source_ids}
+                        value={normalizeExpectedSourceValues(datasetItemDraft.expected_source_ids)}
                         placeholder="选择应该被召回的评测文档或岗位库"
                         options={datasetSourceOptions()}
-                        onChange={(value) => setDatasetItemDraft({ ...datasetItemDraft, expected_source_ids: value })}
+                        onChange={(value) => setDatasetItemDraft({ ...datasetItemDraft, expected_source_ids: normalizeExpectedSourceValues(value) })}
                       />
                     </label>
                     <label className="span-3">
@@ -1311,7 +1570,7 @@ export function EvaluationView({
                       </Checkbox>
                     </label>
                     <label className="span-2">
-                      <Text type="secondary">拒答原因</Text>
+                      <Text type="secondary">{datasetItemDraft.should_refuse || datasetItemDraft.answer_type === "refusal" ? requiredLabel("拒答原因") : "拒答原因"}</Text>
                       <Select
                         allowClear
                         disabled={!datasetItemDraft.should_refuse}
@@ -1360,76 +1619,51 @@ export function EvaluationView({
                 <StatTile label="检索通过率" value={formatRate(activeRun.summary?.retrieval_pass_rate ?? activeRun.summary?.pass_rate)} />
                 <StatTile label="生成通过率" value={formatRate(activeRun.summary?.generation_pass_rate)} />
                 <StatTile label="Ragas 均分" value={String(activeRun.summary?.ragas_average ?? "-")} />
+                {Object.entries(RAGAS_METRIC_LABELS)
+                  .filter(([key]) => key !== "error")
+                  .map(([key, label]) => (
+                    <StatTile
+                      key={key}
+                      label={`${label}均分`}
+                      value={summaryNumber((activeRun.summary?.ragas_metric_averages as Record<string, unknown> | undefined)?.[key])}
+                    />
+                  ))}
                 <StatTile label="MRR" value={String(activeRun.summary?.mrr ?? "-")} />
               </section>
-              <section className="eval-detail-card">
-                <Title level={4}>参数快照</Title>
-                <Descriptions bordered column={2} size="small">
-                  <Descriptions.Item label="评测集合">{activeRun.retrieval_index_name || activeRun.es_index_name}</Descriptions.Item>
-                  <Descriptions.Item label="状态">{evalStatusLabel(activeRun.status)}</Descriptions.Item>
-                  <Descriptions.Item label="评测集">{activeRun.dataset_path}</Descriptions.Item>
-                  <Descriptions.Item label="文档范围">{JSON.stringify(activeRun.document_scope)}</Descriptions.Item>
-                  <Descriptions.Item label="清洗策略">{JSON.stringify(activeRun.clean_options)}</Descriptions.Item>
-                  <Descriptions.Item label="分块策略">
-                    {(() => {
-                      const opts = activeRun.split_options || {};
-                      const strategy = String(opts.strategy || "fixed");
-                      const labels: Record<string, string> = { fixed: "固定长度", structure: "结构感知", recursive: "递归分块" };
-                      return `${labels[strategy] || strategy} / 长度 ${opts.chunk_size ?? "-"} / 重叠 ${opts.chunk_overlap ?? "-"}${strategy === "recursive" ? ` / ${opts.separator_preset === "chinese" ? "中文" : opts.separator_preset === "english" ? "英文" : "通用"}` : ""}${opts.attach_title ? " / 附标题" : ""}`;
-                    })()}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="检索策略">{JSON.stringify(activeRun.retrieval_options)}</Descriptions.Item>
-                  <Descriptions.Item label="评测类型">{activeRun.evaluation_mode === "both" ? "检索 + 生成" : activeRun.evaluation_mode === "generation" ? "仅生成" : "仅检索"}</Descriptions.Item>
-                  {activeRun.generation_options && <Descriptions.Item label="生成参数">{JSON.stringify(activeRun.generation_options)}</Descriptions.Item>}
-                  {activeRun.ragas_options && <Descriptions.Item label="Ragas">{JSON.stringify(activeRun.ragas_options)}</Descriptions.Item>}
-                  {activeRun.error && <Descriptions.Item label="错误">{activeRun.error}</Descriptions.Item>}
-                </Descriptions>
+              <section className="eval-detail-actions-card">
+                <div>
+                  <Text strong>评测内容</Text>
+                  <Text type="secondary">参数和 {activeRun.items?.length || 0} 条问题记录已收起，点击后在弹窗中查看。</Text>
+                </div>
+                <Space wrap>
+                  <Button onClick={() => setParamsModalOpen(true)}>查看参数快照</Button>
+                  <Button type="primary" onClick={() => setItemsModalOpen(true)}>查看评测明细</Button>
+                </Space>
               </section>
-              <section className="eval-detail-card">
-                <Title level={4}>评测明细</Title>
-                <List
-                  dataSource={activeRun.items || []}
-                  renderItem={(item) => (
-                    <List.Item className="eval-result-item clickable" onClick={() => setActiveRetrievedItem(item)}>
-                      <List.Item.Meta
-                        title={
-                          <Space wrap>
-                            <Text strong>{item.question_id || item.id}</Text>
-                            {item.metrics && Object.keys(item.metrics).length > 0 && (item.should_refuse || item.metrics?.should_refuse) ? (
-                              <Tag color={item.metrics?.refusal_hit ? "success" : "error"}>
-                                {item.metrics?.refusal_hit ? "拒答通过" : "拒答未通过"}
-                              </Tag>
-                            ) : item.metrics && Object.keys(item.metrics).length > 0 ? (
-                              <>
-                                <Tag color={item.metrics?.source_hit ? "success" : "error"}>
-                                  {item.metrics?.source_hit ? "文档命中" : "文档未命中"}
-                                </Tag>
-                                <Tag color={item.metrics?.evidence_hit ? "success" : "default"}>
-                                  {item.metrics?.evidence_hit ? "证据命中" : "证据未命中"}
-                                </Tag>
-                              </>
-                            ) : null}
-                            {item.generation_metrics && Object.keys(item.generation_metrics).length > 0 && (
-                              <Tag color={item.generation_metrics?.passed ? "success" : "error"}>
-                                {item.generation_metrics?.passed ? "生成通过" : "生成未通过"}
-                              </Tag>
-                            )}
-                            {item.generation_error && (
-                              <Tag color="error">生成错误</Tag>
-                            )}
-                          </Space>
-                        }
-                        description={
-                          <div className="eval-item-body">
-                            <Text>{item.question}</Text>
-                            <Text type="secondary">召回：{summarizeRetrieved(item.retrieved)}</Text>
-                            <Text type="secondary">点击查看检索、生成和 Ragas 结果</Text>
-                          </div>
-                        }
-                      />
-                    </List.Item>
-                  )}
-                />
+              <Modal
+                destroyOnClose
+                footer={null}
+                onCancel={() => setParamsModalOpen(false)}
+                open={paramsModalOpen}
+                title="参数快照"
+                width={1100}
+              >
+                <div className="eval-modal-scroll eval-params-card">
+                  {renderRunParams(activeRun)}
+                </div>
+              </Modal>
+              <Modal
+                destroyOnClose
+                footer={null}
+                onCancel={() => setItemsModalOpen(false)}
+                open={itemsModalOpen}
+                title={`评测明细（${activeRun.items?.length || 0} 条）`}
+                width={1200}
+              >
+                <div className="eval-modal-scroll">
+                  {renderRunItems(activeRun)}
+                </div>
+              </Modal>
                 <Modal
                   destroyOnClose
                   footer={null}
@@ -1469,8 +1703,8 @@ export function EvaluationView({
                           <Text type="secondary">期望来源</Text>
                           <Space wrap>
                             {(activeRetrievedItem.expected_source_ids || []).length ? (
-                                activeRetrievedItem.expected_source_ids.map((sourceId) => (
-                                  <Tag key={sourceId}>{sourceId === JOB_SOURCE_ID || sourceId === LEGACY_JOB_SOURCE_ID ? "岗位库（PG）" : sourceId}</Tag>
+                                normalizeExpectedSourceValues(activeRetrievedItem.expected_source_ids).map((sourceId) => (
+                                  <Tag key={sourceId}>{resolveSourceLabel(sourceId)}</Tag>
                                 ))
                             ) : (
                               <Tag>未设置</Tag>
@@ -1514,7 +1748,7 @@ export function EvaluationView({
                             )}
                             <Space wrap>
                               {activeRetrievedItem.generation_metrics && Object.entries(activeRetrievedItem.generation_metrics).map(([key, value]) => (
-                                <Tag key={key}>{key}: {String(value)}</Tag>
+                                <Tag key={key}>{metricLabel(key, GENERATION_METRIC_LABELS)}: {metricValue(value)}</Tag>
                               ))}
                             </Space>
                           </div>
@@ -1523,8 +1757,10 @@ export function EvaluationView({
                           <div className="baseline-block">
                             <Text strong>Ragas 指标</Text>
                             <Space wrap>
-                              {Object.entries(activeRetrievedItem.ragas_metrics).map(([key, value]) => (
-                                <Tag key={key}>{key}: {typeof value === "object" ? JSON.stringify(value) : String(value)}</Tag>
+                              {Object.entries(activeRetrievedItem.ragas_metrics).filter(([key]) => key !== "enabled").map(([key, value]) => (
+                                <Tag color={key === "error" ? "error" : undefined} key={key}>
+                                  {metricLabel(key, RAGAS_METRIC_LABELS)}: {metricValue(value)}
+                                </Tag>
                               ))}
                             </Space>
                           </div>
@@ -1596,7 +1832,6 @@ export function EvaluationView({
                     </div>
                   )}
                 </Modal>
-              </section>
             </>
           )}
         </main>
