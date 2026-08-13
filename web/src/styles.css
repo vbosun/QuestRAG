@@ -1908,6 +1908,15 @@ body {
   display: none;
 }
 
+.application-modal-titlebar {
+  cursor: grab;
+  user-select: none;
+}
+
+.application-modal-titlebar:active {
+  cursor: grabbing;
+}
+
 .application-dialog-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 285px;

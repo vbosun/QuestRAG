@@ -148,6 +148,7 @@ export function ChatView(props: ChatViewProps) {
         </footer>
         {application && (
           <ApplicationFormDialog
+            key={`${props.activeSession?.id || "session"}-${application.artifact.case_id}`}
             caseId={application.artifact.case_id}
             onClose={() => setApplicationOpen(false)}
             open={applicationOpen}
