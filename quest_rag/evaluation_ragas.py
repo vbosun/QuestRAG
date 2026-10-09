@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from openai import AsyncOpenAI
+from quest_rag.rag.model_options import non_thinking_options
 
 from quest_rag.core.config import (
     EMBEDDING_BASE_URL,
+    EMBEDDING_API_KEY,
     OPENAI_API_KEY,
     OPENAI_BASE_URL,
     OPENAI_EMBEDDING_MODEL,
@@ -79,7 +81,7 @@ async def _score_with_collections(
         base_url=OPENAI_BASE_URL,
     )
     embedding_client = AsyncOpenAI(
-        api_key=OPENAI_API_KEY,
+        api_key=EMBEDDING_API_KEY,
         base_url=EMBEDDING_BASE_URL,
     )
     llm = llm_factory(
@@ -87,6 +89,7 @@ async def _score_with_collections(
         client=client,
         temperature=0,
         max_tokens=RAGAS_JUDGE_MAX_TOKENS,
+        **non_thinking_options(model or OPENAI_MODEL),
     )
     embeddings = embedding_factory("openai", model=OPENAI_EMBEDDING_MODEL, client=embedding_client)
     metric_map = {

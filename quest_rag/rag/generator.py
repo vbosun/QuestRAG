@@ -14,6 +14,8 @@ from quest_rag.rag.tool_registry import build_tools_for_user, current_conversati
 
 SYSTEM_PROMPT = """
 你是一个政务助手.帮助用户解决就业登记业务,失业登记业务问题,或者其他的可以从文档中获取到相关业务知识的问题.如果没有符合条件的资料,则拒绝回答,不要编造.
+默认使用简体中文回复；除非用户明确要求其他语言，所有面向用户的说明、追问和回答都用简体中文，专有名词、代码和原文引用可保留原语言。
+需要调用工具时直接调用，不要先输出“我会查询”“I'll look into”等过程说明。获取结果后直接回答用户的问题；需要用户补充信息时，直接用中文追问。
 回复正文允许使用 Markdown, 用清晰的标题、列表、表格组织信息.
 当工具返回了"引用编号: 【1】"这类来源编号时, 回答中的关键事实、政策条件、办理材料、岗位推荐后面要标注对应编号, 例如"应在30日内办理【1】".
 只能使用工具返回过的短编号, 不要编造引用编号, 不要输出真实 source_id、chunk_id、片段位置或工具原文.
@@ -143,21 +145,34 @@ def _generate_stream_items(
     try:
         agent = _make_agent(current_user, generation_options)
         querying = False
-        for chunk in agent.stream(
+        for mode, chunk in agent.stream(
             {"messages": [{"role": "user", "content": build_question_with_memory(question, memory_context)}]},
             {"configurable": {"thread_id": thread_id}},
-            stream_mode="messages",
+            stream_mode=["messages", "updates"],
         ):
-            if is_tool_activity(chunk) and not querying:
-                querying = True
-                yield {"event": "status", "data": {"message": "正在查询资料中..."}}
+            if mode == "messages":
+                if is_tool_activity(chunk) and not querying:
+                    querying = True
+                    yield {"event": "status", "data": {"message": "正在查询资料中..."}}
+                continue
 
-            text = extract_stream_text(chunk)
-            if text:
-                if querying:
-                    querying = False
-                    yield {"event": "status", "data": {"message": "正在整理回答..."}}
-                yield {"event": "delta", "data": {"text": text}}
+            # A model can emit text before announcing tool calls. Only its completed
+            # message tells us whether that text is a tool preamble or the answer.
+            # Keep token/tool activity as status; publish only completed answer turns.
+            for update in chunk.values():
+                if not isinstance(update, dict):
+                    continue
+                for message in update.get("messages", []):
+                    if is_tool_activity(message):
+                        if not querying:
+                            querying = True
+                            yield {"event": "status", "data": {"message": "正在查询资料中..."}}
+                        continue
+                    text = extract_stream_text(message)
+                    if text:
+                        querying = False
+                        yield {"event": "status", "data": {"message": "正在整理回答..."}}
+                        yield {"event": "delta", "data": {"text": text}}
 
         yield {"event": "sources", "data": {"sources": get_citations()}}
         yield {"event": "done", "data": {"finish_reason": "stop"}}
@@ -193,6 +208,8 @@ def extract_stream_text(chunk) -> str:
     message_type = getattr(message, "type", None)
     if message_type not in {"ai", "AIMessageChunk"}:
         return ""
+    if is_tool_activity(message):
+        return ""
 
     content = getattr(message, "content", None)
     if isinstance(content, str):
@@ -203,6 +220,8 @@ def extract_stream_text(chunk) -> str:
             if isinstance(item, str):
                 parts.append(item)
             elif isinstance(item, dict):
+                if item.get("type") not in {None, "text", "output_text"}:
+                    continue
                 text = item.get("text") or item.get("content")
                 if isinstance(text, str):
                     parts.append(text)

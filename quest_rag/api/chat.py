@@ -64,9 +64,10 @@ def chat(req: ChatRequest, current_user: CurrentUser = Depends(require_permissio
         insert_message(current_user.id, session_id, "assistant", result, raw=result, parts=parse_message_parts(result))
     except Exception as e:
         logger.exception(str(e))
+        from quest_rag.rag.errors import model_error_message
         raise HTTPException(
             status_code=502,
-            detail="模型服务连接失败，请确认本地 Ollama/OpenAI 兼容服务已启动，且 OPENAI_BASE_URL 配置正确。",
+            detail=model_error_message(e),
         ) from e
 
     return ChatResponse(
@@ -98,7 +99,8 @@ def chat_stream(req: ChatRequest, current_user: CurrentUser = Depends(require_pe
                 yield encode_sse(item["event"], item["data"])
         except Exception as e:
             logger.exception(str(e))
-            error_message = "模型服务连接失败，请确认本地 Ollama/OpenAI 兼容服务已启动，且 OPENAI_BASE_URL 配置正确。"
+            from quest_rag.rag.errors import model_error_message
+            error_message = model_error_message(e)
             yield encode_sse(
                 "error",
                 {

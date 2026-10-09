@@ -21,12 +21,14 @@ class BrowserUseRuntime:
         Browser Use starts its own browser, so reusing the Playwright runtime
         here would create a second, unrelated page merely to establish access.
         """
+        if session_id in self._owners and not self.owns(session_id, owner_id):
+            raise HTTPException(status_code=404, detail="浏览器会话不存在")
         self._owners[session_id] = owner_id
 
     def owns(self, session_id: str, owner_id: int) -> bool:
         return self._owners.get(session_id) == owner_id
 
-    async def run(self, session_id: str, url: str, task: str, max_steps: int = 30) -> dict:
+    async def run(self, session_id: str, url: str, task: str, max_steps: int = 30, profile_name: str | None = None) -> dict:
         origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}".rstrip("/")
         if origin not in BROWSER_ALLOWED_ORIGINS and "*" not in BROWSER_ALLOWED_ORIGINS:
             raise HTTPException(status_code=403, detail=f"网页来源未加入白名单：{origin}")
@@ -34,7 +36,7 @@ class BrowserUseRuntime:
             import httpx
             try:
                 async with httpx.AsyncClient(timeout=20) as client:
-                    response = await client.post(f"{BROWSER_USE_WORKER_URL}/tasks", json={"session_id": session_id, "url": url, "task": task, "max_steps": max_steps})
+                    response = await client.post(f"{BROWSER_USE_WORKER_URL}/tasks", json={"session_id": session_id, "url": url, "task": task, "max_steps": max_steps, "profile_name": profile_name})
             except httpx.HTTPError as exc:
                 raise HTTPException(status_code=503, detail=f"Browser Use worker 不可用：{exc}") from exc
             if response.status_code >= 400:

@@ -4,12 +4,13 @@ from openai import OpenAI
 
 from quest_rag.core.config import (
     OPENAI_EMBEDDING_MODEL,
-    EMBEDDING_BASE_URL
+    EMBEDDING_BASE_URL,
+    EMBEDDING_API_KEY,
 )
 from quest_rag.rag.vector_backend import backend, vector_store
 
 client = OpenAI(
-    api_key="111",
+    api_key=EMBEDDING_API_KEY,
     base_url=EMBEDDING_BASE_URL,
     # 绕过本地代理,避免访问本地服务失败(502)
     http_client=httpx.Client(trust_env=False),

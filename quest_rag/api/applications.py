@@ -78,7 +78,8 @@ async def start_application_browser_use(req: BrowserConnectRequest, current_user
     browser_use_runtime.register_session(req.case_id, current_user.id)
     supplied = ", ".join(f"{field['label']}={field['value']}" for field in detail["fields"] if field.get("value") not in (None, "")) or "暂无已知字段值"
     task = f"识别申请表单。将以下已确认信息填写到对应字段：{supplied}。仅填写和校验，不要点击提交、确认、下一步或产生任何不可逆操作。"
-    return await browser_use_runtime.run(req.case_id, connection["entry_url"], task)
+    profile_name = next((field["value"] for field in detail["fields"] if field["key"] == "full_name"), None)
+    return await browser_use_runtime.run(req.case_id, connection["entry_url"], task, profile_name=profile_name)
 
 
 @router.post("/browser/use/status")

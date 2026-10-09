@@ -1,12 +1,13 @@
 """URL-based external business page onboarding for the configuration Agent."""
 
 import json
+import os
 import re
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-CONNECTOR_DIR = Path(__file__).with_name("page_connectors")
+CONNECTOR_DIR = Path(os.environ.get("PAGE_CONNECTOR_DIR", str(Path(__file__).with_name("page_connectors"))))
 
 
 class _FormParser(HTMLParser):

@@ -3,6 +3,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from quest_rag.core.config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
+from quest_rag.rag.model_options import non_thinking_options
 
 
 def make_llm(
@@ -19,6 +20,7 @@ def make_llm(
         "temperature": temperature,
         "max_completion_tokens": max_tokens,
         "http_client": httpx.Client(trust_env=False),
+        **non_thinking_options(model or OPENAI_MODEL),
     }
     if top_p is not None:
         kwargs["top_p"] = top_p

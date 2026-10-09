@@ -2,10 +2,15 @@ from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 
 app = FastAPI(title="Mock HRSS Business System", version="0.1.0")
 HTML_PATH = Path(__file__).with_name("employment_registration.html")
+
+
+@app.get("/form-bridge.js")
+def form_bridge():
+    return FileResponse(HTML_PATH.with_name("form_bridge.js"), media_type="text/javascript")
 
 
 @app.get("/", response_class=HTMLResponse)

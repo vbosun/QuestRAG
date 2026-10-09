@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from quest_rag.applications import definitions, store
 from quest_rag.auth.schemas import CurrentUser
-from quest_rag.core.config import get_application_execution_config
+from quest_rag.core.config import BROWSER_USE_WORKER_URL, get_application_execution_config
 
 
 USER_MANUAL = "user_manual"
@@ -113,10 +113,14 @@ def get_application_detail(user: CurrentUser, case_id: str) -> dict:
     ]
     material_complete = all(not material["required"] or material["status"] == "uploaded" for material in materials)
     browser = store.get_browser_connection(case_id)
+    configured_mode = get_application_execution_config()["mode"]
+    unavailable = configured_mode == "browser_use" and not BROWSER_USE_WORKER_URL
     return {
         **case, "definition": _public_definition(definition), "fields": fields,
         "materials": materials,
-        "browser": browser, "execution_mode": get_application_execution_config()["mode"],
+        "browser": browser, "execution_mode": "embedded" if unavailable else configured_mode,
+        "configured_execution_mode": configured_mode,
+        "execution_notice": "自动浏览器暂不可用，已切换为表单辅助填写；请核对已带入的信息并补充必填项。" if unavailable else None,
         "next_action": _next_action(case, browser, fields, material_complete),
     }
 
@@ -143,9 +147,7 @@ def connect_browser(user: CurrentUser, case_id: str, device_name: str) -> dict:
     case = _require_case(user, case_id)
     definition = definitions.get_definition(case["business_code"])
     adapter = definition["adapter"]
-    values = {field["key"]: field["value"] for field in get_application_detail(user, case_id)["fields"] if field.get("value") is not None}
-    prefill = {key: values[key] for key in ("full_name", "phone", "employment_type") if values.get(key)}
-    query = f"?{urlencode(prefill)}" if prefill else ""
+    query = f"?{urlencode({'case_id': str(case_id)})}"
     entry_url = f"{adapter['allowed_origins'][0]}{adapter['entry_path']}{query}"
     browser = store.upsert_browser_connection(case_id, user.id, device_name, definition["adapter_id"], entry_url)
     store.log_action(case_id, user.id, "BROWSER_CONNECTED", {"adapter_id": definition["adapter_id"], "entry_url": entry_url})

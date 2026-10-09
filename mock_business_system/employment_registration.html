@@ -5,7 +5,7 @@
   <title>人社公共服务平台 · 就业登记</title>
   <style>
     :root { color-scheme: light; font-family: "Microsoft YaHei", system-ui, sans-serif; background:#f3f6f8; color:#20343b; }
-    body { margin:0; } header { background:#0e5a62; color:white; padding:18px calc((100% - 980px)/2); }
+    body { margin:0; } header { background:#0e5a62; color:white; padding:18px max(16px, calc((100% - 980px)/2)); }
     main { max-width:980px; margin:24px auto; } .crumb { color:#e2f4f4; font-size:13px; }
     .card { background:#fff; border:1px solid #dce7e9; border-radius:10px; padding:24px 30px; box-shadow:0 5px 18px #173d4212; }
     h1 { margin:8px 0 0; font-size:25px; } h2 { font-size:18px; border-left:4px solid #0e7b82; padding-left:10px; }
@@ -33,40 +33,9 @@
         <label>就业起始日期 <span class="required">*</span><input type="date" name="employment_start_date" id="employment_start_date"></label>
         <label>现居住地址 <span class="required">*</span><input name="current_address" id="current_address"></label>
       </div>
-      <h2>材料</h2><label>劳动合同、营业执照或灵活就业证明 <span class="required">*</span><input type="file" id="employment_proof"></label>
+      <h2>材料</h2><label>劳动合同、营业执照或灵活就业证明 <span class="required">*</span><input type="file" name="employment_proof" id="employment_proof"></label>
       <div class="actions"><span id="agentStatus">等待 Agent 或您填写信息</span><button type="submit">提交申请</button></div>
     </form>
   </div></main>
-  <script>
-    const form = document.querySelector('#applicationForm');
-    const params = new URLSearchParams(location.search);
-    const values = { full_name: params.get('full_name') || '', phone: params.get('phone') || '', employment_type: params.get('employment_type') || '' };
-    const agentStatus = document.querySelector('#agentStatus');
-    Object.entries(values).filter(([, value]) => value).forEach(([key, value], index) => {
-      window.setTimeout(() => {
-        document.querySelector('#' + key).value = value;
-        agentStatus.textContent = 'Agent 已带入：' + document.querySelector('label:has(#' + key + ')').textContent.replace('*', '').trim();
-      }, 480 * (index + 1));
-    });
-    if (Object.values(values).some(Boolean)) window.setTimeout(() => { agentStatus.textContent = 'Agent 已完成已知信息带入，请您核对、修改并提交。'; }, 480 * (Object.values(values).filter(Boolean).length + 1));
-    window.addEventListener('message', (event) => {
-      if (event.origin !== 'http://localhost:5173' && event.origin !== 'http://127.0.0.1:5173') return;
-      if (event.data?.type !== 'agent-form-state') return;
-      Object.entries(event.data.fields || {}).forEach(([key, value]) => {
-        const input = document.querySelector('#' + key);
-        if (!input || input.value === String(value ?? '')) return;
-        input.value = value;
-        input.style.outline = '2px solid #1a8f83';
-        window.setTimeout(() => { input.style.outline = ''; }, 1400);
-        agentStatus.textContent = 'Agent 已填写：' + key + '，请您核对。';
-      });
-    });
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault(); const status = document.querySelector('#agentStatus');
-      if (!form.reportValidity()) return; status.textContent = '正在提交到模拟业务系统…';
-      const response = await fetch('/api/employment-registration/submit', { method:'POST', body:new FormData(form) });
-      const result = await response.json(); status.textContent = result.message + ' 申请编号：' + result.application_no;
-      window.parent.postMessage({ type: 'mock-business-submitted', message: result.message + ' 申请编号：' + result.application_no }, '*');
-    });
-  </script>
+  <script src="/form-bridge.js"></script>
 </body></html>

@@ -15,11 +15,31 @@ def test_agent_date_input_is_normalized_for_browser_form():
     assert rag_tools._normalize_form_date("2026/08/13") == "2026-08-13"
 
 
+def test_container_business_origin_is_applied(monkeypatch):
+    from quest_rag.applications import definitions
+    monkeypatch.setattr(definitions, "MOCK_BUSINESS_BASE_URL", "http://mock-business:8020")
+    definition = definitions.get_definition("employment_registration")
+    assert definition["adapter"]["allowed_origins"] == ["http://mock-business:8020"]
+    assert definition["adapter"]["entry_path"] == "/employment-registration/apply"
+
+
 def make_user() -> CurrentUser:
     return CurrentUser(
         id=7, sid="application-test", role="USER", roles=["USER"], status=1, token_version=1,
         full_name="测试用户", phone="13800138000", permissions=[], rag_scopes=[],
     )
+
+
+def test_browser_connection_url_and_audit_never_include_profile(application_store):
+    from urllib.parse import urlparse, parse_qs
+    user = make_user()
+    service.create_application(user, "employment_registration", {"employment_type": "employer"})
+    connection = service.connect_browser(user, "case-1", "demo")
+    url = connection["entry_url"]
+    assert parse_qs(urlparse(url).query) == {"case_id": ["case-1"]}
+    assert user.phone not in url
+    assert user.full_name not in url
+    assert application_store["logs"][-1][0][-1]["entry_url"] == url
 
 
 @pytest.fixture
@@ -179,3 +199,21 @@ def test_unemployment_registration_eligibility_uses_unemployed_condition():
     assert eligible["status"] == "eligible"
     rejected = service.assess_application_eligibility(user, "unemployment_registration", is_unemployed=False)
     assert rejected["status"] == "not_eligible"
+
+
+def test_unconfigured_browser_use_falls_back_without_losing_draft(application_store, monkeypatch):
+    monkeypatch.setattr(service, "get_application_execution_config", lambda: {"mode": "browser_use"})
+    monkeypatch.setattr(service, "BROWSER_USE_WORKER_URL", "")
+    detail = service.create_application(make_user(), "employment_registration", {"occupation": "Java 开发"})
+    assert detail["execution_mode"] == "embedded"
+    assert detail["configured_execution_mode"] == "browser_use"
+    assert detail["execution_notice"]
+    assert next(field for field in detail["fields"] if field["key"] == "occupation")["value"] == "Java 开发"
+
+
+def test_configured_browser_use_keeps_its_execution_mode(application_store, monkeypatch):
+    monkeypatch.setattr(service, "get_application_execution_config", lambda: {"mode": "browser_use"})
+    monkeypatch.setattr(service, "BROWSER_USE_WORKER_URL", "http://127.0.0.1:8090")
+    detail = service.create_application(make_user(), "employment_registration")
+    assert detail["execution_mode"] == "browser_use"
+    assert detail["execution_notice"] is None
