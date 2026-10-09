@@ -1,4 +1,5 @@
 import type { Artifact, ChartArtifact, MessagePart, Session } from "./types";
+import { createClientId } from "./clientId";
 
 const STORAGE_KEY = "questrag.chat.sessions.v2";
 
@@ -161,7 +162,7 @@ export function chartTypeLabel(type: ChartArtifact["chart_type"]) {
 export function createBlankSession(): Session {
   const now = new Date().toISOString();
   return {
-    id: crypto.randomUUID(),
+    id: createClientId(),
     title: "新会话",
     messages: [],
     uploads: [],
