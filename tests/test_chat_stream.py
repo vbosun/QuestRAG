@@ -13,6 +13,11 @@ from quest_rag.rag.tools import format_job_result
 
 
 def test_chat_stream_sse_events(monkeypatch):
+    # Unit tests must never append messages to the developer's real database.
+    saved = []
+    monkeypatch.setattr("quest_rag.api.chat.ensure_conversation", lambda *args: {"id": "session-1"})
+    monkeypatch.setattr("quest_rag.api.chat.load_memory_context", lambda *args: "")
+    monkeypatch.setattr("quest_rag.api.chat.insert_message", lambda *args, **kwargs: saved.append((args, kwargs)))
     def fake_generate_stream(question: str, thread_id: str, current_user=None):
         assert question == "测试"
         assert thread_id == "session-1"
@@ -60,6 +65,8 @@ def test_chat_stream_sse_events(monkeypatch):
         assert "event: delta" in body
         assert 'data: {"text": "你好"}' in body
         assert "event: done" in body
+        assert len(saved) == 2
+        assert saved[-1][1]["status"] == "completed"
     finally:
         app.dependency_overrides.clear()
 

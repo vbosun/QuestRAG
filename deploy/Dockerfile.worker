@@ -1,0 +1,17 @@
+ARG PYTHON_IMAGE=python:3.12-slim-bookworm
+FROM ${PYTHON_IMAGE}
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    BROWSER_USE_CHROME_PATH=/usr/bin/chromium \
+    ANONYMIZED_TELEMETRY=false BROWSER_USE_DISABLE_EXTENSIONS=true
+WORKDIR /worker
+RUN apt-get update && apt-get install -y --no-install-recommends chromium fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+COPY browser_use_worker/pyproject.toml ./
+RUN pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" \
+    'browser-use[core]==0.13.0' 'fastapi>=0.115.0' 'uvicorn>=0.30.0'
+RUN useradd --create-home --uid 10001 app && chown -R app:app /worker
+COPY --chown=app:app browser_use_worker/app.py ./app.py
+USER app
+EXPOSE 8090
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "1"]

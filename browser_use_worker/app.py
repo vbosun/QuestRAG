@@ -36,11 +36,17 @@ class TaskRecord(BaseModel):
 
 TASKS: dict[str, TaskRecord] = {}
 RUNNERS: dict[str, asyncio.Task] = {}
+MAX_CONCURRENT = max(1, int(os.environ.get("BROWSER_USE_MAX_CONCURRENT", "1")))
+MAX_PENDING = max(MAX_CONCURRENT, int(os.environ.get("BROWSER_USE_MAX_PENDING", "4")))
+TASK_TIMEOUT = max(10, int(os.environ.get("BROWSER_USE_TIMEOUT_SECONDS", "300")))
+CAPACITY = asyncio.Semaphore(MAX_CONCURRENT)
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "engine": "browser-use"}
+    return {"status": "ok", "engine": "browser-use", "max_concurrent": MAX_CONCURRENT,
+            "active_or_queued": len(RUNNERS),
+            "model_configured": bool(os.environ.get("BROWSER_USE_API_KEY") or os.environ.get("OPENAI_API_KEY"))}
 
 
 @app.post("/tasks", status_code=202)
@@ -49,6 +55,8 @@ async def run_task(req: TaskRequest):
     origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
     if parsed.scheme not in {"http", "https"} or ("*" not in ALLOWED_ORIGINS and origin not in ALLOWED_ORIGINS):
         raise HTTPException(status_code=403, detail=f"网页来源未加入白名单：{origin}")
+    if len(RUNNERS) >= MAX_PENDING:
+        raise HTTPException(status_code=429, detail="浏览器任务队列已满，请稍后重试")
     task_id = str(uuid4())
     record = TaskRecord(task_id=task_id, session_id=req.session_id, status="queued", url=req.url, task=req.task)
     record.events.append(_event("queued", "已进入 Browser Use 执行队列"))
@@ -73,6 +81,7 @@ async def cancel_task(task_id: str):
     runner = RUNNERS.get(task_id)
     if record.status in {"queued", "running"} and runner:
         runner.cancel()
+        RUNNERS.pop(task_id, None)
         record.status = "cancelled"
         record.events.append(_event("cancelled", "已停止 Browser Use 操作"))
     return _public(record)
@@ -80,35 +89,60 @@ async def cancel_task(task_id: str):
 
 async def _execute(task_id: str, req: TaskRequest) -> None:
     record = TASKS[task_id]
-    record.status = "running"
-    record.events.append(_event("running", "Agent 正在打开业务页面并识别可操作控件"))
-    browser = None
     try:
-        from browser_use import Agent, Browser, ChatOpenAI
-        browser = Browser(headless=True, window_size={"width": 1280, "height": 900})
-        llm = ChatOpenAI(model=os.environ.get("BROWSER_USE_MODEL", "gpt-4.1-mini"))
-        agent = Agent(task=f"打开 {req.url}。{req.task}", browser=browser, llm=llm)
-        history = await agent.run(max_steps=req.max_steps)
-        result = history.final_result() if hasattr(history, "final_result") else str(history)
-        record.status = "completed"
-        record.result = result
-        record.events.append(_event("completed", "Agent 已完成本次页面操作"))
+        async with CAPACITY:
+            record.status = "running"
+            record.events.append(_event("running", "Agent 正在打开业务页面并识别可操作控件"))
+            async with asyncio.timeout(TASK_TIMEOUT):
+                await _run_agent(record, req)
     except asyncio.CancelledError:
         record.status = "cancelled"
         record.events.append(_event("cancelled", "已停止 Browser Use 操作"))
         raise
+    except TimeoutError:
+        record.status = "failed"
+        record.error = "浏览器任务执行超时，请核对页面后重试"
+        record.events.append(_event("failed", record.error))
     except Exception as exc:
         record.status = "failed"
         record.error = f"Browser Use 执行失败：{exc}"
         record.events.append(_event("failed", record.error))
     finally:
         RUNNERS.pop(task_id, None)
-        if browser:
-            close = getattr(browser, "close", None)
-            if close:
-                value = close()
-                if hasattr(value, "__await__"):
-                    await value
+
+
+async def _run_agent(record: TaskRecord, req: TaskRequest) -> None:
+    from browser_use import Agent, Browser, ChatOpenAI
+    options = {"headless": True, "window_size": {"width": 1280, "height": 900}}
+    if executable := os.environ.get("BROWSER_USE_CHROME_PATH"):
+        options.update(executable_path=executable, chromium_sandbox=False)
+    browser = Browser(**options)
+    try:
+        force_structured = os.environ.get("BROWSER_USE_FORCE_STRUCTURED_OUTPUT", "true").lower() in {"1", "true", "yes"}
+        llm = ChatOpenAI(
+            model=os.environ.get("BROWSER_USE_MODEL") or os.environ.get("OPENAI_MODEL") or "gpt-4.1-mini",
+            api_key=os.environ.get("BROWSER_USE_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+            base_url=os.environ.get("BROWSER_USE_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None,
+            dont_force_structured_output=not force_structured,
+            add_schema_to_system_prompt=not force_structured,
+        )
+        use_vision = os.environ.get("BROWSER_USE_USE_VISION", "true").lower() in {"1", "true", "yes"}
+        agent = Agent(task=f"打开 {req.url}。{req.task}", browser=browser, llm=llm, use_vision=use_vision)
+        history = await agent.run(max_steps=req.max_steps)
+        record.result = history.final_result() if hasattr(history, "final_result") else str(history)
+        if hasattr(history, "is_successful") and history.is_successful() is not True:
+            record.status = "failed"
+            record.error = "Agent 未确认完成任务，请核对页面或重新执行"
+            record.events.append(_event("failed", record.error))
+        else:
+            record.status = "completed"
+            record.events.append(_event("completed", "Agent 已完成本次页面操作"))
+    finally:
+        close = getattr(browser, "kill", None) or getattr(browser, "close", None)
+        if close:
+            value = close()
+            if hasattr(value, "__await__"):
+                await value
 
 
 def _event(kind: str, message: str) -> dict:

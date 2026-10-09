@@ -1,4 +1,5 @@
 from dataclasses import asdict, dataclass, field
+from contextvars import ContextVar
 from threading import RLock
 from typing import Any
 
@@ -14,13 +15,22 @@ class CitationSource:
     url: str | None = None
 
 
-_citation_sources: list[CitationSource] = []
+_citation_sources: ContextVar[list[CitationSource] | None] = ContextVar("citation_sources", default=None)
 _citation_lock = RLock()
 
 
+def _current_sources() -> list[CitationSource]:
+    sources = _citation_sources.get()
+    if sources is None:
+        sources = []
+        _citation_sources.set(sources)
+    return sources
+
+
 def reset_citations() -> None:
-    with _citation_lock:
-        _citation_sources.clear()
+    # A fresh list is copied with the request context into tool threads; another
+    # request cannot clear or read it. Never mutate a process-global list here.
+    _citation_sources.set([])
 
 
 def register_citation(
@@ -33,12 +43,13 @@ def register_citation(
     url: str | None = None,
 ) -> str:
     with _citation_lock:
-        for source in _citation_sources:
+        sources = _current_sources()
+        for source in sources:
             if source.ref_id == ref_id:
                 return source.label
 
-        label = str(len(_citation_sources) + 1)
-        _citation_sources.append(
+        label = str(len(sources) + 1)
+        sources.append(
             CitationSource(
                 label=label,
                 ref_id=ref_id,
@@ -54,4 +65,4 @@ def register_citation(
 
 def get_citations() -> list[dict[str, Any]]:
     with _citation_lock:
-        return [asdict(source) for source in _citation_sources]
+        return [asdict(source) for source in _current_sources()]

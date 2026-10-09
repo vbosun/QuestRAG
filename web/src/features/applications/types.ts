@@ -36,5 +36,7 @@ export interface ApplicationDetail {
   materials: Array<{ key: string; label: string; required: boolean; status: string }>;
   browser?: { device_name: string; status: string; entry_url: string; adapter_id: string } | null;
   execution_mode?: "embedded" | "playwright" | "browser_use";
+  configured_execution_mode?: "embedded" | "playwright" | "browser_use";
+  execution_notice?: string | null;
   next_action?: { code: string; message: string };
 }

@@ -46,9 +46,9 @@ async def start_session(req: BrowserStartRequest, user: CurrentUser = Depends(re
 
 @router.post("/sessions/{session_id}/browser-use/run")
 async def run_browser_use(session_id: str, req: BrowserTaskRequest, user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
-    if not runtime.owns(session_id, user.id):
-        browser_use_runtime.register_session(session_id, user.id)
+    # A URL parameter cannot establish ownership: authorize an existing session first.
     _session_user(user, session_id)
+    browser_use_runtime.register_session(session_id, user.id)
     return await browser_use_runtime.run(session_id, req.url, req.task, req.max_steps)
 
 

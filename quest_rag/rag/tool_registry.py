@@ -17,12 +17,14 @@ TOOL_REGISTRY: dict[str, dict] = {
     "retrieve_context": {
         "permission": "llm.tool.knowledge_search",
         "required_scopes": ["public_policy", "internal_policy", "department_docs", "private_docs"],
+        "scope_match": "any",
         "risk_level": "LOW",
         "mode": "read",
     },
     "get_document_list": {
         "permission": "llm.tool.knowledge_search",
         "required_scopes": ["public_policy", "internal_policy", "department_docs", "private_docs"],
+        "scope_match": "any",
         "risk_level": "LOW",
         "mode": "read",
     },
@@ -118,6 +120,14 @@ class ToolPermissionError(Exception):
         super().__init__(f"工具 '{tool_name}' 权限不足: {reason}")
 
 
+def _missing_tool_scopes(current_user: CurrentUser, spec: dict) -> list[str]:
+    required = set(spec.get("required_scopes") or [])
+    available = set(current_user.rag_scopes)
+    if spec.get("scope_match") == "any" and required & available:
+        return []
+    return sorted(required - available)
+
+
 def build_tools_for_user(current_user: CurrentUser, tools: list):
     """按用户权限过滤工具列表，并排除 HIGH/CRITICAL 工具。"""
     allowed = []
@@ -131,8 +141,7 @@ def build_tools_for_user(current_user: CurrentUser, tools: list):
             continue
         if permission not in current_user.permissions:
             continue
-        required_scopes = set(spec.get("required_scopes") or [])
-        if required_scopes and not required_scopes.issubset(set(current_user.rag_scopes)):
+        if _missing_tool_scopes(current_user, spec):
             continue
         if spec.get("risk_level") in {"HIGH", "CRITICAL"}:
             continue
@@ -162,8 +171,7 @@ def assert_tool_permission(current_user: CurrentUser, tool_name: str):
         )
         raise ToolPermissionError(tool_name, "缺少权限")
 
-    required_scopes = set(spec.get("required_scopes") or [])
-    missing_scopes = sorted(required_scopes - set(current_user.rag_scopes))
+    missing_scopes = _missing_tool_scopes(current_user, spec)
     if missing_scopes:
         from quest_rag.auth.permission_store import insert_llm_tool_call_log
 

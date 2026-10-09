@@ -86,3 +86,35 @@ def test_scope_selection_requires_related_tool_permission():
     )
 
     assert normalized == ["public_policy"]
+
+
+@pytest.mark.parametrize('tool_name', ['retrieve_context', 'get_document_list'])
+def test_public_knowledge_tool_needs_one_authorized_knowledge_scope(monkeypatch, tool_name):
+    monkeypatch.setattr('quest_rag.auth.permission_store.insert_llm_tool_call_log', lambda **kwargs: None)
+    user = current_user(permissions=['llm.tool.knowledge_search'], rag_scopes=['public_policy'])
+    assert [tool.name for tool in build_tools_for_user(user, [DummyTool(tool_name)])] == [tool_name]
+    assert_tool_permission(user, tool_name)
+    from quest_rag.rag.retrieval_permissions import build_retrieval_permission_filter
+    assert build_retrieval_permission_filter(user).scope_codes == ['public_policy']
+    assert build_retrieval_permission_filter(user, ['private_docs']).is_empty
+
+
+@pytest.mark.parametrize('permissions, scopes', [
+    ([], ['public_policy']),
+    (['llm.tool.knowledge_search'], []),
+    (['llm.tool.knowledge_search'], ['jobs']),
+])
+def test_knowledge_tool_still_rejects_missing_permission_or_unrelated_scope(monkeypatch, permissions, scopes):
+    monkeypatch.setattr('quest_rag.auth.permission_store.insert_llm_tool_call_log', lambda **kwargs: None)
+    user = current_user(permissions=permissions, rag_scopes=scopes)
+    assert build_tools_for_user(user, [DummyTool('retrieve_context')]) == []
+    with pytest.raises(ToolPermissionError):
+        assert_tool_permission(user, 'retrieve_context')
+
+
+def test_multi_scope_business_tools_still_require_all_declared_scopes(monkeypatch):
+    monkeypatch.setattr('quest_rag.auth.permission_store.insert_llm_tool_call_log', lambda **kwargs: None)
+    user = current_user(permissions=['llm.tool.subsidy_match'], rag_scopes=['subsidy_policy'])
+    assert build_tools_for_user(user, [DummyTool('subsidy_match')]) == []
+    with pytest.raises(ToolPermissionError):
+        assert_tool_permission(user, 'subsidy_match')

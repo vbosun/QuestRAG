@@ -1,0 +1,96 @@
+name: questrag
+x-build-args: &build-args
+  PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim-bookworm}
+  PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+x-service: &service
+  restart: unless-stopped
+  init: true
+  extra_hosts:
+    - host.docker.internal:host-gateway
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+services:
+  backend:
+    <<: *service
+    image: questrag-backend:local
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+      args: *build-args
+    env_file: ${QUESTRAG_ENV_FILE:-.env.compose}
+    environment:
+      MOCK_BUSINESS_BASE_URL: http://mock-business:8020
+      BROWSER_ALLOWED_ORIGINS: http://mock-business:8020
+      BROWSER_USE_WORKER_URL: http://browser-worker:8090
+      RAGAS_LOG_DIR: /app/logs
+      PAGE_CONNECTOR_DIR: /app/data/page_connectors
+    volumes:
+      - backend-logs:/app/logs
+      - backend-data:/app/data
+    shm_size: 512mb
+    mem_limit: 2g
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health/live', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+  mock-business:
+    <<: *service
+    image: questrag-backend:local
+    command: [python, -m, uvicorn, "mock_business_system.app:app", --host, "0.0.0.0", --port, "8020"]
+    mem_limit: 256m
+    depends_on:
+      backend:
+        condition: service_started
+  browser-worker:
+    <<: *service
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.worker
+      args: *build-args
+    env_file: ${QUESTRAG_ENV_FILE:-.env.compose}
+    environment:
+      BROWSER_ALLOWED_ORIGINS: http://mock-business:8020
+      BROWSER_USE_MAX_CONCURRENT: "1"
+      BROWSER_USE_MAX_PENDING: "4"
+      BROWSER_USE_TIMEOUT_SECONDS: "300"
+    shm_size: 512mb
+    mem_limit: 1536m
+    depends_on:
+      mock-business:
+        condition: service_started
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+  web:
+    <<: *service
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-bookworm-slim}
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:1.28-alpine}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    ports:
+      - "${QUESTRAG_BIND_ADDRESS:-127.0.0.1}:${QUESTRAG_HTTP_PORT:-18080}:80"
+    mem_limit: 128m
+    depends_on:
+      backend:
+        condition: service_healthy
+      mock-business:
+        condition: service_started
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  backend-logs:
+  backend-data:

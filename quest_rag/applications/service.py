@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from quest_rag.applications import definitions, store
 from quest_rag.auth.schemas import CurrentUser
-from quest_rag.core.config import get_application_execution_config
+from quest_rag.core.config import BROWSER_USE_WORKER_URL, get_application_execution_config
 
 
 USER_MANUAL = "user_manual"
@@ -113,10 +113,14 @@ def get_application_detail(user: CurrentUser, case_id: str) -> dict:
     ]
     material_complete = all(not material["required"] or material["status"] == "uploaded" for material in materials)
     browser = store.get_browser_connection(case_id)
+    configured_mode = get_application_execution_config()["mode"]
+    unavailable = configured_mode == "browser_use" and not BROWSER_USE_WORKER_URL
     return {
         **case, "definition": _public_definition(definition), "fields": fields,
         "materials": materials,
-        "browser": browser, "execution_mode": get_application_execution_config()["mode"],
+        "browser": browser, "execution_mode": "embedded" if unavailable else configured_mode,
+        "configured_execution_mode": configured_mode,
+        "execution_notice": "自动浏览器暂不可用，已切换为表单辅助填写；请核对已带入的信息并补充必填项。" if unavailable else None,
         "next_action": _next_action(case, browser, fields, material_complete),
     }
 

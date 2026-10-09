@@ -7,6 +7,7 @@
 import json
 from copy import deepcopy
 from pathlib import Path
+from quest_rag.core.config import MOCK_BUSINESS_BASE_URL
 
 
 _DEFINITION_DIR = Path(__file__).with_name("form_definitions")
@@ -23,6 +24,8 @@ def _load_definitions() -> dict[str, dict]:
             raise RuntimeError(f"办事定义 {path.name} 缺少字段: {', '.join(sorted(missing))}")
         if definition["business_code"] in definitions:
             raise RuntimeError(f"重复的办事定义: {definition['business_code']}")
+        if MOCK_BUSINESS_BASE_URL and definition["adapter_id"].startswith("mock_hrss_"):
+            definition["adapter"]["allowed_origins"] = [MOCK_BUSINESS_BASE_URL]
         definitions[definition["business_code"]] = definition
     return definitions
 

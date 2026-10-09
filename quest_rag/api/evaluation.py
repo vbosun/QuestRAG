@@ -1,5 +1,6 @@
 import csv
 import io
+import math
 import re
 import tempfile
 import time
@@ -761,6 +762,19 @@ def contexts_from_tool_calls(tool_calls: list[dict]) -> list[str]:
     return contexts
 
 
+def valid_ragas_scores(metrics: dict) -> dict[str, float]:
+    """Only completed score metrics count; flags/errors must not become scores."""
+    score_keys = {"faithfulness", "factual_correctness", "response_relevancy", "context_precision", "context_recall"}
+    return {
+        key: float(value)
+        for key, value in metrics.items()
+        if key in score_keys
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    }
+
+
 def calculate_generation_metrics(answer: str, citations: list[dict], row: dict, ragas_metrics: dict) -> dict:
     should_refuse = bool(row.get("should_refuse"))
     refused = looks_like_refusal(answer)
@@ -783,7 +797,7 @@ def calculate_generation_metrics(answer: str, citations: list[dict], row: dict, 
         for claim in forbidden_claims
         if claim and text_overlap(claim, answer) >= 0.65
     ]
-    numeric_ragas = [float(value) for value in ragas_metrics.values() if isinstance(value, (int, float))]
+    numeric_ragas = list(valid_ragas_scores(ragas_metrics).values())
     ragas_average = round(sum(numeric_ragas) / len(numeric_ragas), 4) if numeric_ragas else None
     if should_refuse:
         passed = refused
@@ -941,16 +955,15 @@ def build_summary(items: list[dict], chunk_count: int, document_count: int) -> d
     generation_total = len(generation_items)
     generation_pass = sum(1 for item in generation_items if item["generation_metrics"].get("passed"))
     generation_errors = sum(1 for item in generation_items if item.get("generation_error"))
-    ragas_scores = [
-        float(item["generation_metrics"]["ragas_average"])
-        for item in generation_items
-        if isinstance(item.get("generation_metrics", {}).get("ragas_average"), (int, float))
-    ]
+    # Recompute from actual scores rather than trusting previously contaminated averages.
+    ragas_scores = []
     ragas_metric_values: dict[str, list[float]] = {}
     for item in generation_items:
-        for key, value in (item.get("ragas_metrics") or {}).items():
-            if isinstance(value, (int, float)):
-                ragas_metric_values.setdefault(key, []).append(float(value))
+        scores = valid_ragas_scores(item.get("ragas_metrics") or {})
+        if scores:
+            ragas_scores.append(sum(scores.values()) / len(scores))
+        for key, value in scores.items():
+            ragas_metric_values.setdefault(key, []).append(value)
     ragas_metric_averages = {
         key: round(sum(values) / len(values), 4)
         for key, values in ragas_metric_values.items()

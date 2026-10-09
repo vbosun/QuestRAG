@@ -1,0 +1,24 @@
+# QuestRAG 项目协作约定
+
+- 本项目后端为 Python 3.12 / FastAPI，前端为 React / TypeScript / Ant Design；不要把它描述为已实现的 Java 项目。
+- 根目录存在 `.codegraph/` 时，理解或定位代码先使用 CodeGraph；未索引的文件再用 `rg` 或文件读取。
+- 保留已有未提交文件，不覆盖 `.env`、测试账号、密钥和用户数据；日志、文档不得包含凭证。
+- 办事功能当前对接独立模拟业务系统，最终提交由用户操作。不要声称接入了真实政务系统。
+- 执行模式和状态必须真实：Browser Use 未配置时明确使用嵌入表单；完成提示依赖表单回执或任务结果，不能靠定时器模拟完成。
+- 嵌入表单消息同时校验来源域和 iframe/window；后台轮询不得覆盖用户手动修改，不在 URL 中携带个人档案字段。
+- 修改后运行相关 pytest 和 `web` 下的 `npm run build`；用实际页面验证关键流程，记录未验证的外部依赖。
+- 演示前优先稳定闭环和可解释的工程证据，不为岗位关键词临时堆叠中间件。
+- 维护本文件中的已验证项目约定；详细审查、演示脚本和后续路线保存在 `docs/`。
+- Linux 容器部署复用宿主机已有 PostgreSQL（需 vector/zhparser/chinese）、Redis、Milvus 和 Ollama；默认 Compose 不重复部署这些服务。只发布 web 端口，worker 和模型凭证在运行时注入，不能进入镜像。
+- 模拟业务系统的内部浏览器地址用 MOCK_BUSINESS_BASE_URL 配置；容器前端通过同源代理访问表单，消息仍同时验证 origin 和窗口。Embedding 使用独立 EMBEDDING_API_KEY，评测也遵循该配置。
+- 容器后端和 Browser Use worker 均使用单进程；worker 限制并发和排队，任务仍只保存在内存中。进程 liveness 与数据库/Redis readiness、真实模型/浏览器流程验收要分开报告。
+- 容器内业务页面 JSON 使用 PAGE_CONNECTOR_DIR=/app/data/page_connectors 保存到命名卷；本地生成文件不进入 Git 和新镜像，迁移需另外复制，不删除已有本地配置。
+- 单元测试隔离数据库、Redis和模型；`tests/test_rag.py` 部分用例会写实际向量集合，需专用测试环境后才能运行。
+- 评测统计只计算实际评分字段，布尔标志、错误和非有限数不能当得分；历史结果不静默改写，引用历史指标时说明版本与口径。
+- 通用浏览器任务只能从已授权会话启动，重复注册不得改变会话主人；进程内归属还不能用于多进程生产授权。
+- 当前 embedded 人工修改只保留在业务页面；模拟提交收据未与 QuestRAG 状态持久化同步，不能描述为完整真实审批闭环。
+- 知识检索的文档范围是可选类别，具备其中一个范围及工具权限即可注册；检索仍限制在已有授权范围。其他业务工具默认要求所有声明范围。
+- 引用数据使用请求 ContextVar，工具线程共享该请求列表；不能使用进程全局列表，避免并发请求串来源。
+- 助手聊天、评测回答和 RAGAS 裁判的 DeepSeek 请求必须通过 extra_body 传入 thinking.type=disabled，明确关闭思考模式；其他模型不传 DeepSeek 专用参数。
+- 2026-10-09 已验证：53 个相关 Python 测试、4 个 Node 表单测试和前端构建通过；真实模型调用创建草稿并带入 7 项字段，保留人工核对和材料补充。政策完整链路当时被本地 5001 Embedding 服务未启动阻塞，需要单独验证。
+- 2026-10-09 Linux 部署后验证更新：57 项 Python、5 项 Node 测试通过；连接已有 Ollama bge-m3:latest 和 Milvus 1024 维集合，政策问答返回 11 条引用且无 SSE error，草稿带入 7 项字段。详见 docs/linux-docker-deployment.md；不能把静态内存观测作为并发容量证明。

@@ -21,6 +21,8 @@ class BrowserUseRuntime:
         Browser Use starts its own browser, so reusing the Playwright runtime
         here would create a second, unrelated page merely to establish access.
         """
+        if session_id in self._owners and not self.owns(session_id, owner_id):
+            raise HTTPException(status_code=404, detail="浏览器会话不存在")
         self._owners[session_id] = owner_id
 
     def owns(self, session_id: str, owner_id: int) -> bool:
