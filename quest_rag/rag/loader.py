@@ -6,7 +6,7 @@ import tempfile
 from html import unescape
 from pathlib import Path
 
-from langchain_community.document_loaders import PyPDFLoader, UnstructuredMarkdownLoader
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 
 _HTML_TABLE_RE = re.compile(r"<table[^>]*>.*?</table>", re.DOTALL | re.IGNORECASE)
@@ -22,16 +22,14 @@ def load_file(file_path:str, file_type: str = "auto") -> list[Document]:
     if file_type == "auto":
         file_type = file_path.rsplit(".", -1)[-1].lower()
 
-    if file_type == "txt":
+    if file_type in {"txt", "md"}:
+        # Keep Markdown headings and tables for the structure-aware splitter.
+        # Plain text formats do not need unstructured or its optional downloads.
         return [_load_text_file(file_path)]
     elif file_type == "pdf":
         return load_pdf_with_mineru(file_path)
-    elif file_type == "md":
-        loader = UnstructuredMarkdownLoader(file_path)
     else:
         raise ValueError(f"不支持的文件类型: {file_type}")
-
-    return loader.load()
 
 
 def load_file_with_ocr_fallback(file_path: str, file_type: str = "auto") -> list[Document]:
