@@ -62,17 +62,32 @@ class BrowserUseRuntime:
         payload = await self._worker_request("DELETE", f"/tasks/{task_id}")
         return {**payload, "cancelled": True}
 
-    async def _worker_request(self, method: str, path: str) -> dict:
+    def _task_path(self, session_id: str) -> str:
+        task_id = self._tasks.get(session_id)
+        if not task_id:
+            raise HTTPException(status_code=404, detail="浏览器会话不存在")
+        return f"/tasks/{task_id}"
+
+    async def act(self, session_id: str, action: str, value=None) -> dict:
+        return await self._worker_request("POST", self._task_path(session_id) + "/action",
+                                          json={"action": action, "value": value})
+
+    async def upload(self, session_id: str, filename: str, content_type: str, content: bytes) -> dict:
+        return await self._worker_request("POST", self._task_path(session_id) + "/upload",
+                                          files={"file": (filename, content, content_type)})
+
+    async def _worker_request(self, method: str, path: str, **kwargs) -> dict:
         if not BROWSER_USE_WORKER_URL:
             raise HTTPException(status_code=503, detail="Browser Use worker 未配置，请设置 BROWSER_USE_WORKER_URL")
         import httpx
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.request(method, f"{BROWSER_USE_WORKER_URL}{path}")
+                response = await client.request(method, f"{BROWSER_USE_WORKER_URL}{path}", **kwargs)
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=503, detail=f"Browser Use worker 不可用：{exc}") from exc
         if response.status_code >= 400:
-            raise HTTPException(status_code=502, detail=_worker_error(response, "Browser Use worker 请求失败"))
+            raise HTTPException(status_code=response.status_code if 400 <= response.status_code < 500 else 502,
+                                detail=_worker_error(response, "Browser Use worker 请求失败"))
         return response.json()
 
 

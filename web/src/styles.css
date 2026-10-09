@@ -1927,6 +1927,14 @@ body {
   font-size: 12px;
 }
 
+.browser-use-screen { position: relative; background: #fff; overflow: hidden; }
+.browser-use-screen img { display: block; width: 100%; user-select: none; }
+.browser-use-ai-pointer { position: absolute; pointer-events: none; transition: left .3s ease, top .3s ease; filter: drop-shadow(0 2px 3px #0004); }
+.browser-use-ai-pointer span { position: absolute; left: 22px; top: 19px; padding: 4px 8px; border-radius: 12px; color: white; background: #087c78; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.browser-use-keyboard { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; padding: 0; border: 0; }
+.browser-use-connecting { min-height: 400px; display: flex; align-items: center; justify-content: center; gap: 12px; color: #667085; }
+.browser-use-upload { padding: 12px 16px; display: flex; align-items: center; gap: 12px; background: #eefaf8; border-top: 1px solid #c6e9e4; }
+
 /* A pinned application remains above the conversation without splitting the chat into two columns. */
 .application-modal-pinned {
   position: fixed;

@@ -113,16 +113,38 @@ export function cancelBrowserUseTask(sessionId: string) {
   return requestJson(`/browser/sessions/${encodeURIComponent(sessionId)}/browser-use`, { method: "DELETE" });
 }
 
+export interface BrowserUseState {
+  status: string;
+  events: Array<{ kind: string; message: string; at: string }>;
+  result?: string | null;
+  error?: string | null;
+  page_available?: boolean;
+  control?: "agent" | "user";
+  view_error?: string | null;
+  live_frame?: { image: string; width: number; height: number; target?: string | null; cursor?: { x: number; y: number } | null; file_chooser: boolean } | null;
+}
+
 export function startApplicationBrowserUse(caseId: string) {
-  return postJson<{ task_id: string; status: string; events: Array<{ kind: string; message: string; at: string }> }>("/applications/browser/use/start", { case_id: caseId });
+  return postJson<BrowserUseState>("/applications/browser/use/start", { case_id: caseId });
 }
 
 export function getApplicationBrowserUseStatus(caseId: string) {
-  return postJson<{ status: string; events: Array<{ kind: string; message: string; at: string }>; result?: string | null; error?: string | null }>("/applications/browser/use/status", { case_id: caseId });
+  return postJson<BrowserUseState>("/applications/browser/use/status", { case_id: caseId });
 }
 
 export function cancelApplicationBrowserUse(caseId: string) {
-  return postJson("/applications/browser/use/cancel", { case_id: caseId });
+  return postJson<BrowserUseState>("/applications/browser/use/cancel", { case_id: caseId });
+}
+
+export function actApplicationBrowserUse(caseId: string, action: string, value?: unknown) {
+  return postJson<BrowserUseState>("/applications/browser/use/action", { case_id: caseId, action, target: "", value });
+}
+
+export function uploadApplicationBrowserFile(caseId: string, file: File) {
+  const body = new FormData();
+  body.append("case_id", caseId);
+  body.append("file", file);
+  return requestJson<BrowserUseState>("/applications/browser/use/upload", { method: "POST", body });
 }
 
 export function createBrowserWebRtcOffer(sessionId: string, offer: RTCSessionDescriptionInit) {

@@ -25,7 +25,7 @@ def test_worker_runs_one_browser_at_a_time_and_queued_task_can_be_cancelled(monk
         req = worker.TaskRequest(session_id="demo", url="http://mock-business:8020/apply", task="test")
         first = await worker.run_task(req)
         await entered.wait()
-        second = await worker.run_task(req)
+        second = await worker.run_task(req.model_copy(update={"session_id": "another-case"}))
         await asyncio.sleep(0)
         assert worker.TASKS[second["task_id"]].status == "queued"
         assert len(running) == 1

@@ -28,3 +28,5 @@
 - 前端 UUID 使用 createClientId：优先原生 randomUUID，局域网 HTTP 不提供该方法时使用 getRandomValues 生成 UUID v4；聊天消息、会话和评测草稿不得直接调用 crypto.randomUUID。
 - TXT/Markdown 直接读取文本并保留 Markdown 标题、表格，供清洗和结构分块使用；上传普通 Markdown 不依赖 unstructured 及其可选模型下载。
 - Token 统计依赖 transformers，必须列入 pyproject.toml/uv.lock；容器构建缓存分词器到 TOKENIZER_PATH，避免入库时临时联网下载。当前统计沿用 DeepSeek-V3 分词器口径，不代表供应商最终计费 Token。先完成 Token 统计，再写向量，避免分词失败产生半入库数据。
+- Browser Use 办事弹窗只展示 Agent 实际操作的 Chromium 页面，不再并排或替换为另一个 iframe。高亮和 AI 指针来自页面真实焦点、输入、点击事件；完成或接管后保留同一会话，人工输入必须等 Agent 完全停止。材料通过原页面 file chooser 带入，不在另一张表单补填；会话空闲 15 分钟会释放，画面不是操作系统鼠标。
+- 2026-10-10 同页浏览器验收：28 项浏览器/办事 Python 测试和前端构建通过；Linux 页面实际验证自动填写、高亮和指针、中途接管、中文输入、file chooser 材料选择及重开保留页面，未提交。Browser Use 的导航会终止初始动作批次，只读姓名必须在导航后的步骤初始化，并从模型的可编辑字段任务中排除。

@@ -66,7 +66,9 @@ docker compose --env-file .env.compose exec -T browser-worker python -c "import 
 
 Browser Use 还需在系统配置中选择相应执行模式。worker 默认单任务执行、最多 4 个待执行/执行中任务、单任务最长 300 秒；容量满时返回 429。`BROWSER_USE_MODEL`、`BROWSER_USE_BASE_URL`、`BROWSER_USE_API_KEY` 未填写时继承生成模型配置。文本模型应设置 `BROWSER_USE_USE_VISION=false`；不支持 JSON Schema 的供应商可使用模板中的结构化输出兼容配置。模型供应商是否能完成浏览器任务必须实际验证。
 
-浏览器使用容器内安装的 Chromium，不需要占用 GPU。Browser Use worker 的执行页面与前端 iframe 是独立页面，当前不共享人工修改或登录态；worker 完成不能当作真实政务提交成功。Playwright 的视频模式在跨网/NAT 环境还需要 ICE/TURN 配置验证，不能凭网页加载成功宣称远程视频可用。
+浏览器使用容器内安装的 Chromium，不需要占用 GPU。Browser Use 弹窗只展示 worker 实际页面，通过同源鉴权 API 更新 JPEG 画面；高亮来自实际焦点、输入和点击，AI 指针按对应字段坐标平滑移动。完成或点击“接管页面”后在同一会话中继续操作，材料通过原页面的文件选择器带入。该模式不依赖 WebRTC/TURN；独立 Playwright 视频模式的跨网/NAT 仍需另行验证。worker 完成不能当作真实政务提交成功。
+
+保留会话最多两个，空闲默认 15 分钟释放，worker 重启或回收后未提交页面内容会丢失；它不是持久化草稿。多用户并发、画面带宽和长期保留策略尚需容量验证。
 
 ## 5. 更新、数据与回滚
 
@@ -90,3 +92,7 @@ Compose 项目名为 `questrag`。日志轮转保留每容器最多 3 个 10MB �
 真实 Browser Use 任务在独立 Chromium 页面完成填写与核对，修复模型 JSON 输出兼容及导航 URL 后单次约 64 秒，最终 completed、无 error，未执行提交。此处字段核对来自 Agent 执行记录；另用 Playwright 直接读取实际页面的 7 项字段并验证值，身份字段不进入 URL。两种模式均不能等同于用户正在查看的 iframe 或真实业务提交。
 
 59 项相关 Python 单元测试、5 项 Node 表单测试通过；本地前端构建及 Linux 前端镜像构建通过。未做压力测试，WebRTC 跨网视频及真实政务平台尚未验证。浏览器任务清理后四个应用容器约占 535MB 内存，是一次静态观测，不能用于推断峰值或并发容量。
+
+### 2026-10-10 同一浏览器页面与接管更新
+
+28 项浏览器/办事相关 Python 测试和前端构建通过。LAN 页面验证了真实自动填写、字段高亮和 AI 指针、中途停止后接管、中文输入、原页面 file chooser 带入临时材料，以及关闭后重开保留人工内容；未点击提交。初始化姓名在导航后的首个步骤带入，只读字段不交给模型修改。画面约每 500ms 更新，指针在两次真实字段坐标之间平滑移动；不代表完整桌面远程控制或高帧率视频。
