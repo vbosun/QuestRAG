@@ -40,6 +40,7 @@ import { RetrievalConfigView } from "./features/retrieval/RetrievalConfigView";
 import { clearTokens } from "./request";
 import type { ChatMessage, ConversationDetail, ConversationListResponse, DocumentInfo, EvaluationRun, Session } from "./types";
 import { artifactToPart } from "./utils";
+import { createClientId } from "./clientId";
 
 const { Content, Sider, Header: AntHeader } = Layout;
 const { Text, Title } = Typography;
@@ -400,8 +401,8 @@ function ChatPage() {
     const session = activeSession;
     if (!text || !session || sending) return;
 
-    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: text };
-    const assistantId = crypto.randomUUID();
+    const userMessage: ChatMessage = { id: createClientId(), role: "user", content: text };
+    const assistantId = createClientId();
     const assistantMessage: ChatMessage = {
       id: assistantId,
       role: "assistant",

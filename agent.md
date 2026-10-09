@@ -25,3 +25,4 @@
 - 2026-10-09 Linux 部署后验证更新：59 项 Python、5 项 Node 测试通过；连接已有 Ollama bge-m3:latest 和 Milvus 1024 维集合，政策问答返回 11 条引用且无 SSE error，草稿带入 7 项字段。Browser Use 真实任务完成且未提交，Playwright 直接读取 7 项字段验证值；导航 URL 仅携带 case_id。详见 docs/linux-docker-deployment.md；不能把静态内存观测作为并发容量证明。
 - Browser Use 使用明确 initial_actions 导航，不把自然语言任务拼入 URL；只对模拟表单注入服务端确认的姓名。DeepSeek worker 的结构化响应使用 JSON Object 模式并通过 Pydantic 校验；任务完成仍依赖实际 Agent 结果。
 - 2026-10-09 当前开发分支提交前验证：75 项相关 Python 测试、5 项 Node 表单测试和前端构建通过，包含中文正式回答过滤和 DeepSeek thinking 请求体回归。该结果不表示已更新 Linux 运行镜像。
+- 前端 UUID 使用 createClientId：优先原生 randomUUID，局域网 HTTP 不提供该方法时使用 getRandomValues 生成 UUID v4；聊天消息、会话和评测草稿不得直接调用 crypto.randomUUID。

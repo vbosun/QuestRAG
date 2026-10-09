@@ -2,6 +2,7 @@ import { ArrowLeftOutlined, CheckCircleOutlined, DeleteOutlined, DownloadOutline
 import { App, Breadcrumb, Button, Checkbox, Descriptions, Empty, Input, InputNumber, List, Modal, Popconfirm, Select, Space, Steps, Table, Tag, Typography, Upload } from "antd";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { useEffect, useState } from "react";
+import { createClientId } from "../../clientId";
 import {
   createEvaluationDataset,
   deleteEvaluationDataset,
@@ -325,7 +326,7 @@ export function EvaluationView({
 
   function createBlankDataset() {
     setActiveDataset({
-      id: `draft_${crypto.randomUUID()}`,
+      id: `draft_${createClientId()}`,
       name: `新评测集 ${new Date().toLocaleString("zh-CN", { hour12: false })}`,
       item_count: 0,
       items: []
