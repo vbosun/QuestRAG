@@ -27,3 +27,4 @@
 - 2026-10-09 当前开发分支提交前验证：75 项相关 Python 测试、5 项 Node 表单测试和前端构建通过，包含中文正式回答过滤和 DeepSeek thinking 请求体回归。该结果不表示已更新 Linux 运行镜像。
 - 前端 UUID 使用 createClientId：优先原生 randomUUID，局域网 HTTP 不提供该方法时使用 getRandomValues 生成 UUID v4；聊天消息、会话和评测草稿不得直接调用 crypto.randomUUID。
 - TXT/Markdown 直接读取文本并保留 Markdown 标题、表格，供清洗和结构分块使用；上传普通 Markdown 不依赖 unstructured 及其可选模型下载。
+- Token 统计依赖 transformers，必须列入 pyproject.toml/uv.lock；容器构建缓存分词器到 TOKENIZER_PATH，避免入库时临时联网下载。当前统计沿用 DeepSeek-V3 分词器口径，不代表供应商最终计费 Token。先完成 Token 统计，再写向量，避免分词失败产生半入库数据。
