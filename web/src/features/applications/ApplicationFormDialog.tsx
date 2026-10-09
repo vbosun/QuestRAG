@@ -4,6 +4,8 @@ import React from "react";
 import { useEffect, useRef, useState } from "react";
 import { cancelApplicationBrowserUse, connectApplicationBrowser, getApplicationBrowserUseStatus, getApplicationCase, startApplicationBrowserUse } from "../../api";
 import { BrowserVideoSurface } from "./BrowserVideoSurface";
+import { BrowserUseSurface } from "./BrowserUseSurface";
+import type { BrowserUseState } from "../../api";
 import type { ApplicationDetail } from "./types";
 
 const { Text } = Typography;
@@ -12,7 +14,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   const { message } = App.useApp();
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
   const [browserReady, setBrowserReady] = useState(false);
-  const [browserUse, setBrowserUse] = useState<{ status: string; events: Array<{ kind: string; message: string; at: string }>; result?: string | null; error?: string | null }>({ status: "idle", events: [] });
+  const [browserUse, setBrowserUse] = useState<BrowserUseState>({ status: "idle", events: [] });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [fillStage, setFillStage] = useState<"reading" | "filled" | "empty" | "failed">("reading");
@@ -50,7 +52,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
         if (result.execution_mode === "browser_use") {
           try {
             const task = await startApplicationBrowserUse(caseId);
-            if (active) setBrowserUse({ status: task.status, events: task.events });
+            if (active) setBrowserUse(task);
           } catch (error) {
             if (active) setBrowserUse({ status: "failed", events: [], error: error instanceof Error ? error.message : "Browser Use 启动失败" });
           }
@@ -66,18 +68,23 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   }, [caseId, message, open]);
 
   useEffect(() => {
-    if (!open || detail?.execution_mode !== "browser_use" || !["queued", "running"].includes(browserUse.status)) return;
+    if (!open || detail?.execution_mode !== "browser_use") return;
     let active = true;
+    let busy = false;
     const timer = window.setInterval(async () => {
+      if (busy) return;
+      busy = true;
       try {
         const latest = await getApplicationBrowserUseStatus(caseId);
         if (active) setBrowserUse(latest);
       } catch (error) {
-        if (active) setBrowserUse((current) => ({ ...current, status: "failed", error: error instanceof Error ? error.message : "读取 Browser Use 状态失败" }));
+        if (active) setBrowserUse((current) => ({ ...current, view_error: error instanceof Error ? error.message : "画面连接暂时中断" }));
+      } finally {
+        busy = false;
       }
-    }, 900);
+    }, 500);
     return () => { active = false; window.clearInterval(timer); };
-  }, [browserUse.status, caseId, detail?.execution_mode, open]);
+  }, [caseId, detail?.execution_mode, open]);
 
   useEffect(() => {
     function onEmbeddedSubmit(event: MessageEvent) {
@@ -96,7 +103,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   }, [message, open]);
 
   useEffect(() => {
-    if (!open || !detail || detail.execution_mode === "playwright" || fillStage !== "reading") return;
+    if (!open || !detail || detail.execution_mode !== "embedded" || fillStage !== "reading") return;
     const timer = window.setTimeout(() => setFillStage("failed"), 10000);
     return () => window.clearTimeout(timer);
   }, [detail?.id, detail?.execution_mode, fillStage, open]);
@@ -159,26 +166,26 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
     ...detail.materials.filter((material) => material.required && material.status !== "uploaded").map((material) => material.label),
   ] : []);
   const autoFailed = isBrowserUse && ["failed", "cancelled"].includes(browserUse.status);
-  const bannerType = submissionMessage ? "success" : autoFailed || fillStage === "failed" ? "warning" : browserUseRunning || fillStage === "reading" ? "info" : missing.length ? "warning" : "success";
-  const bannerMessage = submissionMessage || (autoFailed ? "自动填写未完成，您可以继续在下方表单核对和手动填写。" : browserUseRunning ? "自动填写正在执行，请等待结果后核对信息。" : isBrowserUse && browserUse.status === "completed" ? "自动填写任务已结束，请核对实际填写结果；下方为独立业务表单。" : fillStage === "failed" ? "尚未收到表单填写回执，请检查业务页面是否可用；不能确认信息已带入。" : fillStage === "reading" ? "正在连接业务页面并带入已有信息…" : fillStage === "empty" ? "暂无可自动带入的信息，请在下方填写申请。" : `业务页面已接收已有信息，请核对${missing.length ? `并补充：${missing.join("、")}` : "后提交"}。`);
+  const bannerType = isBrowserUse ? (browserUseRunning ? "info" : autoFailed || !browserUse.page_available ? "warning" : "success") : submissionMessage ? "success" : autoFailed || fillStage === "failed" ? "warning" : browserUseRunning || fillStage === "reading" ? "info" : missing.length ? "warning" : "success";
+  const bannerMessage = isBrowserUse ? (browserUseRunning ? "AI 正在填写，请查看高亮位置；您也可以随时接管页面。" : browserUse.page_available ? "页面已交给您，请核对信息、补充材料后自行提交。" : "浏览器尚未连接，正在准备页面。") : submissionMessage || (autoFailed ? "自动填写未完成，您可以继续在下方表单核对和手动填写。" : browserUseRunning ? "自动填写正在执行，请等待结果后核对信息。" : isBrowserUse && browserUse.status === "completed" ? "自动填写任务已结束，请核对实际填写结果；下方为独立业务表单。" : fillStage === "failed" ? "尚未收到表单填写回执，请检查业务页面是否可用；不能确认信息已带入。" : fillStage === "reading" ? "正在连接业务页面并带入已有信息…" : fillStage === "empty" ? "暂无可自动带入的信息，请在下方填写申请。" : `业务页面已接收已有信息，请核对${missing.length ? `并补充：${missing.join("、")}` : "后提交"}。`);
   return <Modal
     rootClassName={pinned ? "application-modal-pinned" : ""}
     style={pinned ? { transform: `translate(${position.x}px, ${position.y}px)` } : undefined}
     open={open}
     onCancel={onClose}
     maskClosable={!pinned}
-    keyboard={!pinned}
+    keyboard={!pinned && !isBrowserUse}
     footer={null}
     width={1000}
     destroyOnHidden
     title={<div className="application-modal-titlebar" onPointerDown={beginDrag}><Space><span>{title}</span><Tag color="cyan">Agent 已发起</Tag><Button size="small" type={pinned ? "primary" : "text"} icon={<PushpinOutlined />} onPointerDown={(event) => event.stopPropagation()} onClick={() => setPinned((value) => !value)}>{pinned ? "取消固定" : "固定在对话上方"}</Button></Space></div>}
   >
     {loading ? <div className="application-dialog-loading"><Spin /></div> : loadError ? <Alert type="error" showIcon message="申请页面读取失败" description={loadError} /> : !detail ? null : <div className="application-dialog">
-      <Alert type={bannerType} showIcon message={bannerMessage} description={detail.execution_notice || undefined} />
+      <Alert type={bannerType} showIcon message={bannerMessage} description={isBrowserUse ? undefined : detail.execution_notice || undefined} />
       <Steps size="small" current={currentStep} items={detail.definition.steps.map((step) => ({ title: step.name }))} />
       <div className="embedded-business-page">
-        <div className="embedded-business-toolbar"><Tag color={detail.execution_mode === "playwright" ? "blue" : isBrowserUse ? "purple" : "green"}>{detail.execution_mode === "playwright" ? "Playwright 实时浏览器页面" : isBrowserUse ? "Browser Use 自治操作" : "外部业务系统页面"}</Tag><Text type="secondary">{detail.execution_mode === "playwright" ? "Agent 通过受控浏览器观察并操作，过程实时展示" : isBrowserUse ? "Agent 在独立受控浏览器中执行已确认的填写步骤；此页面仍可由您直接核对和修改，不会跳转" : "页面已嵌入当前对话，Agent 和您都在这里操作，不会跳转"}</Text>{isBrowserUse && browserUseRunning ? <Button size="small" onClick={() => void cancelApplicationBrowserUse(caseId).then(() => setBrowserUse((current) => ({ ...current, status: "cancelled" }))).catch((error) => message.error(error instanceof Error ? error.message : "停止失败"))}>停止 Agent</Button> : null}</div>
-        {detail.execution_mode === "playwright" ? (
+        <div className="embedded-business-toolbar"><Tag color={detail.execution_mode === "playwright" ? "blue" : isBrowserUse ? "purple" : "green"}>{detail.execution_mode === "playwright" ? "Playwright 实时浏览器页面" : isBrowserUse ? "业务浏览器" : "外部业务系统页面"}</Tag><Text type="secondary">{detail.execution_mode === "playwright" ? "Agent 通过受控浏览器观察并操作，过程实时展示" : isBrowserUse ? "AI 与您在同一个页面操作" : "页面已嵌入当前对话，Agent 和您都在这里操作，不会跳转"}</Text>{isBrowserUse && browserUseRunning ? <Button size="small" onClick={() => void cancelApplicationBrowserUse(caseId).then(setBrowserUse).catch((error) => message.error(error instanceof Error ? error.message : "停止失败"))}>接管页面</Button> : null}</div>
+        {isBrowserUse ? <BrowserUseSurface caseId={caseId} state={browserUse} onState={setBrowserUse} /> : detail.execution_mode === "playwright" ? (
           <div className="playwright-page-preview">
             {browserReady ? <BrowserVideoSurface sessionId={caseId} /> : <Spin />}
             <Text type="secondary">这是后端 Playwright 的连续视频画面。点击视频后可直接操作页面，键盘输入和滚轮事件会回传到同一浏览器会话。</Text>
@@ -186,7 +193,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
         ) : <iframe ref={iframeRef} title={`${title}业务页面`} src={externalPageUrl} onLoad={() => sendFieldsToEmbeddedPage(detail, iframeRef.current)} />}
       </div>
       {isBrowserUse ? <div className="browser-use-task-status" aria-live="polite">
-        <Space size="small"><Tag color={browserUse.status === "completed" ? "success" : browserUse.status === "failed" ? "error" : browserUse.status === "cancelled" ? "default" : "processing"}>{browserUse.status === "queued" ? "等待执行" : browserUse.status === "running" ? "正在操作" : browserUse.status === "completed" ? "操作完成" : browserUse.status === "cancelled" ? "已停止" : browserUse.status === "idle" ? "准备执行" : "执行异常"}</Tag><Text type="secondary">{latestBrowserUseEvent?.message || "正在准备 Agent 操作"}</Text></Space>
+        <Space size="small"><Tag color={browserUse.status === "completed" ? "success" : browserUse.status === "failed" ? "error" : browserUse.status === "cancelled" ? "default" : "processing"}>{browserUse.status === "queued" ? "等待执行" : browserUse.status === "running" ? "正在操作" : browserUse.status === "completed" ? "操作完成" : browserUse.status === "cancelled" ? "已停止" : browserUse.status === "idle" ? "准备执行" : "执行异常"}</Tag><Text type="secondary">{browserUseRunning && browserUse.live_frame?.target ? `AI 正在操作：${browserUse.live_frame.target}` : latestBrowserUseEvent?.message || "正在准备页面"}</Text></Space>
         {browserUse.events.length > 1 ? <div className="browser-use-events">{browserUse.events.map((event) => <div key={`${event.at}-${event.kind}`}>• {event.message}</div>)}</div> : null}
         {browserUse.error ? <Text type="danger">{browserUse.error}</Text> : null}
       </div> : null}

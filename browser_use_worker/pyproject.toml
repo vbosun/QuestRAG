@@ -6,4 +6,6 @@ dependencies = [
   "browser-use[core]>=0.13.0,<0.14.0",
   "fastapi>=0.115.0",
   "uvicorn>=0.30.0",
+  "playwright>=1.49,<2",
+  "python-multipart>=0.0.20",
 ]

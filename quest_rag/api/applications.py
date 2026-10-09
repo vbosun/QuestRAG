@@ -76,8 +76,8 @@ async def start_application_browser_use(req: BrowserConnectRequest, current_user
         raise HTTPException(status_code=409, detail="当前系统未启用 Browser Use 执行模式")
     connection = service.connect_browser(current_user, req.case_id, req.device_name)
     browser_use_runtime.register_session(req.case_id, current_user.id)
-    supplied = ", ".join(f"{field['label']}={field['value']}" for field in detail["fields"] if field.get("value") not in (None, "")) or "暂无已知字段值"
-    task = f"识别申请表单。将以下已确认信息填写到对应字段：{supplied}。仅填写和校验，不要点击提交、确认、下一步或产生任何不可逆操作。"
+    supplied = ", ".join(f"{field['label']}={field['value']}" for field in detail["fields"] if field.get("editable", True) and field.get("value") not in (None, "")) or "暂无已知字段值"
+    task = f"识别申请表单。将以下已确认信息填写到对应可编辑字段：{supplied}。只读字段由系统带入，请保持原值，禁止清空、输入或通过脚本修改只读字段。仅填写和校验，不要点击提交、确认、下一步或产生任何不可逆操作。"
     profile_name = next((field["value"] for field in detail["fields"] if field["key"] == "full_name"), None)
     return await browser_use_runtime.run(req.case_id, connection["entry_url"], task, profile_name=profile_name)
 
@@ -94,6 +94,22 @@ async def get_application_browser_use_status(req: CaseIdRequest, current_user: C
 async def cancel_application_browser_use(req: CaseIdRequest, current_user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
     service._require_case(current_user, req.case_id)
     return await browser_use_runtime.cancel(req.case_id)
+
+
+@router.post("/browser/use/action")
+async def act_application_browser_use(req: BrowserActionRequest, current_user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
+    service._require_case(current_user, req.case_id)
+    return await browser_use_runtime.act(req.case_id, req.action, req.value)
+
+
+@router.post("/browser/use/upload")
+async def upload_browser_use_file(case_id: str = Form(...), file: UploadFile = File(...), current_user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
+    from fastapi import HTTPException
+    service._require_case(current_user, case_id)
+    content = await file.read(10 * 1024 * 1024 + 1)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="材料不能超过 10 MB")
+    return await browser_use_runtime.upload(case_id, file.filename or "材料", file.content_type or "application/octet-stream", content)
 
 
 @router.post("/browser/observe")

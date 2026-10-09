@@ -13,7 +13,8 @@ COPY browser_use_worker/pyproject.toml ./
 COPY --from=uv-source /uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --index-url "${PIP_INDEX_URL}" \
-    'browser-use[core]==0.13.0' 'fastapi>=0.115.0' 'uvicorn>=0.30.0'
+    'browser-use[core]==0.13.0' 'fastapi>=0.115.0' 'uvicorn>=0.30.0' \
+    'playwright>=1.49,<2' 'python-multipart>=0.0.20'
 RUN useradd --create-home --uid 10001 app && chown -R app:app /worker
 COPY --chown=app:app browser_use_worker ./browser_use_worker
 USER app

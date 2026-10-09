@@ -2,6 +2,8 @@
 .codegraph
 .venv
 .browser-use-venv
+**/.browser-use-venv
+**/*.egg-info
 **/__pycache__
 **/*.pyc
 .env
