@@ -1,3 +1,5 @@
+import os
+
 from quest_rag.core.config import OPENAI_MODEL
 
 _tokenizer = None
@@ -16,11 +18,13 @@ def _load_tokenizer():
         return _tokenizer
     from transformers import AutoTokenizer
 
-    model_id = _MODEL_MAP.get(OPENAI_MODEL, "deepseek-ai/DeepSeek-V3")
-    _tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    model_id = os.environ.get("TOKENIZER_PATH") or _MODEL_MAP.get(OPENAI_MODEL, "deepseek-ai/DeepSeek-V3")
+    _tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=False)
     return _tokenizer
 
 
 def count_tokens(text: str) -> int:
+    if not text:
+        return 0
     tok = _load_tokenizer()
-    return len(tok.encode(text))
+    return len(tok.encode(text, add_special_tokens=False))

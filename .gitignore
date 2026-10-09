@@ -225,3 +225,5 @@ __marimo__/
 /.codegraph/
 web/node_modules/
 web/dist/
+/deploy/tokenizer/*.json
+/deploy/tokenizer/*.jinja

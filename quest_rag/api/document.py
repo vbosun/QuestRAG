@@ -112,12 +112,13 @@ def commit_stage(req: DocumentStageRequest, current_user: CurrentUser = Depends(
             for chunk in chunks:
                 chunk.page_content = f"{req.metadata.title}\n{chunk.page_content}"
 
+        token_count = _count_chunk_tokens(chunks)
         ids = add_documents(chunks)
         doc = DocMetadata(
             doc_id=doc_id,
             filename=req.metadata.title or stage["filename"],
             chunk_count=len(ids),
-            token_count=_count_chunk_tokens(chunks),
+            token_count=token_count,
             scope_code=req.metadata.scope_code,
             uploaded_at=datetime.now(),
         )
@@ -173,10 +174,10 @@ async def upload(file: UploadFile = File(...), current_user: CurrentUser = Depen
             }
 
         chunks = split_docs(docs=docs)
+        tk = _count_chunk_tokens(chunks)
         ids = add_documents(chunks)
         print(f"ids: {ids}")
 
-        tk = _count_chunk_tokens(chunks)
         doc = DocMetadata(
             doc_id=doc_id,
             filename=filename,
