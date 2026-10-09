@@ -42,6 +42,12 @@ class PlaywrightRuntime:
         self._pages[case_id] = page
         if page.url != url:
             await page.goto(url, wait_until="domcontentloaded")
+        if fields and parsed.path in {"/employment-registration/apply", "/unemployment-registration/apply"}:
+            # The demo bridge can populate the read-only identity field from
+            # already authorized values without placing personal data in URLs.
+            await page.evaluate("fields => window.postMessage({type:'agent-form-state',fields}, location.origin)", fields)
+            if fields.get("full_name"):
+                await page.wait_for_function("name => document.querySelector('#full_name')?.value === name", arg=str(fields["full_name"]), timeout=3000)
         prefill_results = []
         for key, value in (fields or {}).items():
             prefill_results.append(await self._fill(page, key, value))

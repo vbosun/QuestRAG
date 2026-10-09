@@ -20,5 +20,7 @@
 - 知识检索的文档范围是可选类别，具备其中一个范围及工具权限即可注册；检索仍限制在已有授权范围。其他业务工具默认要求所有声明范围。
 - 引用数据使用请求 ContextVar，工具线程共享该请求列表；不能使用进程全局列表，避免并发请求串来源。
 - 助手聊天、评测回答和 RAGAS 裁判的 DeepSeek 请求必须通过 extra_body 传入 thinking.type=disabled，明确关闭思考模式；其他模型不传 DeepSeek 专用参数。
+- 助手默认用简体中文回复，工具调用前不输出过程开场白。SSE 只在模型完成一轮且确认没有工具调用后发布正文；工具进度用中文 status 表示，避免英文过渡话语进入展示和历史记录。该确认会让正文在本轮生成完成后显示。
 - 2026-10-09 已验证：53 个相关 Python 测试、4 个 Node 表单测试和前端构建通过；真实模型调用创建草稿并带入 7 项字段，保留人工核对和材料补充。政策完整链路当时被本地 5001 Embedding 服务未启动阻塞，需要单独验证。
-- 2026-10-09 Linux 部署后验证更新：57 项 Python、5 项 Node 测试通过；连接已有 Ollama bge-m3:latest 和 Milvus 1024 维集合，政策问答返回 11 条引用且无 SSE error，草稿带入 7 项字段。详见 docs/linux-docker-deployment.md；不能把静态内存观测作为并发容量证明。
+- 2026-10-09 Linux 部署后验证更新：59 项 Python、5 项 Node 测试通过；连接已有 Ollama bge-m3:latest 和 Milvus 1024 维集合，政策问答返回 11 条引用且无 SSE error，草稿带入 7 项字段。Browser Use 真实任务完成且未提交，Playwright 直接读取 7 项字段验证值；导航 URL 仅携带 case_id。详见 docs/linux-docker-deployment.md；不能把静态内存观测作为并发容量证明。
+- Browser Use 使用明确 initial_actions 导航，不把自然语言任务拼入 URL；只对模拟表单注入服务端确认的姓名。DeepSeek worker 的结构化响应使用 JSON Object 模式并通过 Pydantic 校验；任务完成仍依赖实际 Agent 结果。

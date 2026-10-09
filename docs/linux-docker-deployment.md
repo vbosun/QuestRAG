@@ -49,6 +49,8 @@ docker compose --env-file .env.compose ps
 
 模型与数据库凭证仅在运行时注入，不进入镜像。镜像构建使用根目录 uv.lock 与前端 package-lock.json；worker 固定 browser-use 0.13.0，和主后端依赖隔离。部署目录中的模板提供可覆盖的国内镜像和包源，镜像源或上游不通时换源重试，不关闭 TLS 校验。
 
+uv 默认从官方 `ghcr.io/astral-sh/uv:0.9.26` 镜像复制二进制。本次主机访问 GHCR 较慢，使用已验证后端镜像中的同版本 uv 创建本地 `questrag-uv-bootstrap:0.9.26`，并在 `.env.compose` 中设置 `UV_IMAGE=questrag-uv-bootstrap:0.9.26`。此覆盖只用于构建工具，不包含模型和运行凭证；新主机优先使用官方默认值。
+
 ## 4. 验收
 
 把下面地址替换为实际绑定地址。`live` 仅表示 API 进程运行，不能代替依赖验收：
@@ -75,12 +77,16 @@ bash deploy/up.sh
 
 Compose 项目名为 `questrag`。日志轮转保留每容器最多 3 个 10MB 文件；后端评测日志及 data 目录使用命名卷。业务页面配置保存到 `PAGE_CONNECTOR_DIR=/app/data/page_connectors`，本地生成的 JSON 不进入 Git 或新构建的镜像。旧部署迁移时应另外复制这些文件到数据卷。数据库、Milvus 与 Ollama 的现有数据由原服务管理，更新应用镜像不应清理它们。回滚到已验证的代码版本后重新构建即可；数据库结构变更需单独评估。
 
+本次主机的长期部署 checkout 为 `/home/adminzb/questrag-deploy`，分支 `codex/linux-container-deployment`，运行环境文件为该目录下权限 600 的 `.env.compose`。后续在此目录执行上述更新命令。旧 `/home/adminzb/QuestRAG` 保留，首次构建目录 `/home/adminzb/questrag-container-20261009` 也保留；不要混用两个目录的环境配置。
+
 ## 6. 2026-10-09 实机验收记录
 
 宿主机 `192.168.1.43` 为 Ubuntu、i5-9400、16GB 内存、GTX 1050 Ti 4GB。已有 Ollama `bge-m3:latest` 返回 1024 维，现有 Milvus `questrag_chunks_v2` 同为 1024 维、528 条记录；复用 QuestRAG 的 `vector_db`，未重建数据库。生成回答仍调用配置的 DeepSeek API；Chromium 在 CPU 上运行，不能描述为全部模型都在 1050 Ti 上推理。
 
-前端、后端、模拟业务系统镜像在该 Linux 主机实际构建并启动。入口为 `http://192.168.1.43:18080/app/chat`，仅用于当前局域网访问。`/health/live`、`/health/ready`、公钥接口和模拟业务表单均通过同源代理。
+前端、后端、模拟业务系统和 Browser Use worker 在该 Linux 主机实际构建并启动。入口为 `http://192.168.1.43:18080/app/chat`，仅用于当前局域网访问。`/health/live`、`/health/ready`、公钥接口和模拟业务表单均通过同源代理。
 
 使用授权测试账号完成 SM2 登录、真实模型政策检索（单次约 14.3 秒，11 条 sources，无 SSE error）和就业登记草稿（约 17.7 秒，7 项字段，未提交）；实际页面确认人工修改不会被后续轮询覆盖。来源可检索不代表历史政策仍有效，不将旧材料作为最新政策结论。
 
-57 项相关 Python 单元测试、5 项 Node 表单测试通过；本地前端构建及 Linux 前端镜像构建通过。未做压力测试，WebRTC 跨网视频及真实政务平台尚未验证。启动后三个应用容器约占 300MB 内存，是当时静态观测，浏览器执行时另行测量。
+真实 Browser Use 任务在独立 Chromium 页面完成填写与核对，修复模型 JSON 输出兼容及导航 URL 后单次约 64 秒，最终 completed、无 error，未执行提交。此处字段核对来自 Agent 执行记录；另用 Playwright 直接读取实际页面的 7 项字段并验证值，身份字段不进入 URL。两种模式均不能等同于用户正在查看的 iframe 或真实业务提交。
+
+59 项相关 Python 单元测试、5 项 Node 表单测试通过；本地前端构建及 Linux 前端镜像构建通过。未做压力测试，WebRTC 跨网视频及真实政务平台尚未验证。浏览器任务清理后四个应用容器约占 535MB 内存，是一次静态观测，不能用于推断峰值或并发容量。

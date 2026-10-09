@@ -4,6 +4,7 @@ Install this package in a separate virtual environment with
 ``browser-use[core]``. It intentionally has no dependency on QuestRAG.
 """
 import asyncio
+import json
 import os
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -21,6 +22,7 @@ class TaskRequest(BaseModel):
     url: str
     task: str = Field(min_length=1, max_length=4000)
     max_steps: int = Field(default=30, ge=1, le=100)
+    profile_name: str | None = Field(default=None, max_length=120)
 
 
 class TaskRecord(BaseModel):
@@ -32,6 +34,7 @@ class TaskRecord(BaseModel):
     events: list[dict] = Field(default_factory=list)
     result: str | None = None
     error: str | None = None
+    observed_page: dict | None = None
 
 
 TASKS: dict[str, TaskRecord] = {}
@@ -119,15 +122,20 @@ async def _run_agent(record: TaskRecord, req: TaskRequest) -> None:
     browser = Browser(**options)
     try:
         force_structured = os.environ.get("BROWSER_USE_FORCE_STRUCTURED_OUTPUT", "true").lower() in {"1", "true", "yes"}
-        llm = ChatOpenAI(
+        base_url = os.environ.get("BROWSER_USE_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None
+        llm_type = ChatOpenAI
+        if not force_structured and urlparse(base_url or "").hostname == "api.deepseek.com":
+            from browser_use_worker.deepseek_llm import DeepSeekJSONChat
+            llm_type = DeepSeekJSONChat
+        llm = llm_type(
             model=os.environ.get("BROWSER_USE_MODEL") or os.environ.get("OPENAI_MODEL") or "gpt-4.1-mini",
             api_key=os.environ.get("BROWSER_USE_API_KEY") or os.environ.get("OPENAI_API_KEY"),
-            base_url=os.environ.get("BROWSER_USE_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None,
+            base_url=base_url,
             dont_force_structured_output=not force_structured,
             add_schema_to_system_prompt=not force_structured,
         )
         use_vision = os.environ.get("BROWSER_USE_USE_VISION", "true").lower() in {"1", "true", "yes"}
-        agent = Agent(task=f"打开 {req.url}。{req.task}", browser=browser, llm=llm, use_vision=use_vision)
+        agent = Agent(task=req.task, initial_actions=_initial_actions(req), browser=browser, llm=llm, use_vision=use_vision)
         history = await agent.run(max_steps=req.max_steps)
         record.result = history.final_result() if hasattr(history, "final_result") else str(history)
         if hasattr(history, "is_successful") and history.is_successful() is not True:
@@ -135,6 +143,19 @@ async def _run_agent(record: TaskRecord, req: TaskRequest) -> None:
             record.error = "Agent 未确认完成任务，请核对页面或重新执行"
             record.events.append(_event("failed", record.error))
         else:
+            page = await browser.get_current_page()
+            if page:
+                record.observed_page = json.loads(await page.evaluate("""() => {
+                    const roots=[document], fields=[];
+                    for(let i=0;i<roots.length;i++) {
+                        for(const el of roots[i].querySelectorAll('*')) {
+                            if(el.shadowRoot) roots.push(el.shadowRoot);
+                            if(['INPUT','SELECT','TEXTAREA'].includes(el.tagName) && el.type !== 'file')
+                                fields.push({key:el.name||el.id,value:el.value,valid:el.validity.valid});
+                        }
+                    }
+                    return {url:location.href,title:document.title,fields};
+                }"""))
             record.status = "completed"
             record.events.append(_event("completed", "Agent 已完成本次页面操作"))
     finally:
@@ -143,6 +164,16 @@ async def _run_agent(record: TaskRecord, req: TaskRequest) -> None:
             value = close()
             if hasattr(value, "__await__"):
                 await value
+
+
+def _initial_actions(req: TaskRequest) -> list[dict]:
+    actions = [{"navigate": {"url": req.url, "new_tab": False}}]
+    if req.profile_name and urlparse(req.url).path in {"/employment-registration/apply", "/unemployment-registration/apply"}:
+        # Only the server-supplied identity is prefilled. The agent fills the
+        # remaining editable fields. The mock bridge keeps identity read-only.
+        fields = json.dumps({"full_name": req.profile_name})
+        actions.append({"evaluate": {"code": f"window.postMessage({{type:'agent-form-state',fields:{fields}}},location.origin);"}})
+    return actions
 
 
 def _event(kind: str, message: str) -> dict:

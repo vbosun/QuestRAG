@@ -30,6 +30,18 @@ def make_user() -> CurrentUser:
     )
 
 
+def test_browser_connection_url_and_audit_never_include_profile(application_store):
+    from urllib.parse import urlparse, parse_qs
+    user = make_user()
+    service.create_application(user, "employment_registration", {"employment_type": "employer"})
+    connection = service.connect_browser(user, "case-1", "demo")
+    url = connection["entry_url"]
+    assert parse_qs(urlparse(url).query) == {"case_id": ["case-1"]}
+    assert user.phone not in url
+    assert user.full_name not in url
+    assert application_store["logs"][-1][0][-1]["entry_url"] == url
+
+
 @pytest.fixture
 def application_store(monkeypatch):
     state = {"case": None, "fields": {}, "attachments": {}, "browser": None, "logs": []}

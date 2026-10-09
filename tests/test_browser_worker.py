@@ -47,3 +47,14 @@ def test_worker_rejects_tasks_when_queue_is_full(monkeypatch):
         asyncio.run(worker.run_task(worker.TaskRequest(
             session_id="demo", url="http://mock-business:8020/apply", task="test")))
     assert error.value.status_code == 429
+
+
+def test_initial_navigation_keeps_task_text_out_of_url_and_prefills_only_identity():
+    req = worker.TaskRequest(session_id="demo", url="http://mock-business:8020/employment-registration/apply?case_id=case-1", task="填写表单。不要提交", profile_name='测试"用户')
+    actions = worker._initial_actions(req)
+    assert actions[0]["navigate"]["url"] == req.url
+    assert req.task not in str(actions)
+    assert 'agent-form-state' in actions[1]["evaluate"]["code"]
+    assert 'full_name' in actions[1]["evaluate"]["code"]
+    assert 'phone' not in actions[1]["evaluate"]["code"]
+    assert len(worker._initial_actions(req.model_copy(update={"url": "http://mock-business:8020/another-page"}))) == 1
