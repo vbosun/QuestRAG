@@ -87,11 +87,12 @@ def test_agent_task_excludes_readonly_identity_and_passes_it_only_to_seed(monkey
     monkeypatch.setattr(applications.service, "get_application_detail", lambda *args: detail)
     monkeypatch.setattr(applications.service, "connect_browser", lambda *args: {"entry_url": "http://demo/apply"})
     monkeypatch.setattr(applications.browser_use_runtime, "register_session", lambda *args: None)
-    async def run(session_id, url, task, profile_name):
+    async def run(session_id, url, task, profile_name, presentation):
         assert "姓名=" not in task
         assert "电话=13700000000" in task
         assert "禁止清空" in task
         assert profile_name == "测试用户"
+        assert presentation == "iframe"
         return {"status": "queued"}
     monkeypatch.setattr(applications.browser_use_runtime, "run", run)
     assert asyncio.run(applications.start_application_browser_use(

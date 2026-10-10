@@ -1935,35 +1935,110 @@ body {
 .browser-use-connecting { min-height: 400px; display: flex; align-items: center; justify-content: center; gap: 12px; color: #667085; }
 .browser-use-upload { padding: 12px 16px; display: flex; align-items: center; gap: 12px; background: #eefaf8; border-top: 1px solid #c6e9e4; }
 
-/* A pinned application remains above the conversation without splitting the chat into two columns. */
-.application-modal-pinned {
-  position: fixed;
-  top: 76px;
-  right: 24px;
-  left: 24px;
-  z-index: 1100;
+.application-modal-floating .ant-modal-wrap {
   pointer-events: none;
+  overflow: hidden;
 }
 
-.application-modal-pinned .ant-modal {
-  top: 0;
+.application-modal-floating .ant-modal {
+  position: absolute;
   max-width: none;
-  margin: 0 auto;
+  margin: 0;
+  padding-bottom: 0;
   pointer-events: auto;
 }
 
-.application-modal-pinned .ant-modal-mask {
-  display: none;
+.application-window-frame,
+.application-modal-floating .ant-modal-content {
+  height: 100%;
+}
+
+.application-window-frame {
+  position: relative;
+}
+
+.application-modal-floating .ant-modal-content {
+  max-height: none;
+  padding-bottom: 32px;
+}
+
+.application-modal-floating .application-dialog {
+  height: 100%;
+  min-height: 0;
+}
+
+.application-modal-floating .application-dialog > .ant-alert,
+.application-modal-floating .application-dialog > .ant-steps,
+.application-modal-floating .browser-use-task-status {
+  flex-shrink: 0;
+}
+
+.application-modal-floating .embedded-business-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 160px;
+}
+
+.application-modal-floating .embedded-business-toolbar {
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.application-modal-floating .embedded-business-page iframe {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.application-modal-floating .playwright-page-preview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .application-modal-titlebar {
+  padding-left: 20px;
+  padding-right: 16px;
   cursor: grab;
   user-select: none;
+  touch-action: none;
 }
 
 .application-modal-titlebar:active {
   cursor: grabbing;
 }
+
+.application-window-handle {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border: 1px solid #c5d8da;
+  border-radius: 7px;
+  background: #f4fafa;
+  color: #245b61;
+  touch-action: none;
+  user-select: none;
+}
+
+.application-window-handle:hover,
+.application-window-handle:focus-visible {
+  background: #dff3f1;
+  border-color: #287a7e;
+  outline: 2px solid #98d3cf;
+  outline-offset: 2px;
+}
+
+.application-window-move { top: 10px; left: 10px; cursor: grab; }
+.application-window-move:active { cursor: grabbing; }
+.application-window-resize { bottom: 8px; right: 8px; cursor: nwse-resize; }
+.application-window-handle svg { width: 20px; height: 20px; fill: currentColor; }
+.application-window-frame.is-interacting { user-select: none; }
+.application-window-frame.is-interacting iframe { pointer-events: none; }
 
 .application-dialog-grid {
   display: grid;

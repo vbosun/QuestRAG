@@ -114,6 +114,12 @@ export function cancelBrowserUseTask(sessionId: string) {
 }
 
 export interface BrowserUseState {
+  task_id?: string;
+  command_id?: string;
+  page_id?: string;
+  requested_fields?: Record<string, string>;
+  field_revisions?: Record<string, number>;
+  page_sync?: { status: string; applied_fields: string[]; conflicts: string[] };
   status: string;
   events: Array<{ kind: string; message: string; at: string }>;
   result?: string | null;
@@ -121,11 +127,18 @@ export interface BrowserUseState {
   page_available?: boolean;
   control?: "agent" | "user";
   view_error?: string | null;
+  operation_events?: Array<{ sequence: number; action_id: number; phase: "started" | "applied" | "failed" | "cancelled"; field_key: string; label: string; value?: string }>;
+  form_fields?: Record<string, string>;
   live_frame?: { image: string; width: number; height: number; target?: string | null; cursor?: { x: number; y: number } | null; file_chooser: boolean } | null;
 }
 
 export function startApplicationBrowserUse(caseId: string) {
   return postJson<BrowserUseState>("/applications/browser/use/start", { case_id: caseId });
+}
+
+export function syncApplicationPage(caseId: string, state: { page_id: string; sequence: number; open: boolean;
+  fields: Record<string, string>; field_revisions: Record<string, number>; task_id?: string; conflicts?: string[]; submitted?: boolean }) {
+  return postJson("/applications/browser/use/page-state", { case_id: caseId, ...state });
 }
 
 export function getApplicationBrowserUseStatus(caseId: string) {

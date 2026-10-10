@@ -22,6 +22,7 @@ export interface ApplicationField {
 
 export interface ApplicationDetail {
   id: string;
+  page_fields?: Record<string, string>;
   business_code: string;
   definition_version: string;
   status: string;

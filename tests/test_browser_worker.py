@@ -58,3 +58,33 @@ def test_initial_navigation_keeps_task_text_out_of_url_and_prefills_only_identit
     assert 'full_name' in actions[1]["evaluate"]["code"]
     assert 'phone' not in actions[1]["evaluate"]["code"]
     assert len(worker._initial_actions(req.model_copy(update={"url": "http://mock-business:8020/another-page"}))) == 1
+
+
+def test_followup_command_starts_new_task_deduplicates_retries_and_rejects_overlap(monkeypatch):
+    async def scenario():
+        monkeypatch.setattr(worker, 'TASKS', {})
+        monkeypatch.setattr(worker, 'RUNNERS', {})
+        monkeypatch.setattr(worker, 'BROWSERS', {})
+        monkeypatch.setattr(worker, 'ALLOWED_ORIGINS', ('http://mock-business:8020',))
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def run(record, req):
+            entered.set()
+            await release.wait()
+            record.status = 'completed'
+        monkeypatch.setattr(worker, '_run_agent', run)
+        req = worker.TaskRequest(session_id='c', url='http://mock-business:8020/apply', task='first', presentation='iframe')
+        first = await worker.run_task(req)
+        await entered.wait()
+        with pytest.raises(HTTPException) as error:
+            await worker.run_task(req.model_copy(update={'command_id': 'second'}))
+        assert error.value.status_code == 409
+        release.set()
+        await asyncio.gather(*worker.RUNNERS.values())
+        assert (await worker.run_task(req))['task_id'] == first['task_id']  # reopen is not a new command
+        next_req = req.model_copy(update={'command_id': 'second', 'requested_fields': {'phone': '13800138000'}, 'page_id': 'p'})
+        second = await worker.run_task(next_req)
+        assert second['task_id'] != first['task_id']
+        assert second['requested_fields']['phone'] == '13800138000'
+        assert (await worker.run_task(next_req))['task_id'] == second['task_id']
+        await asyncio.gather(*worker.RUNNERS.values())
+    asyncio.run(scenario())

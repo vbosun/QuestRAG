@@ -72,6 +72,11 @@ TOOL_REGISTRY: dict[str, dict] = {
         "risk_level": "MEDIUM",
         "mode": "write_draft",
     },
+    "fill_application_form": {
+        "permission": "llm.tool.application_form_write",
+        "risk_level": "MEDIUM",
+        "mode": "write_draft",
+    },
     "analyze_business_page": {
         "permission": "llm.tool.business_page_configure",
         "risk_level": "LOW",

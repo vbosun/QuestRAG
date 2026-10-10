@@ -1,4 +1,5 @@
 import json
+import asyncio
 from datetime import date, datetime
 import re
 import uuid
@@ -334,24 +335,37 @@ def get_application_form(case_id: str) -> str:
         return "读取申请页面需要登录用户上下文。"
     assert_tool_permission(user, "get_application_form")
     detail = get_application_detail(user, case_id)
+    from quest_rag.applications.page_sessions import pages
+    page = pages.get(case_id, user.id)
     payload = {
         "case_id": str(detail["id"]),
         "title": detail["definition"]["name"],
         "status": detail["status"],
         "current_step": detail["current_step"],
         "fields": [
-            {key: field.get(key) for key in ("key", "label", "value", "required", "editable", "source", "sync_state")}
+            {**{key: field.get(key) for key in ("key", "label", "type", "options", "value", "required", "editable", "source", "sync_state")},
+             **({'value': page['fields'][field['key']], 'source': 'current_page'} if page and field['key'] in page['fields'] else {})}
             for field in detail["fields"]
         ],
         "materials": detail["materials"],
         "next_action": detail["next_action"],
     }
+    payload['page_open'] = bool(page and page['open'])
+    from fastapi import HTTPException
+    try:
+        pages.get(case_id, user.id, fresh=True)
+        payload['page_connected'] = True
+    except HTTPException:
+        payload['page_connected'] = False
+    if detail.get('execution_mode') == 'browser_use':
+        from quest_rag.applications.browser_use_runtime import runtime
+        payload['browser_task'] = asyncio.run(runtime.status(case_id))
     return json.dumps(payload, ensure_ascii=False, default=str)
 
 
 @tool
 def update_application_form_field(case_id: str, field_key: str, value: str) -> str:
-    """按用户明确要求填写当前申请页面的一个字段，并同步到申请草稿。"""
+    """更新申请草稿的一个字段。Browser Use 页面填写应使用 fill_application_form。"""
     user = current_user_ctx.get()
     if user is None:
         return "填写申请页面需要登录用户上下文。"
@@ -368,6 +382,8 @@ def update_application_form_field(case_id: str, field_key: str, value: str) -> s
     # dictate the visible Chinese label. Resolve the label against the current
     # business definition before persisting/syncing it.
     detail = get_application_detail(user, case_id)
+    if detail.get('execution_mode') == 'browser_use':
+        return _fill_application_form(user, case_id, [{'key': field_key, 'value': value}])
     field = next((item for item in detail["fields"] if item["key"] == field_key), None)
     if field and field.get("type") == "select":
         options = field.get("options") or []
@@ -377,6 +393,35 @@ def update_application_form_field(case_id: str, field_key: str, value: str) -> s
         value = match["value"]
     result = update_draft_field(user, case_id, field_key, value)
     return json.dumps({"updated": True, **result}, ensure_ascii=False, default=str)
+
+
+def _fill_application_form(user, case_id, fields):
+    from fastapi import HTTPException
+    from quest_rag.applications.form_filling import fill_form
+    try:
+        task = asyncio.run(fill_form(user, case_id, fields))
+    except HTTPException as error:
+        return json.dumps({'started': False, 'completed': False, 'message': error.detail}, ensure_ascii=False)
+    result = {'started': True, 'completed': False, 'case_id': str(case_id), 'task_id': task['task_id'],
+              'status': task['status'], 'requested_fields': task.get('requested_fields'),
+              'message': '填写任务已启动，弹窗将逐项高亮显示。当前尚未确认填写完成；可用 get_application_form 查询执行和页面同步结果。'}
+    remember_tool_result(user.id, 'fill_application_form', 'application_filling', result)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@tool
+def fill_application_form(case_id: str, fields: list[dict[str, str]]) -> str:
+    """按用户明确要求继续填写当前打开的申请弹窗，一次规划 1 至 12 个字段。
+
+    fields 形如 [{"key":"phone","value":"13800000000"},{"key":"occupation","value":"软件工程师"}]。
+    调用前用 get_application_form 获取当前页面字段和值。实际由 Browser Use 执行，弹窗同步高亮。
+    只返回任务启动状态，不等于填写成功，不上传材料或提交；完成须核对执行结果及页面回执。
+    """
+    user = current_user_ctx.get()
+    if user is None:
+        return '填写申请页面需要登录用户上下文。'
+    assert_tool_permission(user, 'fill_application_form')
+    return _fill_application_form(user, case_id, fields)
 
 
 @tool
@@ -526,6 +571,7 @@ tools = [
     get_application_status,
     get_application_form,
     update_application_form_field,
+    fill_application_form,
     analyze_business_page,
     save_business_page_config,
     list_business_page_configs,

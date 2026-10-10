@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
 from urllib.parse import urlparse
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, File, UploadFile
 from pydantic import BaseModel, Field
@@ -44,6 +45,12 @@ class TaskRequest(BaseModel):
     task: str = Field(min_length=1, max_length=4000)
     max_steps: int = Field(default=30, ge=1, le=100)
     profile_name: str | None = Field(default=None, max_length=120)
+    presentation: Literal["live", "iframe"] = "live"
+    command_id: str | None = None
+    initial_fields: dict[str, str] = Field(default_factory=dict)
+    requested_fields: dict[str, str] = Field(default_factory=dict)
+    page_id: str | None = None
+    field_revisions: dict[str, int] = Field(default_factory=dict)
 
 
 class TaskRecord(BaseModel):
@@ -60,6 +67,13 @@ class TaskRecord(BaseModel):
     live_frame: dict | None = None
     control: str = "agent"
     view_error: str | None = None
+    presentation: Literal["live", "iframe"] = "live"
+    operation_events: list[dict] = Field(default_factory=list)
+    form_fields: dict = Field(default_factory=dict)
+    command_id: str | None = None
+    requested_fields: dict = Field(default_factory=dict)
+    page_id: str | None = None
+    field_revisions: dict = Field(default_factory=dict)
 
 
 TASKS: dict[str, TaskRecord] = {}
@@ -87,13 +101,21 @@ async def run_task(req: TaskRequest):
     if parsed.scheme not in {"http", "https"} or ("*" not in ALLOWED_ORIGINS and origin not in ALLOWED_ORIGINS):
         raise HTTPException(status_code=403, detail=f"网页来源未加入白名单：{origin}")
     for record in reversed(list(TASKS.values())):
-        if record.session_id == req.session_id and (record.task_id in BROWSERS or record.task_id in RUNNERS):
+        if record.session_id == req.session_id and req.command_id:
+            if record.command_id == req.command_id:
+                return _public(record)
+            if record.task_id in RUNNERS:
+                raise HTTPException(409, detail="当前申请正在填写，请等待完成或停止后再修改")
+            continue
+        if record.session_id == req.session_id and (record.presentation == "iframe" or record.task_id in BROWSERS or record.task_id in RUNNERS):
             # Reopening must preserve manual edits and never launch a competing agent.
             return _public(record)
     if len(RUNNERS) >= MAX_PENDING:
         raise HTTPException(status_code=429, detail="浏览器任务队列已满，请稍后重试")
     task_id = str(uuid4())
-    record = TaskRecord(task_id=task_id, session_id=req.session_id, status="queued", url=req.url, task=req.task)
+    record = TaskRecord(task_id=task_id, session_id=req.session_id, status="queued", url=req.url, task=req.task,
+                        presentation=req.presentation, command_id=req.command_id, requested_fields=req.requested_fields,
+                        page_id=req.page_id, field_revisions=req.field_revisions)
     record.events.append(_event("queued", "已进入 Browser Use 执行队列"))
     TASKS[task_id] = record
     RUNNERS[task_id] = asyncio.create_task(_execute(task_id, req))
@@ -105,7 +127,7 @@ async def get_task(task_id: str):
     record = TASKS.get(task_id)
     if not record:
         raise HTTPException(status_code=404, detail="Browser Use 任务不存在")
-    if live := BROWSERS.get(task_id):
+    if record.presentation == "live" and (live := BROWSERS.get(task_id)):
         try:
             record.live_frame = await live.capture(record.control == "agent")
             record.view_error = None
@@ -125,7 +147,7 @@ async def cancel_task(task_id: str):
         await asyncio.gather(runner, return_exceptions=True)
         record.status = "cancelled"
     record.control = "user"
-    if task_id in BROWSERS:
+    if record.presentation == "live" and task_id in BROWSERS:
         record.live_frame = await BROWSERS[task_id].capture(False)
     return _public(record)
 
@@ -197,7 +219,12 @@ async def _execute(task_id: str, req: TaskRequest) -> None:
         record.events.append(_event("failed", record.error))
     finally:
         record.control = "user"
-        if live := BROWSERS.get(task_id):
+        if record.presentation == "iframe":
+            try:
+                await _close_browser(task_id)
+            except Exception:
+                record.view_error = "后台浏览器资源释放失败"
+        elif live := BROWSERS.get(task_id):
             try:
                 record.live_frame = await live.capture(False)
             except Exception:
@@ -206,7 +233,7 @@ async def _execute(task_id: str, req: TaskRequest) -> None:
 
 
 async def _run_agent(record: TaskRecord, req: TaskRequest) -> None:
-    from browser_use import Agent, Browser, ChatOpenAI
+    from browser_use import Agent, Browser, ChatOpenAI, Tools
     options = {"headless": True, "keep_alive": True, "window_size": {"width": 1280, "height": 900},
                "wait_between_actions": .8}
     if executable := os.environ.get("BROWSER_USE_CHROME_PATH"):
@@ -219,6 +246,38 @@ async def _run_agent(record: TaskRecord, req: TaskRequest) -> None:
         await live.connect()
         BROWSERS[record.task_id] = live
         record.page_available = True
+        from browser_use_worker.operation_feedback import OperationFeedback
+        feedback = OperationFeedback(record, live)
+        for context in live.connection.contexts:
+            await context.expose_binding("__questAgentTarget", feedback.target)
+
+        class ObservedTools(Tools):
+            async def act(self, action, *args, **kwargs):
+                if req.command_id:
+                    from browser_use.agent.views import ActionResult
+                    actions = action.model_dump(exclude_unset=True)
+                    name, params = next(iter(actions.items()))
+                    if name not in {'navigate', 'input', 'select_dropdown', 'get_dropdown_options', 'done', 'wait', 'scroll', 'extract', 'find_elements'}:
+                        return ActionResult(error='本次仅允许指定字段的 input/select_dropdown 和只读观察，禁止其他操作')
+                    if name == 'navigate' and (params.get('url') != req.url or seeded):
+                        return ActionResult(error='本次只能初始化当前申请页面，填写后不得跳转或重载')
+                    if name in {'input', 'select_dropdown'}:
+                        node = await browser.get_element_by_index(params['index'])
+                        attrs = node.attributes if node else {}
+                        key = attrs.get('name') or attrs.get('id')
+                        if key not in req.requested_fields or 'readonly' in attrs or 'disabled' in attrs:
+                            return ActionResult(error='该字段不属于本次明确要求填写的字段')
+                event_start = len(record.operation_events)
+                async def invoke():
+                    return await super(ObservedTools, self).act(action, *args, **kwargs)
+                result = await feedback.perform(action.model_dump(exclude_unset=True), invoke)
+                confirmed = {event['field_key']: event['value']
+                             for event in record.operation_events[event_start:] if event['phase'] == 'applied'}
+                if confirmed and not result.error:
+                    readback = "页面实际回读确认：" + json.dumps(confirmed, ensure_ascii=False)
+                    result.extracted_content = (result.extracted_content or "") + "\n" + readback
+                    result.long_term_memory = (result.long_term_memory or "") + "\n" + readback
+                return result
         force_structured = os.environ.get("BROWSER_USE_FORCE_STRUCTURED_OUTPUT", "true").lower() in {"1", "true", "yes"}
         base_url = os.environ.get("BROWSER_USE_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None
         llm_type = ChatOpenAI
@@ -233,18 +292,43 @@ async def _run_agent(record: TaskRecord, req: TaskRequest) -> None:
             add_schema_to_system_prompt=not force_structured,
         )
         use_vision = os.environ.get("BROWSER_USE_USE_VISION", "true").lower() in {"1", "true", "yes"}
+        planning_options = {"max_actions_per_step": 1}
+        if record.presentation == "iframe":
+            planning_options.update(
+                max_actions_per_step=12,
+                extend_system_message=(
+                    "填写申请表时，先统一规划当前页面已确认信息对应的可编辑字段，在同一轮 action 列表中"
+                    "按页面顺序给出多个字段的操作，最多 12 个动作；不要每填一个字段就结束本轮。"
+                    "每个 action 只操作一个字段，优先使用 input 和 select_dropdown，逐项执行并校验。"
+                    "evaluate 会中断当前动作队列，仅在普通输入无法操作时单独使用，"
+                    "不要用一个 evaluate 脚本同时修改多个字段。"
+                    "工具返回的‘页面实际回读确认’是执行后读取的真实字段值，可用于完成核对；"
+                    "全部已知字段回读值正确时直接单独调用 done，不必再用脚本重复核对。"
+                    "未知信息保持空白，只读字段保持原值，禁止提交、确认或下一步。"
+                    "依赖前一个选择后才出现的字段需先观察实际变化，再规划剩余字段；"
+                    "失败后先核对当前页面和已成功字段，再修正剩余动作。done 必须在填写完成后单独调用。"
+                ),
+            )
         agent = Agent(task=req.task, initial_actions=_initial_actions(req), browser=browser, llm=llm,
-                      use_vision=use_vision, max_actions_per_step=1)
+                      tools=ObservedTools() if record.presentation == "iframe" else None,
+                      use_vision=use_vision, **planning_options)
         seeded = False
         async def seed_identity(_agent):
             nonlocal seeded
-            if not seeded and req.profile_name and urlparse(req.url).path in {"/employment-registration/apply", "/unemployment-registration/apply"}:
+            if not seeded and (req.profile_name or req.initial_fields) and urlparse(req.url).path in {"/employment-registration/apply", "/unemployment-registration/apply"}:
                 # Navigation terminates Browser Use's initial action batch.
                 page = await live.page()
-                await page.evaluate("fields => window.postMessage({type:'agent-form-state',fields}, location.origin)",
-                                    {"full_name": req.profile_name})
-                await page.wait_for_function("name => document.querySelector('#full_name')?.value === name",
-                                             arg=req.profile_name, timeout=3000)
+                fields = {**req.initial_fields}
+                if req.profile_name:
+                    fields['full_name'] = req.profile_name
+                async def seed():
+                    await page.evaluate("fields => window.postMessage({type:'agent-form-state',fields,allow_empty:true}, location.origin)", fields)
+                    await page.wait_for_function("fields => Object.entries(fields).every(([key,value]) => document.querySelector('#applicationForm')?.elements.namedItem(key)?.value === value)",
+                                                 arg=fields, timeout=3000)
+                if req.command_id:
+                    await seed()  # baseline restoration is not an AI filling event
+                else:
+                    await feedback.perform({"seed_identity": {}}, seed)
                 seeded = True
                 record.events.append(_event("identity_ready", "姓名已按档案带入，正在填写其他信息"))
         history = await agent.run(max_steps=req.max_steps, on_step_start=seed_identity)

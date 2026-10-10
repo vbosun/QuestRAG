@@ -23,7 +23,10 @@
     if(!el) return;
     mount(); target=el;
     const label=(el.labels?.[0] ? Array.from(el.labels[0].childNodes).filter(n=>n.nodeType===Node.TEXT_NODE).map(n=>n.textContent).join(' ') : el.getAttribute('aria-label') || el.name || el.id || el.innerText || '页面控件').replace(/\s+/g,' ').trim().slice(0,80);
-    state.events.push({sequence:++state.sequence,kind:event.type,label});state.events=state.events.slice(-30);
+    const field_key = el.name || el.id;
+    state.events.push({sequence:++state.sequence,kind:event.type,label,field_key});state.events=state.events.slice(-30);
+    if (field_key && typeof window.__questAgentTarget === 'function')
+      window.__questAgentTarget({field_key,label}).catch(() => {});
     position();
   }
   for(const name of ['focusin','input','change','click']) document.addEventListener(name,observe,true);

@@ -83,7 +83,7 @@ export function ChatView(props: ChatViewProps) {
     | undefined;
   const [applicationOpen, setApplicationOpen] = useState(false);
   useEffect(() => {
-    if (application) setApplicationOpen(true);
+    setApplicationOpen(Boolean(application));
   }, [props.activeSession?.id, application?.artifact.case_id]);
   return (
     <section className="view-shell chat-view">
@@ -140,7 +140,7 @@ export function ChatView(props: ChatViewProps) {
             rows={1}
             value={props.inputValue}
           />
-          {application && <Button onClick={() => setApplicationOpen(true)}>查看申请页面</Button>}
+          {application && <Button aria-expanded={applicationOpen} onClick={() => setApplicationOpen((value) => !value)}>{applicationOpen ? "关闭申请页面" : "打开申请页面"}</Button>}
           <Button
             disabled={!props.inputValue.trim()}
             icon={<SendOutlined />}

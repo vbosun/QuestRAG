@@ -1,4 +1,6 @@
 import asyncio
+from pydantic import BaseModel, Field
+from fastapi import HTTPException
 from fastapi import APIRouter, Depends, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 
 from quest_rag.applications import definitions, service
@@ -11,6 +13,51 @@ from quest_rag.auth.schemas import CurrentUser
 from quest_rag.auth.service import get_current_user_from_token, AuthError
 
 router = APIRouter(prefix="/applications", tags=["APPLICATIONS"])
+
+
+class PageSnapshotRequest(BaseModel):
+    case_id: str
+    page_id: str = Field(min_length=1, max_length=120)
+    sequence: int = Field(ge=0)
+    open: bool = True
+    submitted: bool = False
+    fields: dict[str, str] = Field(default_factory=dict)
+    field_revisions: dict[str, int] = Field(default_factory=dict)
+    task_id: str | None = None
+    conflicts: list[str] = Field(default_factory=list)
+
+
+@router.post('/browser/use/page-state')
+async def sync_application_page(req: PageSnapshotRequest, current_user: CurrentUser = Depends(require_permission('application.case.edit_self'))):
+    from quest_rag.applications.page_sessions import pages
+    detail = service.get_application_detail(current_user, req.case_id)
+    allowed = {f['key']: f for f in detail['fields'] if f.get('type') != 'file'}
+    if len(req.fields) > 40 or any(key not in allowed or len(value) > 2000 for key, value in req.fields.items()):
+        raise HTTPException(422, detail='页面字段无效')
+    if any(key not in allowed or revision < 0 for key, revision in req.field_revisions.items()):
+        raise HTTPException(422, detail='字段版本无效')
+    for key in req.fields:
+        if not allowed[key].get('editable', True):
+            req.fields[key] = str(allowed[key].get('value') or '')
+    state = pages.update(req.case_id, current_user.id, req.model_dump())
+    # Persist only valid, changed values from the actual page. Partial/invalid edits
+    # remain in the live snapshot, including deliberate clears, never inferred as filled.
+    if state['page_id'] == req.page_id and state['sequence'] == req.sequence:
+        previous = {f['key']: f.get('value') for f in detail['fields']}
+        for key, value in state['fields'].items():
+            if not allowed[key].get('editable', True) or previous[key] == value:
+                continue
+            try:
+                service.update_draft_field(current_user, req.case_id, key, value)
+            except HTTPException as error:
+                if error.status_code != 422:
+                    raise
+        if not req.open and browser_use_runtime.owns(req.case_id, current_user.id):
+            try:
+                await browser_use_runtime.cancel(req.case_id)
+            except HTTPException:
+                pass  # Closed-page state remains authoritative even if worker is unavailable.
+    return {'connected': state['open'], 'sequence': state['sequence']}
 
 
 @router.post("/definitions/list")
@@ -30,7 +77,12 @@ def list_application_cases(current_user: CurrentUser = Depends(require_permissio
 
 @router.post("/cases/get")
 def get_application_case(req: CaseIdRequest, current_user: CurrentUser = Depends(require_permission("application.case.read_self"))):
-    return service.get_application_detail(current_user, req.case_id)
+    from quest_rag.applications.page_sessions import pages
+    detail = service.get_application_detail(current_user, req.case_id)
+    page = pages.get(req.case_id, current_user.id)
+    if page:
+        detail['page_fields'] = page['fields']
+    return detail
 
 
 @router.post("/drafts/update-field")
@@ -79,7 +131,8 @@ async def start_application_browser_use(req: BrowserConnectRequest, current_user
     supplied = ", ".join(f"{field['label']}={field['value']}" for field in detail["fields"] if field.get("editable", True) and field.get("value") not in (None, "")) or "暂无已知字段值"
     task = f"识别申请表单。将以下已确认信息填写到对应可编辑字段：{supplied}。只读字段由系统带入，请保持原值，禁止清空、输入或通过脚本修改只读字段。仅填写和校验，不要点击提交、确认、下一步或产生任何不可逆操作。"
     profile_name = next((field["value"] for field in detail["fields"] if field["key"] == "full_name"), None)
-    return await browser_use_runtime.run(req.case_id, connection["entry_url"], task, profile_name=profile_name)
+    return await browser_use_runtime.run(req.case_id, connection["entry_url"], task, profile_name=profile_name,
+                                         presentation="iframe")
 
 
 @router.post("/browser/use/status")
