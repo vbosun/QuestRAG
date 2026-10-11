@@ -223,6 +223,12 @@ __marimo__/
 .idea
 /.cursor/
 /.codegraph/
+/data/mock-business/
+/output/business-admin-credentials.txt
+/output/mock-approval-*/
+/tmp/mock-approval-local/
+/tmp/status-verification.json
+/output/business-status/
 web/node_modules/
 web/dist/
 /deploy/tokenizer/*.json

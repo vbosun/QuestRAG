@@ -319,7 +319,11 @@ def subsidy_calculate(policy_id: str, user_inputs: dict | None = None) -> str:
 
 @tool
 def get_application_status(case_id: str) -> str:
-    """查询当前登录用户自己的办事申请状态和下一步。只读取申请状态，不会打开网页、填写或提交。"""
+    """查询本人申请在独立业务系统中的实时审批进度、申请编号、审批时间和意见。
+
+    case_id 使用 QuestRAG 申请 UUID，不是 MOCK 回执编号。返回待审批、已通过或已驳回；
+    无关联回执或服务暂不可用时不能推断为未提交、通过或驳回。查询不会打开、填写或提交页面。
+    """
     user = current_user_ctx.get()
     if user is None:
         return "办事申请查询需要登录用户上下文。"
@@ -329,12 +333,18 @@ def get_application_status(case_id: str) -> str:
 
 @tool
 def get_application_form(case_id: str) -> str:
-    """读取当前已接入申请页面的结构化字段、填写值和下一步，不读取用户其他屏幕内容。"""
+    """读取本人申请。已提交时返回业务系统实际进度与材料接收记录；未确认提交时读取草稿与当前页面，不能据草稿附件缺失断言材料未上传。"""
     user = current_user_ctx.get()
     if user is None:
         return "读取申请页面需要登录用户上下文。"
     assert_tool_permission(user, "get_application_form")
     detail = get_application_detail(user, case_id)
+    from quest_rag.applications import business_status
+    progress = json.loads(business_status.lookup(detail))
+    if progress['status'] in business_status.LABELS:
+        # Do not mix authoritative submitted records with stale draft fields,
+        # upload prompts or browser connection/task state.
+        return json.dumps(progress, ensure_ascii=False, default=str)
     from quest_rag.applications.page_sessions import pages
     page = pages.get(case_id, user.id)
     payload = {
@@ -347,9 +357,15 @@ def get_application_form(case_id: str) -> str:
              **({'value': page['fields'][field['key']], 'source': 'current_page'} if page and field['key'] in page['fields'] else {})}
             for field in detail["fields"]
         ],
-        "materials": detail["materials"],
+        "materials": [{"key": item['key'], "label": item['label'], "status": "unknown",
+                       "message": "业务系统材料接收状态未确认，草稿附件记录不能证明材料未上传。"}
+                      for item in detail["materials"]],
         "next_action": detail["next_action"],
     }
+    payload['business_status'] = progress
+    payload['guidance'] = '以下为草稿及页面状态，不代表已提交申请的材料或审批状态。页面关闭不影响已提交申请；仅继续填写时才需要打开页面。'
+    if payload['next_action'].get('code') == 'UPLOAD_MATERIALS':
+        payload['next_action'] = {'code': 'CHECK_MATERIALS', 'message': '材料接收状态尚未确认，请以业务系统查询结果为准。'}
     payload['page_open'] = bool(page and page['open'])
     from fastapi import HTTPException
     try:

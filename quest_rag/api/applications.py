@@ -85,6 +85,17 @@ def get_application_case(req: CaseIdRequest, current_user: CurrentUser = Depends
     return detail
 
 
+@router.post("/cases/business-link")
+def prepare_business_link(req: CaseIdRequest, current_user: CurrentUser = Depends(require_permission("application.case.read_self"))):
+    import json
+    from quest_rag.applications import store, business_status
+    case = service._require_case(current_user, req.case_id)
+    link = store.ensure_business_link(req.case_id)
+    progress = json.loads(business_status.lookup(case))
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"case_id": str(link["case_id"]), "token": link["query_token"], "progress_status": progress['status']}, headers={"Cache-Control": "no-store"})
+
+
 @router.post("/drafts/update-field")
 def update_application_draft_field(req: DraftFieldUpdateRequest, current_user: CurrentUser = Depends(require_permission("application.case.edit_self"))):
     return service.update_draft_field(current_user, req.case_id, req.field_key, req.value, req.expected_revision)

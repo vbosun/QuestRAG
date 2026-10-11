@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>人社公共服务 · 模拟业务系统</title><link rel="stylesheet" href="/business/portal.css"></head>
+<body>
+<header class="topbar"><a class="brand" href="/business/"><span class="mark">人社</span><span>人社公共服务<small>就业服务 · 模拟业务系统</small></span></a><nav aria-label="主导航"><a href="/business/" data-nav="home">业务首页</a><a href="/business/query" data-nav="query">结果查询</a><a href="/business/admin" data-nav="admin">审批工作台</a></nav></header>
+<main id="app" aria-live="polite"><p class="empty">正在加载…</p></main>
+<footer>模拟业务演示环境 · 仅供功能体验</footer>
+<dialog id="detail" aria-labelledby="detailTitle"><div id="detailBody"></div></dialog>
+<dialog id="passwordDialog" aria-labelledby="passwordTitle"><div class="dialog-head"><h2 id="passwordTitle">修改审批密码</h2><button class="icon secondary" data-close="passwordDialog" aria-label="关闭">×</button></div><form id="passwordForm" class="dialog-content"><label>当前密码<input type="password" name="current_password" required autocomplete="current-password"></label><label>新密码<input type="password" name="new_password" minlength="12" maxlength="200" required autocomplete="new-password" placeholder="至少12个字符"></label><p id="passwordError" class="error" role="alert"></p><button type="submit">保存并重新登录</button></form></dialog>
+<script src="/business/portal.js"></script></body></html>

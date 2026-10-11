@@ -103,6 +103,7 @@ def main():
                 result['page_fields'] = snapshot['fields']
             fulfill(route, result)
         page.route('**/applications/cases/get', get_detail)
+        page.route('**/applications/cases/business-link', lambda route: fulfill(route, {'case_id':case, 'token':'a' * 43}))
         page.route('**/applications/browser/use/start', lambda route: fulfill(route, state))
         page.route('**/applications/browser/use/status', lambda route: fulfill(route, arun(runtime.status(case))))
         page.route('**/applications/browser/use/cancel', lambda route: fulfill(route, arun(runtime.cancel(case))))

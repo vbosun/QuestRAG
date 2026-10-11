@@ -38,7 +38,7 @@ const starterQuestions = [
   {
     icon: <GoldOutlined />,
     title: "办理就业登记",
-    question: "我要办理就业登记，请帮我发起申请并直接弹出表单，带入我的已有信息。",
+    question: "我要办理就业登记，请帮我发起申请，带入我的已有信息。",
   },
   {
     icon: <WalletOutlined />,
@@ -63,6 +63,7 @@ const starterQuestions = [
 ];
 
 interface ChatViewProps {
+  applicationOpenRequest?: { id: string; sessionId: string; caseId: string };
   activeSession?: Session;
   documents: DocumentInfo[];
   inputValue: string;
@@ -82,9 +83,20 @@ export function ChatView(props: ChatViewProps) {
     | { type: "application"; artifact: ApplicationArtifact }
     | undefined;
   const [applicationOpen, setApplicationOpen] = useState(false);
+  const handledOpenRequest = useRef<string | undefined>(undefined);
   useEffect(() => {
-    setApplicationOpen(Boolean(application));
+    setApplicationOpen(false);
   }, [props.activeSession?.id, application?.artifact.case_id]);
+  useEffect(() => {
+    const request = props.applicationOpenRequest;
+    if (!request || handledOpenRequest.current === request.id) return;
+    // Consume live events once, including events for a conversation left in the background.
+    // Loading history or switching back must never replay an old open request.
+    handledOpenRequest.current = request.id;
+    if (request.sessionId === props.activeSession?.id && request.caseId === application?.artifact.case_id) {
+      setApplicationOpen(true);
+    }
+  }, [props.applicationOpenRequest, props.activeSession?.id, application?.artifact.case_id]);
   return (
     <section className="view-shell chat-view">
       <aside className="session-panel">
@@ -329,7 +341,7 @@ function MessagePartView({
 }) {
   if (part.type === "chart") return <ChartCard artifact={part.artifact} />;
   if (part.type === "report") return <ReportCard artifact={part.artifact} />;
-  if (part.type === "application") return <Tag color="cyan">已发起申请，可通过下方“查看申请页面”继续办理</Tag>;
+  if (part.type === "application") return <Tag color="cyan">已发起申请，可通过下方“打开申请页面”继续办理</Tag>;
   const citationMap = new Map(citations.map((citation) => [citation.label, citation]));
   return (
     <div className="markdown-body">

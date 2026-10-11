@@ -286,10 +286,12 @@ function ChatPage() {
   const [documentError, setDocumentError] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [sending, setSending] = useState(false);
+  const sendInFlight = useRef(false);
+  const [applicationOpenRequest, setApplicationOpenRequest] = useState<{ id: string; sessionId: string; caseId: string }>();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const activeSession = useMemo(
-    () => sessions.find((s) => s.id === activeSessionId) || sessions[0],
+    () => sessions.find((s) => s.id === activeSessionId),
     [activeSessionId, sessions],
   );
 
@@ -311,20 +313,10 @@ function ChatPage() {
   async function refreshConversations() {
     try {
       const data = await listChatConversations({ page: 1, page_size: 30 });
-      if (!data.items.length) {
-        const created = await createChatConversation();
-        const session = conversationDetailToSession(created);
-        setSessions([session]);
-        setActiveSessionId(session.id);
-        return;
-      }
       const listSessions = data.items.map(conversationListItemToSession);
-      setSessions(listSessions);
-      const firstId = listSessions[0]?.id;
-      if (firstId) {
-        setActiveSessionId(firstId);
-        await loadConversation(firstId);
-      }
+      // Listing history must not select a conversation or replace work started
+      // while this request was in flight.
+      setSessions((current) => [...current, ...listSessions.filter((item) => !current.some((session) => session.id === item.id))]);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "读取会话失败");
     }
@@ -345,6 +337,7 @@ function ChatPage() {
     const session = conversationDetailToSession(created);
     setSessions((current) => [session, ...current]);
     setActiveSessionId(session.id);
+    return session;
   }
 
   async function removeSession(id: string) {
@@ -398,8 +391,20 @@ function ChatPage() {
 
   async function sendMessage() {
     const text = inputValue.trim();
-    const session = activeSession;
-    if (!text || !session || sending) return;
+    let session = activeSession;
+    if (!text || sending || sendInFlight.current) return;
+    sendInFlight.current = true;
+    setSending(true);
+    if (!session) {
+      try {
+        session = await createSession();
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : "创建会话失败，请重试");
+        setSending(false);
+        sendInFlight.current = false;
+        return;
+      }
+    }
 
     const userMessage: ChatMessage = { id: createClientId(), role: "user", content: text };
     const assistantId = createClientId();
@@ -411,6 +416,13 @@ function ChatPage() {
       status: "正在准备回答...",
     };
     const nextMessages = [...session.messages, userMessage, assistantMessage];
+    let streamedRaw = "";
+    const announcedApplications = new Set<string>();
+    const requestApplicationOpen = (caseId: string) => {
+      if (announcedApplications.has(caseId)) return;
+      announcedApplications.add(caseId);
+      setApplicationOpenRequest({ id: `${assistantId}:${caseId}`, sessionId: session.id, caseId });
+    };
 
     setInputValue("");
     setSending(true);
@@ -427,13 +439,18 @@ function ChatPage() {
         (event) => {
           if (event.event === "meta") { setActiveSessionId(event.data.session_id); return; }
           if (event.event === "delta") {
+            streamedRaw += event.data.text;
+            const parsed = parseStreamingMessageParts(streamedRaw);
+            for (const part of parsed.parts) {
+              if (part.type === "application") requestApplicationOpen(part.artifact.case_id);
+            }
             updateAssistantMessage(session.id, assistantId, (current) => {
-              const raw = `${current.raw || ""}${event.data.text}`;
-              const parsed = parseStreamingMessageParts(raw);
               return {
                 ...current,
-                raw,
-                parts: parsed.parts,
+                raw: streamedRaw,
+                parts: [...parsed.parts, ...(current.parts || []).filter((part) =>
+                  part.type === "application" && !parsed.parts.some((parsedPart) =>
+                    parsedPart.type === "application" && parsedPart.artifact.case_id === part.artifact.case_id))],
                 status: parsed.bufferingArtifact ? "正在生成图表..." : undefined,
               };
             });
@@ -448,6 +465,9 @@ function ChatPage() {
               ...current,
               parts: [...(current.parts || []), artifactToPart(event.data)],
             }));
+            if (event.data.type === "application") {
+              requestApplicationOpen(event.data.case_id);
+            }
             return;
           }
           if (event.event === "sources") {
@@ -477,6 +497,7 @@ function ChatPage() {
       }));
     } finally {
       setSending(false);
+      sendInFlight.current = false;
     }
   }
 
@@ -491,6 +512,7 @@ function ChatPage() {
   return (
     <ChatView
       activeSession={activeSession}
+      applicationOpenRequest={applicationOpenRequest}
       documents={documents}
       inputValue={inputValue}
       messagesEndRef={messagesEndRef}

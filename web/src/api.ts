@@ -69,6 +69,10 @@ export function getApplicationCase(caseId: string): Promise<ApplicationDetail> {
   return postJson<ApplicationDetail>("/applications/cases/get", { case_id: caseId });
 }
 
+export function prepareApplicationBusinessLink(caseId: string): Promise<{ case_id: string; token: string; progress_status?: string }> {
+  return postJson("/applications/cases/business-link", { case_id: caseId });
+}
+
 export function updateApplicationDraftField(caseId: string, fieldKey: string, value: unknown, expectedRevision: number) {
   return postJson<{ field_key: string; value: unknown; source: string; revision: number; sync_state: "pending" | "synced" }>("/applications/drafts/update-field", { case_id: caseId, field_key: fieldKey, value, expected_revision: expectedRevision });
 }

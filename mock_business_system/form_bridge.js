@@ -7,6 +7,7 @@ const dirtyFields = new Set();
 let parentOrigin = null;
 let appliedCount = 0;
 let submitted = false;
+let submitting = false;
 let activeTask = null;
 let lastSequence = 0;
 let taskFinished = false;
@@ -96,15 +97,24 @@ for (const eventType of ['input', 'change']) {
   });
 }
 
+window.addEventListener('business-submitted', () => {
+  submitted = true;
+  acknowledge();
+});
+
 window.addEventListener('message', event => {
   if (!allowedParents.has(event.origin) || event.source !== window.parent) return;
+  if (event.data?.type === 'agent-business-link') {
+    window.businessSubmission?.setLink(event.data.link);
+    return;
+  }
   if (event.data?.type === 'agent-form-snapshot-request') {
     parentOrigin = event.origin;
     pageId = event.data.page_id;
     acknowledge();
     return;
   }
-  if (event.data?.type === 'agent-form-restore' && !activeTask) {
+  if (event.data?.type === 'agent-form-restore' && !activeTask && !submitted) {
     parentOrigin = event.origin;
     applyFields(event.data.fields, true);
     for (const key of Object.keys(event.data.fields || {})) dirtyFields.add(key);
@@ -170,23 +180,29 @@ window.addEventListener('message', event => {
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (agentRunning) return;
+  if (agentRunning || submitting || submitted) return;
   if (!form.reportValidity()) return;
   const button = form.querySelector('button[type="submit"]');
   button.disabled = true;
+  submitting = true;
   agentStatus.textContent = '正在提交到模拟业务系统…';
   try {
     const business = location.pathname.startsWith('/unemployment-registration/')
       ? 'unemployment-registration' : 'employment-registration';
-    const response = await fetch(`/api/${business}/submit`, {method: 'POST', body: new FormData(form)});
+    const body = new FormData(form);
+    window.businessSubmission?.prepare(body);
+    const response = await fetch(`/api/${business}/submit`, {method: 'POST', body});
     const result = await response.json();
-    if (!response.ok) throw new Error('提交失败，请核对信息后重试。');
+    if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : '提交失败，请核对信息后重试。');
     submitted = true;
     acknowledge();
-    agentStatus.textContent = `${result.message} 申请编号：${result.application_no}`;
+    agentStatus.textContent = '申请成功，等待审批。';
+    window.businessSubmission?.showReceipt(result);
     if (parentOrigin) window.parent.postMessage({type: 'mock-business-submitted', message: agentStatus.textContent}, parentOrigin);
   } catch (error) {
     agentStatus.textContent = error instanceof Error ? error.message : '提交失败，请稍后重试。';
     button.disabled = false;
+  } finally {
+    submitting = false;
   }
 });

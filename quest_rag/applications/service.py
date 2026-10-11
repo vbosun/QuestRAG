@@ -208,8 +208,9 @@ def submit_application(user: CurrentUser, case_id: str) -> dict:
 
 
 def agent_application_summary(user: CurrentUser, case_id: str) -> str:
-    detail = get_application_detail(user, case_id)
-    return f"申请 {detail['definition']['name']} 当前处于 {detail['current_step']}；{detail['next_action']['message']}"
+    from quest_rag.applications.business_status import lookup
+    case = _require_case(user, case_id)
+    return lookup(case)
 
 
 def _require_case(user: CurrentUser, case_id: str) -> dict:

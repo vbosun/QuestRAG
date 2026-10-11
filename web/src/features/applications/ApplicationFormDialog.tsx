@@ -1,7 +1,7 @@
 import { Alert, App, Button, Modal, Spin, Space, Steps, Tag, Typography } from "antd";
 import React from "react";
 import { useEffect, useRef, useState } from "react";
-import { cancelApplicationBrowserUse, connectApplicationBrowser, getApplicationBrowserUseStatus, getApplicationCase, startApplicationBrowserUse, syncApplicationPage } from "../../api";
+import { cancelApplicationBrowserUse, connectApplicationBrowser, getApplicationBrowserUseStatus, getApplicationCase, prepareApplicationBusinessLink, startApplicationBrowserUse, syncApplicationPage } from "../../api";
 import { createClientId } from "../../clientId";
 import { BrowserVideoSurface } from "./BrowserVideoSurface";
 import type { BrowserUseState } from "../../api";
@@ -39,6 +39,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
   const [bounds, setBounds] = useState<WindowBounds>(initialWindow);
   const [interacting, setInteracting] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const businessLinkRef = useRef<{ case_id: string; token: string } | null>(null);
   const takeoverRef = useRef(false);
   const stoppedTaskRef = useRef<string | undefined>(undefined);
   const pageIdRef = useRef(createClientId());
@@ -61,16 +62,20 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
       stoppedTaskRef.current = undefined;
       pageIdRef.current = createClientId();
       lastSnapshotRef.current = null;
+      businessLinkRef.current = null;
       setPageSyncError("");
       setTakingOver(false);
       setFillStage("reading");
       setSubmissionMessage("");
       setEmbeddedMissing(null);
       try {
-        const result = await getApplicationCase(caseId);
+        const [result, link] = await Promise.all([getApplicationCase(caseId), prepareApplicationBusinessLink(caseId)]);
         if (!active) return;
+        businessLinkRef.current = link;
+        const alreadySubmitted = ["PENDING", "APPROVED", "REJECTED"].includes(link.progress_status || "");
+        if (alreadySubmitted) setSubmissionMessage("申请已提交，最新办理状态见下方。");
         setDetail(result);
-        if (result.execution_mode === "playwright") {
+        if (!alreadySubmitted && result.execution_mode === "playwright") {
           try {
             await connectApplicationBrowser(caseId);
             if (active) { setBrowserReady(true); setFillStage("filled"); }
@@ -78,7 +83,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
             if (active) { setFillStage("failed"); message.warning(error instanceof Error ? error.message : "浏览器连接失败"); }
           }
         }
-        if (result.execution_mode === "browser_use") {
+        if (!alreadySubmitted && result.execution_mode === "browser_use") {
           try {
             const task = await startApplicationBrowserUse(caseId);
             if (active) setBrowserUse(task);
@@ -95,6 +100,17 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
     void load();
     return () => { active = false; };
   }, [caseId, message, open]);
+
+  useEffect(() => {
+    if (!open || !detail) return;
+    const sendLink = () => {
+      const link = businessLinkRef.current;
+      if (link?.case_id === caseId) iframeRef.current?.contentWindow?.postMessage({ type: "agent-business-link", link }, mockBusinessOrigin());
+    };
+    sendLink();
+    const timer = window.setInterval(sendLink, 1000);
+    return () => window.clearInterval(timer);
+  }, [caseId, detail?.id, open]);
 
   useEffect(() => {
     if (!open || detail?.execution_mode !== "browser_use") return;
@@ -126,6 +142,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
     function onEmbeddedSubmit(event: MessageEvent) {
       if (!open || event.origin !== mockBusinessOrigin() || event.source !== iframeRef.current?.contentWindow) return;
       if (event.data?.type === "agent-form-applied") {
+        if (event.data.submitted) setSubmissionMessage("申请已提交，最新办理状态见下方。");
         setFillStage(event.data.applied_count > 0 ? "filled" : "empty");
         if (Array.isArray(event.data.missing_required_labels)) setEmbeddedMissing(event.data.missing_required_labels);
         if (detail?.execution_mode === "browser_use" && event.data.page_id === pageIdRef.current && event.data.fields) {
@@ -301,11 +318,11 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
     </div>}
   >
     {loading ? <div className="application-dialog-loading"><Spin /></div> : loadError ? <Alert type="error" showIcon message="申请页面读取失败" description={loadError} /> : !detail ? null : <div className="application-dialog">
-      <Alert type={bannerType} showIcon message={bannerMessage} description={isBrowserUse ? undefined : detail.execution_notice || undefined} />
-      <Steps size="small" current={currentStep} items={detail.definition.steps.map((step) => ({ title: step.name }))} />
+      {!submissionMessage && <Alert type={bannerType} showIcon message={bannerMessage} description={isBrowserUse ? undefined : detail.execution_notice || undefined} />}
+      {!submissionMessage && <Steps size="small" current={currentStep} items={detail.definition.steps.map((step) => ({ title: step.name }))} />}
       <div className="embedded-business-page">
-        <div className="embedded-business-toolbar"><Tag color={detail.execution_mode === "playwright" ? "blue" : isBrowserUse ? "purple" : "green"}>{detail.execution_mode === "playwright" ? "Playwright 实时浏览器页面" : "业务表单"}</Tag><Text type="secondary">{detail.execution_mode === "playwright" ? "Agent 通过受控浏览器观察并操作，过程实时展示" : isBrowserUse ? "AI 填写结果同步到表单，您可直接核对和修改" : "页面已嵌入当前对话，可直接核对和填写"}</Text>{isBrowserUse && browserUseRunning ? <Button size="small" loading={takingOver} onClick={() => void takeOver()}>停止并接管</Button> : null}</div>
-        {detail.execution_mode === "playwright" ? (
+        {!submissionMessage && <div className="embedded-business-toolbar"><Tag color={detail.execution_mode === "playwright" ? "blue" : isBrowserUse ? "purple" : "green"}>{detail.execution_mode === "playwright" ? "Playwright 实时浏览器页面" : "业务表单"}</Tag><Text type="secondary">{detail.execution_mode === "playwright" ? "Agent 通过受控浏览器观察并操作，过程实时展示" : isBrowserUse ? "AI 填写结果同步到表单，您可直接核对和修改" : "页面已嵌入当前对话，可直接核对和填写"}</Text>{isBrowserUse && browserUseRunning ? <Button size="small" loading={takingOver} onClick={() => void takeOver()}>停止并接管</Button> : null}</div>}
+        {detail.execution_mode === "playwright" && !submissionMessage ? (
           <div className="playwright-page-preview">
             {browserReady ? <BrowserVideoSurface sessionId={caseId} /> : <Spin />}
             <Text type="secondary">这是后端 Playwright 的连续视频画面。点击视频后可直接操作页面，键盘输入和滚轮事件会回传到同一浏览器会话。</Text>
@@ -319,7 +336,7 @@ export function ApplicationFormDialog({ caseId, title, open, onClose }: { caseId
           if (isBrowserUse) sendBrowserUseProgress(browserUse, iframeRef.current);
         }} />}
       </div>
-      {isBrowserUse ? <div className="browser-use-task-status" aria-live="polite">
+      {isBrowserUse && !submissionMessage ? <div className="browser-use-task-status" aria-live="polite">
         <Space size="small"><Tag color={browserUse.status === "completed" ? completionLabel === "操作完成" ? "success" : "warning" : browserUse.status === "failed" ? "error" : browserUse.status === "cancelled" ? "default" : "processing"}>{browserUse.status === "queued" ? "等待执行" : browserUse.status === "running" ? "正在操作" : browserUse.status === "completed" ? completionLabel : browserUse.status === "cancelled" ? "已停止" : browserUse.status === "idle" ? "准备执行" : "执行异常"}</Tag><Text type="secondary">{browserUseRunning && latestOperation ? `AI 操作目标：${latestOperation.label}` : latestBrowserUseEvent?.message || "正在准备页面"}</Text></Space>
         {browserUse.events.length > 1 ? <div className="browser-use-events">{browserUse.events.map((event) => <div key={`${event.at}-${event.kind}`}>• {event.message}</div>)}</div> : null}
         {browserUse.error ? <Text type="danger">{browserUse.error}</Text> : null}

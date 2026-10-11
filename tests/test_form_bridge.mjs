@@ -14,6 +14,7 @@ function fixture(origin = 'http://127.0.0.1:8020') {
   const formEvents = {};
   const windowEvents = {};
   const messages = [];
+  const links = [];
   const status = {textContent: ''};
   const button = {disabled: false};
   const parent = {postMessage: (payload, origin) => messages.push({payload, origin})};
@@ -28,7 +29,7 @@ function fixture(origin = 'http://127.0.0.1:8020') {
   };
   vm.runInNewContext(source, {
     document: {querySelector: selector => selector === '#applicationForm' ? form : status},
-    window: {parent, addEventListener: (type, handler) => {windowEvents[type] = handler;}},
+    window: {parent, businessSubmission: {setLink: link => links.push(link)}, addEventListener: (type, handler) => {windowEvents[type] = handler;}},
     location: {pathname: '/employment-registration/apply', origin},
     FormData: class {},
     fetch: async () => {requests++; return {ok: true, json: async () => ({message: 'received', application_no: 'demo'})};},
@@ -36,8 +37,21 @@ function fixture(origin = 'http://127.0.0.1:8020') {
   const supply = (fields, origin = 'http://127.0.0.1:5173', source = parent) => windowEvents.message({origin, source, data: {type: 'agent-form-state', fields}});
   const progress = (data, origin = 'http://127.0.0.1:5173', source = parent) => windowEvents.message({origin, source, data: {type: 'agent-form-progress', task_id: 't', ...data}});
   const snapshot = (page_id = 'p') => windowEvents.message({origin: 'http://127.0.0.1:5173', source: parent, data: {type: 'agent-form-snapshot-request', page_id}});
-  return {inputs, formEvents, supply, progress, snapshot, messages, parent, status, button, requests: () => requests};
+  const link = (value, origin = 'http://127.0.0.1:5173', source = parent) => windowEvents.message({origin, source, data: {type:'agent-business-link', link:value}});
+  return {restored: () => windowEvents["business-submitted"](), inputs, formEvents, supply, progress, snapshot, messages, links, link, parent, status, button, requests: () => requests};
 }
+
+test('business capability handoff accepts only the authorized parent and is not echoed in snapshots', () => {
+  const f = fixture();
+  const value = {case_id:'synthetic-case', token:'fixture-token'};
+  f.link(value, 'https://untrusted.example');
+  f.link(value, 'http://127.0.0.1:5173', {});
+  assert.equal(f.links.length, 0);
+  f.link(value);
+  assert.equal(f.links.length, 1);
+  f.snapshot();
+  assert.ok(!JSON.stringify(f.messages).includes('fixture-token'));
+});
 
 test('prefill acknowledgement reports missing fields and never submits', () => {
   const f = fixture();
@@ -178,4 +192,16 @@ test('a new explicit command can be discovered before the previous terminal poll
   assert.equal(f.inputs.find(i => i.id === 'phone').value, '');
   f.progress({...next, page_id: 'p'});
   assert.equal(f.inputs.find(i => i.id === 'phone').value, 'new');
+});
+
+ test('restored submitted progress rejects late filling and never resubmits', async () => {
+  const f = fixture();
+  f.supply({full_name:'Demo',phone:'13800138000',occupation:'original',proof:'fixture'});
+  f.restored();
+  f.progress({status:'running', fields:{occupation:'late'}});
+  f.snapshot();
+  assert.equal(f.inputs.find(input => input.id === 'occupation').value, 'original');
+  assert.equal(f.messages.at(-1).payload.submitted, true);
+  await f.formEvents.submit({preventDefault(){}});
+  assert.equal(f.requests(), 0);
 });

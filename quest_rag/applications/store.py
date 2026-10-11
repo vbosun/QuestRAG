@@ -90,6 +90,32 @@ def init_application_db() -> None:
         """)
 
 
+    init_business_link_db()
+
+
+def init_business_link_db() -> None:
+    with get_conn() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS application_business_link (
+            case_id UUID PRIMARY KEY REFERENCES application_case(id) ON DELETE CASCADE,
+            query_token TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )""")
+
+
+def ensure_business_link(case_id: str) -> dict:
+    import secrets
+    with get_conn() as conn:
+        # Concurrent page opens must receive the same durable capability.
+        return conn.execute("""INSERT INTO application_business_link (case_id, query_token)
+            VALUES (%s, %s) ON CONFLICT (case_id) DO UPDATE SET case_id=EXCLUDED.case_id
+            RETURNING case_id, query_token""", (case_id, secrets.token_urlsafe(32))).fetchone()
+
+
+def get_business_link(case_id: str) -> dict | None:
+    with get_conn() as conn:
+        return conn.execute("SELECT case_id, query_token FROM application_business_link WHERE case_id=%s", (case_id,)).fetchone()
+
+
 def create_case(user_id: int, business_code: str, version: str, status: str, step: str) -> dict:
     case_id = str(uuid.uuid4())
     with get_conn() as conn:
