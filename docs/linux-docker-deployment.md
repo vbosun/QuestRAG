@@ -197,3 +197,12 @@ SQLite 路径由 `MOCK_BUSINESS_DB` 配置，Compose 使用 `/app/data/mock-busi
 2026-10-11 新申请自动弹窗修复：上一轮默认关闭范围过大，本轮仅在聊天实时返回申请时产生一次性打开请求，支持artifact事件及delta中的申请内容；历史加载/刷新/切回会话不重放事件，关闭后同轮后续文字不重弹。保留显式申请事件，不被后续delta覆盖。前端构建及真实浏览器合成接口验证两种返回路径、新申请自动打开、历史会话不弹、关闭切回不重弹通过；未调用真实模型或测试申请填写全链路。仅部署web，线上资源SHA256与本地一致。
 
 回退源码：/tmp/questrag-application-auto-open-20261011T035651Z.tar.gz；回退镜像：questrag-rollback-web:application-auto-open-20261011t035651z；构建日志：/tmp/questrag-application-auto-open-20261011T035651Z-build.log。线上资源index-uTB7oClh.js，保留环境配置及数据卷。
+
+
+### 2026-10-11 填写速度与可见节奏
+
+2026-10-11 填写耗时优化：用户确认保留逐字段可见节奏，已知就业/失业iframe表单动作间隔由0.8降到0.6秒；保留批量动作规划、逐项真实回读、done确认、失败中断与人工修改保护，关闭额外完成后judge评分和冗长思考字段，DeepSeek JSON模式显式关闭thinking；其他页面/live模式不变。相同六字段真实DeepSeek+Chromium合成测试：优化前35.38秒，优化后25.30/19.07秒，均全部回读匹配且无提交；两次优化后模型调用为5/2次，不保证固定次数或平均耗时。18项Python、worker内3项适配器测试、12项Node、前端构建及真实Chromium失败中断/续填保留人工值通过。只更新worker，运行源码SHA256一致，四服务健康；未测真实用户从聊天发起到前端填写结束的全链路。
+
+同条件测量明细见docs/form-filling-timing-2026-10-11.json。优化前模型规划3.47秒、done 9.02秒、judge 5.82秒；优化后第二轮规划1.87秒、done 1.43秒，首次到最后字段回读3.96秒；第一轮因下拉框重复核对增加模型调用，未隐藏该波动。关闭thinking使用DeepSeek官方extra_body参数：https://api-docs.deepseek.com/guides/thinking_mode/ 。本次未复用浏览器或降低页面/动作校验，不把任务完成当作申请提交。
+
+源码备份/tmp/questrag-fill-speed-20261011T041327Z.tar.gz；回退镜像questrag-rollback-browser-worker:fill-speed-20261011t041327z；构建日志/tmp/questrag-fill-speed-20261011T041327Z-build.log。部署前检查worker无活动任务，保留.env.compose及数据卷，其他服务未重启。

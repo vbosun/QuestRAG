@@ -1,0 +1,136 @@
+{
+  "scope": "Isolated worker process, real DeepSeek and Chromium, same six synthetic employment fields; no frontend receipt or chat initiation timing. One baseline and two optimized runs, not a latency SLA.",
+  "runs": [
+    {
+      "run": "before",
+      "seconds": 35.38,
+      "model_calls": [
+        {
+          "seconds": 3.47,
+          "schema": "AgentOutput",
+          "actions": [
+            "input",
+            "input",
+            "input",
+            "input",
+            "input",
+            "select_dropdown"
+          ]
+        },
+        {
+          "seconds": 9.02,
+          "schema": "AgentOutput",
+          "actions": [
+            "done"
+          ]
+        },
+        {
+          "seconds": 5.82,
+          "schema": "JudgementResult",
+          "actions": []
+        }
+      ],
+      "fields_match": {
+        "phone": true,
+        "employment_type": true,
+        "employer_name": true,
+        "occupation": true,
+        "employment_start_date": true,
+        "current_address": true
+      },
+      "submission_attempts": 0,
+      "status": "completed"
+    },
+    {
+      "run": "after-1",
+      "seconds": 25.3,
+      "model_calls": [
+        {
+          "seconds": 2.22,
+          "schema": "AgentOutput",
+          "actions": [
+            "input",
+            "select_dropdown",
+            "input",
+            "input",
+            "input",
+            "input"
+          ]
+        },
+        {
+          "seconds": 1.69,
+          "schema": "AgentOutput",
+          "actions": [
+            "select_dropdown"
+          ]
+        },
+        {
+          "seconds": 1.48,
+          "schema": "AgentOutput",
+          "actions": [
+            "dropdown_options"
+          ]
+        },
+        {
+          "seconds": 1.64,
+          "schema": "AgentOutput",
+          "actions": [
+            "evaluate"
+          ]
+        },
+        {
+          "seconds": 2.05,
+          "schema": "AgentOutput",
+          "actions": [
+            "done"
+          ]
+        }
+      ],
+      "fields_match": {
+        "phone": true,
+        "employment_type": true,
+        "employer_name": true,
+        "occupation": true,
+        "employment_start_date": true,
+        "current_address": true
+      },
+      "submission_attempts": 0,
+      "status": "completed"
+    },
+    {
+      "run": "after-2",
+      "seconds": 19.07,
+      "model_calls": [
+        {
+          "seconds": 1.87,
+          "schema": "AgentOutput",
+          "actions": [
+            "input",
+            "select_dropdown",
+            "input",
+            "input",
+            "input",
+            "input"
+          ]
+        },
+        {
+          "seconds": 1.43,
+          "schema": "AgentOutput",
+          "actions": [
+            "done"
+          ]
+        }
+      ],
+      "fields_match": {
+        "phone": true,
+        "employment_type": true,
+        "employer_name": true,
+        "occupation": true,
+        "employment_start_date": true,
+        "current_address": true
+      },
+      "submission_attempts": 0,
+      "status": "completed"
+    }
+  ]
+}

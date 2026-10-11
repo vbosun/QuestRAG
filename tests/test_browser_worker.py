@@ -5,6 +5,18 @@ from fastapi import HTTPException
 from browser_use_worker import app as worker
 
 
+@pytest.mark.parametrize("presentation,path,expected", [
+    ("iframe", "/employment-registration/apply", True),
+    ("iframe", "/unemployment-registration/apply", True),
+    ("live", "/employment-registration/apply", False),
+    ("iframe", "/another-page", False),
+])
+def test_fast_profile_only_applies_to_known_embedded_forms(presentation, path, expected):
+    request = worker.TaskRequest(session_id="scope-test", task="test", presentation=presentation,
+                                 url="http://mock-business:8020" + path)
+    assert worker._is_fixed_form(request) is expected
+
+
 def test_worker_runs_one_browser_at_a_time_and_queued_task_can_be_cancelled(monkeypatch):
     async def scenario():
         monkeypatch.setattr(worker, "CAPACITY", asyncio.Semaphore(1))

@@ -234,8 +234,9 @@ async def _execute(task_id: str, req: TaskRequest) -> None:
 
 async def _run_agent(record: TaskRecord, req: TaskRequest) -> None:
     from browser_use import Agent, Browser, ChatOpenAI, Tools
+    fast_form = _is_fixed_form(req)
     options = {"headless": True, "keep_alive": True, "window_size": {"width": 1280, "height": 900},
-               "wait_between_actions": .8}
+               "wait_between_actions": .6 if fast_form else .8}
     if executable := os.environ.get("BROWSER_USE_CHROME_PATH"):
         options.update(executable_path=executable, chromium_sandbox=False)
     browser = Browser(**options)
@@ -284,15 +285,21 @@ async def _run_agent(record: TaskRecord, req: TaskRequest) -> None:
         if not force_structured and urlparse(base_url or "").hostname == "api.deepseek.com":
             from browser_use_worker.deepseek_llm import DeepSeekJSONChat
             llm_type = DeepSeekJSONChat
+        llm_options = {"disable_thinking": True} if fast_form and llm_type is not ChatOpenAI else {}
         llm = llm_type(
             model=os.environ.get("BROWSER_USE_MODEL") or os.environ.get("OPENAI_MODEL") or "gpt-4.1-mini",
             api_key=os.environ.get("BROWSER_USE_API_KEY") or os.environ.get("OPENAI_API_KEY"),
             base_url=base_url,
             dont_force_structured_output=not force_structured,
             add_schema_to_system_prompt=not force_structured,
+            **llm_options,
         )
         use_vision = os.environ.get("BROWSER_USE_USE_VISION", "true").lower() in {"1", "true", "yes"}
         planning_options = {"max_actions_per_step": 1}
+        if fast_form:
+            # Keep the action planner and its done step; skip only verbose reasoning
+            # and the post-completion LLM score. Real DOM readback remains required.
+            planning_options.update(use_thinking=False, use_judge=False)
         if record.presentation == "iframe":
             planning_options.update(
                 max_actions_per_step=12,
@@ -356,6 +363,12 @@ async def _run_agent(record: TaskRecord, req: TaskRequest) -> None:
     finally:
         if record.task_id not in BROWSERS:
             await live.close()
+
+
+def _is_fixed_form(req: TaskRequest) -> bool:
+    return req.presentation == "iframe" and urlparse(req.url).path in {
+        "/employment-registration/apply", "/unemployment-registration/apply",
+    }
 
 
 def _initial_actions(req: TaskRequest) -> list[dict]:

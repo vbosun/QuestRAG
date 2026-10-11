@@ -4,13 +4,17 @@ JSON object mode avoids unsupported JSON Schema requests and free-text/DSML
 output. Pydantic still validates the complete Browser Use action schema.
 """
 import json
+from dataclasses import dataclass
 
 from browser_use.llm.openai.chat import ChatOpenAI
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.llm.views import ChatInvokeCompletion
 
 
+@dataclass
 class DeepSeekJSONChat(ChatOpenAI):
+    disable_thinking: bool = False
+
     async def ainvoke(self, messages, output_format=None, **kwargs):
         if output_format is None:
             return await super().ainvoke(messages, output_format, **kwargs)
@@ -23,6 +27,7 @@ class DeepSeekJSONChat(ChatOpenAI):
             temperature=self.temperature,
             max_completion_tokens=self.max_completion_tokens,
             response_format={"type": "json_object"},
+            **({"extra_body": {"thinking": {"type": "disabled"}}} if self.disable_thinking else {}),
         )
         if not response.choices:
             raise ValueError("Model returned no completion choices")

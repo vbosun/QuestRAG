@@ -26,6 +26,8 @@ class FixedAgent:
     def __init__(self, *, browser, tools, initial_actions, **kwargs):
         self.browser, self.tools, self.initial_actions = browser, tools, initial_actions
         assert kwargs['max_actions_per_step'] == 12
+        assert kwargs['use_thinking'] is False and kwargs['use_judge'] is False
+        assert browser.browser_profile.wait_between_actions == .6
         assert '每个 action 只操作一个字段' in kwargs['extend_system_message']
         self.browser_session = browser
         self.browser_profile = browser.browser_profile
